@@ -1,0 +1,100 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: qbrix
+      POSTGRES_PASSWORD: qbrix
+      POSTGRES_DB: qbrix
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qbrix"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  proxy:
+    build:
+      context: .
+      dockerfile: svc/proxy/Dockerfile
+      args:
+        UV_INDEX_ENVELOPE_USERNAME: ${UV_INDEX_ENVELOPE_USERNAME}
+        UV_INDEX_ENVELOPE_PASSWORD: ${UV_INDEX_ENVELOPE_PASSWORD}
+    ports:
+      - "50050:50050"
+    environment:
+      PROXY_GRPC_HOST: "0.0.0.0"
+      PROXY_GRPC_PORT: "50050"
+      PROXY_POSTGRES_HOST: postgres
+      PROXY_POSTGRES_PORT: "5432"
+      PROXY_POSTGRES_USER: qbrix
+      PROXY_POSTGRES_PASSWORD: qbrix
+      PROXY_POSTGRES_DATABASE: qbrix
+      PROXY_REDIS_HOST: redis
+      PROXY_REDIS_PORT: "6379"
+      PROXY_MOTOR_HOST: motor
+      PROXY_MOTOR_PORT: "50051"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  motor:
+    build:
+      context: .
+      dockerfile: svc/motor/Dockerfile
+      args:
+        UV_INDEX_ENVELOPE_USERNAME: ${UV_INDEX_ENVELOPE_USERNAME}
+        UV_INDEX_ENVELOPE_PASSWORD: ${UV_INDEX_ENVELOPE_PASSWORD}
+    ports:
+      - "50051:50051"
+    environment:
+      MOTOR_GRPC_HOST: "0.0.0.0"
+      MOTOR_GRPC_PORT: "50051"
+      MOTOR_REDIS_HOST: redis
+      MOTOR_REDIS_PORT: "6379"
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      replicas: 1
+
+  cortex:
+    build:
+      context: .
+      dockerfile: svc/cortex/Dockerfile
+      args:
+        UV_INDEX_ENVELOPE_USERNAME: ${UV_INDEX_ENVELOPE_USERNAME}
+        UV_INDEX_ENVELOPE_PASSWORD: ${UV_INDEX_ENVELOPE_PASSWORD}
+    ports:
+      - "50052:50052"
+    environment:
+      CORTEX_GRPC_HOST: "0.0.0.0"
+      CORTEX_GRPC_PORT: "50052"
+      CORTEX_REDIS_HOST: redis
+      CORTEX_REDIS_PORT: "6379"
+      CORTEX_CONSUMER_NAME: "worker-0"
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      replicas: 1
+
+volumes:
+  postgres_data:
+  redis_data:

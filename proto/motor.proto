@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package qbrix.motor;
+
+import "common.proto";
+
+option python_package = "qbrix.proto.motor";
+
+// Motor service handles the hot path for arm selection
+service MotorService {
+  // Select an arm for the given experiment and context
+  rpc Select(SelectRequest) returns (SelectResponse);
+
+  // Health check
+  rpc Health(qbrix.common.HealthCheckRequest) returns (qbrix.common.HealthCheckResponse);
+}
+
+message SelectRequest {
+  string experiment_id = 1;
+  qbrix.common.Context context = 2;
+}
+
+message SelectResponse {
+  qbrix.common.Arm arm = 1;
+  string request_id = 2;  // For tracking/correlation
+  double score = 3;       // Optional: selection score/probability
+}

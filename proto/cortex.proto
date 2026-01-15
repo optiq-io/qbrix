@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package qbrix.cortex;
+
+import "common.proto";
+
+option python_package = "qbrix.proto.cortex";
+
+// Cortex service handles training (primarily via Redis Streams, gRPC for admin)
+service CortexService {
+  // Force flush pending training batch
+  rpc FlushBatch(FlushBatchRequest) returns (FlushBatchResponse);
+
+  // Get training stats
+  rpc GetStats(GetStatsRequest) returns (GetStatsResponse);
+
+  // Health check
+  rpc Health(qbrix.common.HealthCheckRequest) returns (qbrix.common.HealthCheckResponse);
+}
+
+// Feedback event (used in Redis Streams, not gRPC directly)
+message FeedbackEvent {
+  string experiment_id = 1;
+  string request_id = 2;     // Correlates with SelectResponse.request_id
+  int32 arm_index = 3;
+  double reward = 4;
+  qbrix.common.Context context = 5;
+  int64 timestamp_ms = 6;
+}
+
+message FlushBatchRequest {
+  string experiment_id = 1;  // Optional: flush specific experiment, empty = all
+}
+
+message FlushBatchResponse {
+  int32 events_processed = 1;
+}
+
+message GetStatsRequest {
+  string experiment_id = 1;  // Optional: specific experiment, empty = all
+}
+
+message ExperimentStats {
+  string experiment_id = 1;
+  int64 total_events = 2;
+  int64 pending_events = 3;
+  int64 last_train_timestamp_ms = 4;
+}
+
+message GetStatsResponse {
+  repeated ExperimentStats stats = 1;
+}

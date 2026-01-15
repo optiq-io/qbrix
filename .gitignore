@@ -2,13 +2,18 @@
 __pycache__/
 *.py[oc]
 build/
+.pdm-build/
 dist/
 wheels/
 *.egg-info
 
 # Virtual environments
 .venv
+.idea
 
 # Environment files
 .env
 .env.local
+
+# Claude
+.claude

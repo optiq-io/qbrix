@@ -1,0 +1,131 @@
+syntax = "proto3";
+
+package qbrix.proxy;
+
+import "common.proto";
+
+option python_package = "qbrix.proto.proxy";
+
+// Proxy service is the external gateway
+service ProxyService {
+  // Create a new pool
+  rpc CreatePool(CreatePoolRequest) returns (CreatePoolResponse);
+
+  // Get pool by ID
+  rpc GetPool(GetPoolRequest) returns (GetPoolResponse);
+
+  // Create a new experiment
+  rpc CreateExperiment(CreateExperimentRequest) returns (CreateExperimentResponse);
+
+  // Get experiment by ID
+  rpc GetExperiment(GetExperimentRequest) returns (GetExperimentResponse);
+
+  // Update experiment (enable/disable, change protocol params)
+  rpc UpdateExperiment(UpdateExperimentRequest) returns (UpdateExperimentResponse);
+
+  // Select an arm (routes to motor after feature gate checks)
+  rpc Select(SelectRequest) returns (SelectResponse);
+
+  // Submit feedback (publishes to Redis Streams for cortex)
+  rpc Feedback(FeedbackRequest) returns (FeedbackResponse);
+
+  // Health check
+  rpc Health(qbrix.common.HealthCheckRequest) returns (qbrix.common.HealthCheckResponse);
+}
+
+// Pool management
+message CreatePoolRequest {
+  string name = 1;
+  repeated qbrix.common.Arm arms = 2;
+}
+
+message CreatePoolResponse {
+  qbrix.common.Pool pool = 1;
+}
+
+message GetPoolRequest {
+  string pool_id = 1;
+}
+
+message GetPoolResponse {
+  qbrix.common.Pool pool = 1;
+}
+
+// Experiment management
+message CreateExperimentRequest {
+  string name = 1;
+  string pool_id = 2;
+  string protocol = 3;
+  map<string, string> protocol_params = 4;
+  bool enabled = 5;
+
+  // Feature gate config
+  FeatureGateConfig feature_gate = 6;
+}
+
+message FeatureGateConfig {
+  double rollout_percentage = 1;  // 0.0 - 1.0
+  ScheduleConfig schedule = 2;
+  string default_arm_id = 3;      // Arm to return when gated
+  repeated RuleConfig rules = 4;
+}
+
+message ScheduleConfig {
+  int64 start_timestamp_ms = 1;
+  int64 end_timestamp_ms = 2;
+}
+
+message RuleConfig {
+  string name = 1;
+  string condition = 2;  // Expression to evaluate against metadata
+  string arm_id = 3;     // Arm to return if rule matches
+}
+
+message CreateExperimentResponse {
+  qbrix.common.Experiment experiment = 1;
+}
+
+message GetExperimentRequest {
+  string experiment_id = 1;
+}
+
+message GetExperimentResponse {
+  qbrix.common.Experiment experiment = 1;
+  FeatureGateConfig feature_gate = 2;
+}
+
+message UpdateExperimentRequest {
+  string experiment_id = 1;
+  optional bool enabled = 2;
+  map<string, string> protocol_params = 3;
+  optional FeatureGateConfig feature_gate = 4;
+}
+
+message UpdateExperimentResponse {
+  qbrix.common.Experiment experiment = 1;
+}
+
+// Selection (external API)
+message SelectRequest {
+  string experiment_id = 1;
+  qbrix.common.Context context = 2;
+}
+
+message SelectResponse {
+  qbrix.common.Arm arm = 1;
+  string request_id = 2;
+  bool is_default = 3;  // True if returned by feature gate, not bandit
+}
+
+// Feedback
+message FeedbackRequest {
+  string experiment_id = 1;
+  string request_id = 2;
+  int32 arm_index = 3;
+  double reward = 4;
+  qbrix.common.Context context = 5;
+}
+
+message FeedbackResponse {
+  bool accepted = 1;
+}
