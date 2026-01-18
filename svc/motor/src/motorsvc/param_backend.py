@@ -28,3 +28,14 @@ class RedisParamBackend(BaseParamBackend):
             self._cache.set_params(experiment_id, params)
             return params
         return None
+
+    async def ensure_params(
+        self,
+        experiment_id: str,
+        protocol: type[BaseProtocol]
+    ) -> BaseParamState | None:
+        """ensure params are in local cache, fetching from redis if needed."""
+        params = self._cache.get_params(experiment_id)
+        if params is not None:
+            return params
+        return await self.update_cache(experiment_id, protocol)

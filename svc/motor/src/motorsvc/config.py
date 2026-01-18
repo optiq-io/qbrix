@@ -1,3 +1,6 @@
+import warnings
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,6 +19,14 @@ class MotorSettings(BaseSettings):
     param_cache_maxsize: int = 1000
     agent_cache_ttl: int = 300
     agent_cache_maxsize: int = 100
+
+    @model_validator(mode="after")
+    def validate_ttls(self):
+        if self.param_cache_ttl > self.agent_cache_ttl:
+            warnings.warn(
+                "param_cache_ttl > agent_cache_ttl may cause unnecessary redis lookups"
+            )
+        return self
 
     @property
     def redis_url(self) -> str:

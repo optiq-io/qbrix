@@ -38,10 +38,27 @@ class AgentFactory:
         return pool
 
     async def get_or_create(self, experiment_data: dict) -> Agent:
+        """
+        Get cached agent or create new one.
+
+        note: this method has an intentional race window between cache check
+        and cache set. concurrent requests may build duplicate agents. this is
+        acceptable because agents are stateless and param state lives in redis.
+        """
         experiment_id = experiment_data["id"]
 
         agent = self._cache.get_agent(experiment_id)
         if agent is not None:
+            params = await self._param_backend.ensure_params(
+                experiment_id,
+                agent.protocol
+            )
+            if params is None:
+                params = agent.protocol.init_params(
+                    num_arms=len(agent.pool),
+                    **agent.init_params
+                )
+                self._param_backend.set(experiment_id, params)
             return agent
 
         protocol_name = experiment_data["protocol"]
