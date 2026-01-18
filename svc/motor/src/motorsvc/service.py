@@ -1,8 +1,8 @@
 import uuid
-import numpy as np
 
 from qbrixcore.context import Context
 from qbrixstore.redis.client import RedisClient
+from qbrixstore.config import RedisSettings
 
 from motorsvc.cache import MotorCache
 from motorsvc.config import MotorSettings
@@ -19,7 +19,6 @@ class MotorService:
         self._agent_factory: AgentFactory | None = None
 
     async def start(self) -> None:
-        from qbrixstore.config import RedisSettings
         redis_settings = RedisSettings(
             host=self._settings.redis_host,
             port=self._settings.redis_port,
@@ -35,7 +34,13 @@ class MotorService:
         if self._redis:
             await self._redis.close()
 
-    async def select(self, experiment_id: str, context_id: str, context_vector: list[float], context_metadata: dict) -> dict:
+    async def select(
+        self,
+        experiment_id: str,
+        context_id: str,
+        context_vector: list[float],
+        context_metadata: dict
+    ) -> dict:
         experiment_data = await self._redis.get_experiment(experiment_id)
         if experiment_data is None:
             raise ValueError(f"Experiment not found: {experiment_id}")
@@ -44,7 +49,7 @@ class MotorService:
 
         context = Context(
             id=context_id,
-            vector=np.array(context_vector, dtype=np.float16) if context_vector else np.zeros(0, dtype=np.float16),
+            vector=context_vector or [],
             metadata=context_metadata or {}
         )
 
@@ -65,5 +70,5 @@ class MotorService:
         try:
             await self._redis.client.ping()
             return True
-        except Exception:
+        except Exception:  # noqa # todo: catch!
             return False

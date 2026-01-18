@@ -1,5 +1,6 @@
 from qbrixcore.param.backend import BaseParamBackend
 from qbrixcore.param.state import BaseParamState
+from qbrixcore.protoc.base import BaseProtocol
 from qbrixstore.redis.client import RedisClient
 
 from motorsvc.cache import MotorCache
@@ -11,16 +12,19 @@ class RedisParamBackend(BaseParamBackend):
         self._cache = cache
 
     def get(self, experiment_id: str) -> BaseParamState | None:
-        cached = self._cache.get_params(experiment_id)
-        if cached is not None:
-            return cached
-        return None
+        return self._cache.get_params(experiment_id)
 
     def set(self, experiment_id: str, params: BaseParamState) -> None:
         self._cache.set_params(experiment_id, params)
 
-    async def refresh_from_redis(self, experiment_id: str) -> dict | None:
-        params = await self._redis.get_params(experiment_id)
-        if params is not None:
+    async def update_cache(
+        self,
+        experiment_id: str,
+        protocol: type[BaseProtocol]
+    ) -> BaseParamState | None:
+        params_dict = await self._redis.get_params(experiment_id)
+        if params_dict is not None:
+            params = protocol.param_state_cls.model_validate(params_dict)
             self._cache.set_params(experiment_id, params)
-        return params
+            return params
+        return None

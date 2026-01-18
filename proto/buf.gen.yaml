@@ -6,3 +6,8 @@ plugins:
     out: ../lib/proto/src/qbrixproto
   - remote: buf.build/grpc/python
     out: ../lib/proto/src/qbrixproto
+  - local: protoc-gen-mypy
+    out: ../lib/proto/src/qbrixproto
+
+# Use `make proto` or `bin/generate-proto.sh` instead of `buf generate` directly.
+# It runs buf generate and fixes imports for package use.

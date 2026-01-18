@@ -3,30 +3,45 @@ from concurrent import futures
 
 import grpc
 
+from qbrixproto import common_pb2, cortex_pb2, cortex_pb2_grpc
+
 from cortexsvc.config import CortexSettings
 from cortexsvc.service import CortexService
 
 
-class CortexGRPCServicer:
+class CortexGRPCServicer(cortex_pb2_grpc.CortexServiceServicer):
     def __init__(self, service: CortexService):
         self._service = service
 
     async def FlushBatch(self, request, context):
         try:
             count = await self._service.flush_batch(request.experiment_id or None)
-            return {"events_processed": count}
+            return cortex_pb2.FlushBatchResponse(events_processed=count)
         except Exception as e:
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(str(e))
-            return None
+            return cortex_pb2.FlushBatchResponse(events_processed=0)
 
     async def GetStats(self, request, context):
-        stats = self._service.get_stats(request.experiment_id or None)
-        return {"stats": stats}
+        stats_list = self._service.get_stats(request.experiment_id or None)
+        return cortex_pb2.GetStatsResponse(
+            stats=[
+                cortex_pb2.ExperimentStats(
+                    experiment_id=s["experiment_id"],
+                    total_events=s.get("total", 0),
+                    pending_events=s.get("pending", 0),
+                    last_train_timestamp_ms=s.get("last_train", 0)
+                )
+                for s in stats_list
+            ]
+        )
 
     async def Health(self, request, context):
         healthy = await self._service.health()
-        return {"status": 1 if healthy else 2}
+        return common_pb2.HealthCheckResponse(
+            status=common_pb2.HealthCheckResponse.SERVING if healthy
+            else common_pb2.HealthCheckResponse.NOT_SERVING
+        )
 
 
 async def serve(settings: CortexSettings | None = None) -> None:
@@ -37,8 +52,7 @@ async def serve(settings: CortexSettings | None = None) -> None:
     await service.start()
 
     server = grpc.aio.server(futures.ThreadPoolExecutor(max_workers=10))
-    # TODO: Add servicer once proto stubs are generated
-    # cortex_pb2_grpc.add_CortexServiceServicer_to_server(CortexGRPCServicer(service), server)
+    cortex_pb2_grpc.add_CortexServiceServicer_to_server(CortexGRPCServicer(service), server)
 
     listen_addr = f"{settings.grpc_host}:{settings.grpc_port}"
     server.add_insecure_port(listen_addr)

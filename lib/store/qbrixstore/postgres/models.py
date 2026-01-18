@@ -13,8 +13,8 @@ class Pool(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid4().hex)
     name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     arms: Mapped[list["Arm"]] = relationship("Arm", back_populates="pool", cascade="all, delete-orphan")
     experiments: Mapped[list["Experiment"]] = relationship("Experiment", back_populates="pool")
@@ -29,7 +29,7 @@ class Arm(Base):
     index: Mapped[int] = mapped_column(Integer, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     metadata_: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     pool: Mapped["Pool"] = relationship("Pool", back_populates="arms")
 
@@ -43,8 +43,8 @@ class Experiment(Base):
     protocol: Mapped[str] = mapped_column(String(64), nullable=False)
     protocol_params: Mapped[dict] = mapped_column(JSON, default=dict)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     pool: Mapped["Pool"] = relationship("Pool", back_populates="experiments")
     feature_gate: Mapped["FeatureGate"] = relationship("FeatureGate", back_populates="experiment", uselist=False, cascade="all, delete-orphan")
@@ -57,10 +57,10 @@ class FeatureGate(Base):
     experiment_id: Mapped[str] = mapped_column(String(32), ForeignKey("experiments.id"), nullable=False, unique=True)
     rollout_percentage: Mapped[float] = mapped_column(Float, default=1.0)
     default_arm_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("arms.id"), nullable=True)
-    schedule_start: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    schedule_end: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    schedule_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    schedule_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     rules: Mapped[list] = mapped_column(JSON, default=list)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     experiment: Mapped["Experiment"] = relationship("Experiment", back_populates="feature_gate")

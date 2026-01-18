@@ -5,12 +5,13 @@ description = ""
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "click>=8.2.1",
-    "pydantic==2.12.3",
-    "pydantic-settings>=2.10.1",
-    "grpcio>=1.60.0",
-    "grpcio-tools>=1.60.0",
+    "click>=8.3.1",
+    "grpcio>=1.76.0",
+    "grpcio-tools>=1.76.0",
+    "pydantic>=2.12.3",
+    "pydantic-settings>=2.12.0",
     "qbrixstore==0.1.0a0",
+    "qbrixproto==0.1.0a0"
 ]
 
 [dependency-groups]
@@ -26,7 +27,8 @@ dev = [
 prerelease = "if-necessary-or-explicit"
 
 [tool.uv.sources]
-qbrixstore = { index = "envelope" }
+qbrixstore = { path = "../../lib/store", editable = true }
+qbrixproto = { path = "../../lib/proto", editable = true }
 
 [[tool.uv.index]]
 name = "envelope"

@@ -2,9 +2,6 @@ syntax = "proto3";
 
 package qbrix.common;
 
-option python_package = "qbrix.proto.common";
-
-// Context for contextual bandits
 message Context {
   string id = 1;
   repeated float vector = 2;

@@ -32,6 +32,14 @@ class PoolRepository:
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def delete(self, pool_id: str) -> bool:
+        pool = await self.get(pool_id)
+        if pool is None:
+            return False
+        await self._session.delete(pool)
+        await self._session.flush()
+        return True
+
 
 class ExperimentRepository:
     def __init__(self, session: AsyncSession):
@@ -103,3 +111,11 @@ class ExperimentRepository:
 
         await self._session.flush()
         return experiment
+
+    async def delete(self, experiment_id: str) -> bool:
+        experiment = await self.get(experiment_id)
+        if experiment is None:
+            return False
+        await self._session.delete(experiment)
+        await self._session.flush()
+        return True

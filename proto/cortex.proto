@@ -4,9 +4,6 @@ package qbrix.cortex;
 
 import "common.proto";
 
-option python_package = "qbrix.proto.cortex";
-
-// Cortex service handles training (primarily via Redis Streams, gRPC for admin)
 service CortexService {
   // Force flush pending training batch
   rpc FlushBatch(FlushBatchRequest) returns (FlushBatchResponse);

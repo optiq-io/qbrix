@@ -2,7 +2,7 @@ import asyncio
 from collections import defaultdict
 
 from qbrixstore.redis.client import RedisClient
-from qbrixstore.redis.streams import RedisStreamConsumer, FeedbackEvent
+from qbrixstore.redis.streams import RedisStreamConsumer
 from qbrixstore.config import RedisSettings
 
 from cortexsvc.config import CortexSettings
@@ -66,11 +66,12 @@ class CortexService:
 
                 await self._consumer.ack(message_ids)
 
-            except Exception as e:
+            except Exception as e:  # noqa
                 print(f"Error processing batch: {e}")
                 await asyncio.sleep(1)
 
-    async def flush_batch(self, experiment_id: str | None = None) -> int:
+    @staticmethod
+    async def flush_batch(experiment_id: str | None = None) -> int:
         return 0
 
     def get_stats(self, experiment_id: str | None = None) -> list[dict]:
@@ -85,5 +86,5 @@ class CortexService:
         try:
             await self._redis.client.ping()
             return True
-        except Exception:
+        except Exception:  # noqa
             return False

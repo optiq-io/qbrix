@@ -1,13 +1,14 @@
-import asyncio
 from concurrent import futures
 
 import grpc
+
+from qbrixproto import common_pb2, motor_pb2, motor_pb2_grpc
 
 from motorsvc.config import MotorSettings
 from motorsvc.service import MotorService
 
 
-class MotorGRPCServicer:
+class MotorGRPCServicer(motor_pb2_grpc.MotorServiceServicer):
     def __init__(self, service: MotorService):
         self._service = service
 
@@ -19,21 +20,30 @@ class MotorGRPCServicer:
                 context_vector=list(request.context.vector),
                 context_metadata=dict(request.context.metadata)
             )
-            # TODO: Return proper proto response once generated
-            return result
+            return motor_pb2.SelectResponse(
+                arm=common_pb2.Arm(
+                    id=result["arm"]["id"],
+                    name=result["arm"]["name"],
+                    index=result["arm"]["index"]
+                ),
+                request_id=result["request_id"],
+                score=result.get("score", 0.0)
+            )
         except ValueError as e:
             context.set_code(grpc.StatusCode.NOT_FOUND)
             context.set_details(str(e))
-            return None
+            return motor_pb2.SelectResponse()
         except Exception as e:
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(str(e))
-            return None
+            return motor_pb2.SelectResponse()
 
     async def Health(self, request, context):
         healthy = await self._service.health()
-        # TODO: Return proper proto response once generated
-        return {"status": 1 if healthy else 2}
+        return common_pb2.HealthCheckResponse(
+            status=common_pb2.HealthCheckResponse.SERVING if healthy
+            else common_pb2.HealthCheckResponse.NOT_SERVING
+        )
 
 
 async def serve(settings: MotorSettings | None = None) -> None:
@@ -44,8 +54,7 @@ async def serve(settings: MotorSettings | None = None) -> None:
     await service.start()
 
     server = grpc.aio.server(futures.ThreadPoolExecutor(max_workers=10))
-    # TODO: Add servicer once proto stubs are generated
-    # motor_pb2_grpc.add_MotorServiceServicer_to_server(MotorGRPCServicer(service), server)
+    motor_pb2_grpc.add_MotorServiceServicer_to_server(MotorGRPCServicer(service), server)
 
     listen_addr = f"{settings.grpc_host}:{settings.grpc_port}"
     server.add_insecure_port(listen_addr)

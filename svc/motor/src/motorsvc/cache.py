@@ -1,5 +1,7 @@
 from cachebox import TTLCache
 
+from qbrixcore.param.state import BaseParamState
+
 from motorsvc.config import MotorSettings
 
 
@@ -15,10 +17,10 @@ class MotorCache:
             ttl=settings.agent_cache_ttl
         )
 
-    def get_params(self, experiment_id: str) -> dict | None:
+    def get_params(self, experiment_id: str) -> BaseParamState | None:
         return self._params.get(experiment_id)
 
-    def set_params(self, experiment_id: str, params: dict) -> None:
+    def set_params(self, experiment_id: str, params: BaseParamState) -> None:
         self._params[experiment_id] = params
 
     def get_agent(self, experiment_id: str):

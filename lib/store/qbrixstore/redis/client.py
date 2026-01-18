@@ -13,6 +13,10 @@ class RedisClient:
         self._client: redis.Redis | None = None
 
     async def connect(self) -> None:
+        # Attention: Uses a single async connection, not a connection pool.
+        # This is sufficient because: (1) async I/O multiplexes concurrent requests,
+        # (2) motorsvc uses local TTL caching to reduce Redis calls on hot path,
+        # (3) services scale horizontally. Consider ConnectionPool if contention occurs.
         self._client = redis.from_url(self._settings.url, decode_responses=True)
 
     async def close(self) -> None:

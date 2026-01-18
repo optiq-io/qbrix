@@ -1,6 +1,6 @@
 from qbrixcore.pool import Pool, Arm
 from qbrixcore.agent import Agent
-from qbrixcore.protoc.base import BaseProtocol
+from qbrixcore.protoc import BaseProtocol
 
 from motorsvc.cache import MotorCache
 from motorsvc.param_backend import RedisParamBackend
@@ -25,7 +25,8 @@ class AgentFactory:
         self._cache = cache
         self._param_backend = param_backend
 
-    def _build_pool(self, pool_data: dict) -> Pool:
+    @staticmethod
+    def _build_pool(pool_data: dict) -> Pool:
         pool = Pool(name=pool_data["name"], id=pool_data["id"])
         for arm_data in pool_data["arms"]:
             arm = Arm(
@@ -47,6 +48,9 @@ class AgentFactory:
         protocol_cls = PROTOCOL_MAP.get(protocol_name)
         if protocol_cls is None:
             raise ValueError(f"Unknown protocol: {protocol_name}. Available: {list(PROTOCOL_MAP.keys())}")
+
+        if self._param_backend.get(experiment_id) is None:
+            await self._param_backend.update_cache(experiment_id, protocol_cls)
 
         pool = self._build_pool(experiment_data["pool"])
 

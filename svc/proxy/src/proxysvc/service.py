@@ -1,5 +1,6 @@
 import time
 
+
 from qbrixstore.postgres.session import init_db, get_session, create_tables
 from qbrixstore.postgres.models import Pool, Experiment
 from qbrixstore.redis.client import RedisClient
@@ -66,6 +67,12 @@ class ProxyService:
             if pool is None:
                 return None
             return self._pool_to_dict(pool)
+    
+    @staticmethod
+    async def delete_pool(pool_id: str) -> bool:
+        async with get_session() as session:
+            repo = PoolRepository(session)
+            return await repo.delete(pool_id)
 
     async def create_experiment(
         self,
@@ -87,8 +94,9 @@ class ProxyService:
                 feature_gate_config=feature_gate_config
             )
             exp_dict = self._experiment_to_dict(experiment)
-            await self._sync_experiment_to_redis(exp_dict)
-            return exp_dict
+            experiment_id = experiment.id
+        await self._sync_experiment_to_redis(experiment_id, pool_id)
+        return exp_dict
 
     async def get_experiment(self, experiment_id: str) -> dict | None:
         async with get_session() as session:
@@ -105,8 +113,17 @@ class ProxyService:
             if experiment is None:
                 return None
             exp_dict = self._experiment_to_dict(experiment)
-            await self._sync_experiment_to_redis(exp_dict)
-            return exp_dict
+            pool_id = experiment.pool_id
+        await self._sync_experiment_to_redis(experiment_id, pool_id)
+        return exp_dict
+
+    async def delete_experiment(self, experiment_id: str) -> bool:
+        async with get_session() as session:
+            repo = ExperimentRepository(session)
+            deleted = await repo.delete(experiment_id)
+        if deleted:
+            await self._redis.delete_experiment(experiment_id)
+        return deleted
 
     async def select(
         self,
@@ -123,7 +140,7 @@ class ProxyService:
             context_metadata=context_metadata
         )
 
-    async def feedback(
+    async def feed(
         self,
         experiment_id: str,
         request_id: str,
@@ -146,17 +163,34 @@ class ProxyService:
         await self._publisher.publish(event)
         return True
 
-    async def _sync_experiment_to_redis(self, experiment: dict) -> None:
-        await self._redis.set_experiment(experiment["id"], experiment)
+    async def _sync_experiment_to_redis(self, experiment_id: str, pool_id: str) -> None:
+        """Sync experiment with full pool data to Redis for motorsvc."""
+        async with get_session() as session:
+            pool_repo = PoolRepository(session)
+            pool = await pool_repo.get(pool_id)
+            experiment_repo = ExperimentRepository(session)
+            experiment = await experiment_repo.get(experiment_id)
+
+            redis_data = {
+                "id": experiment.id,
+                "name": experiment.name,
+                "pool_id": experiment.pool_id,
+                "pool": self._pool_to_dict(pool),
+                "protocol": experiment.protocol,
+                "protocol_params": experiment.protocol_params,
+                "enabled": experiment.enabled
+            }
+            await self._redis.set_experiment(experiment_id, redis_data)
 
     async def health(self) -> bool:
         try:
             await self._redis.client.ping()
             return True
-        except Exception:
+        except Exception:  # noqa
             return False
 
-    def _pool_to_dict(self, pool: Pool) -> dict:
+    @staticmethod
+    def _pool_to_dict(pool: Pool) -> dict:
         return {
             "id": pool.id,
             "name": pool.name,
@@ -166,12 +200,12 @@ class ProxyService:
             ]
         }
 
-    def _experiment_to_dict(self, experiment: Experiment) -> dict:
+    @staticmethod
+    def _experiment_to_dict(experiment: Experiment) -> dict:
         return {
             "id": experiment.id,
             "name": experiment.name,
             "pool_id": experiment.pool_id,
-            "pool": self._pool_to_dict(experiment.pool) if experiment.pool else None,
             "protocol": experiment.protocol,
             "protocol_params": experiment.protocol_params,
             "enabled": experiment.enabled

@@ -4,32 +4,18 @@ package qbrix.proxy;
 
 import "common.proto";
 
-option python_package = "qbrix.proto.proxy";
-
-// Proxy service is the external gateway
 service ProxyService {
-  // Create a new pool
   rpc CreatePool(CreatePoolRequest) returns (CreatePoolResponse);
-
-  // Get pool by ID
   rpc GetPool(GetPoolRequest) returns (GetPoolResponse);
+  rpc DeletePool(DeletePoolRequest) returns (DeletePoolResponse);
 
-  // Create a new experiment
   rpc CreateExperiment(CreateExperimentRequest) returns (CreateExperimentResponse);
-
-  // Get experiment by ID
   rpc GetExperiment(GetExperimentRequest) returns (GetExperimentResponse);
-
-  // Update experiment (enable/disable, change protocol params)
   rpc UpdateExperiment(UpdateExperimentRequest) returns (UpdateExperimentResponse);
+  rpc DeleteExperiment(DeleteExperimentRequest) returns (DeleteExperimentResponse);
 
-  // Select an arm (routes to motor after feature gate checks)
   rpc Select(SelectRequest) returns (SelectResponse);
-
-  // Submit feedback (publishes to Redis Streams for cortex)
   rpc Feedback(FeedbackRequest) returns (FeedbackResponse);
-
-  // Health check
   rpc Health(qbrix.common.HealthCheckRequest) returns (qbrix.common.HealthCheckResponse);
 }
 
@@ -49,6 +35,14 @@ message GetPoolRequest {
 
 message GetPoolResponse {
   qbrix.common.Pool pool = 1;
+}
+
+message DeletePoolRequest {
+  string pool_id = 1;
+}
+
+message DeletePoolResponse {
+  bool deleted = 1;
 }
 
 // Experiment management
@@ -103,6 +97,14 @@ message UpdateExperimentRequest {
 
 message UpdateExperimentResponse {
   qbrix.common.Experiment experiment = 1;
+}
+
+message DeleteExperimentRequest {
+  string experiment_id = 1;
+}
+
+message DeleteExperimentResponse {
+  bool deleted = 1;
 }
 
 // Selection (external API)

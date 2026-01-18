@@ -19,6 +19,7 @@ motorsvc = { workspace = true}
 cortexsvc = { workspace = true}
 qbrixcore = {index = "envelope"}
 qbrixstore = {index = "envelope"}
+qbrixproto = {index = "envelope"}
 
 [[tool.uv.index]]
 name = "envelope"
@@ -32,6 +33,7 @@ dev = [
     "pre-commit>=4.0.1",
     "black>=24.0.0",
     "pytest-mock>=3.14.1",
+    "mypy-protobuf>=5.0.0",
 ]
 
 [tool.pytest.ini_options]
