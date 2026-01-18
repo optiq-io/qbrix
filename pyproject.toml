@@ -17,9 +17,9 @@ members = ["svc/*"]
 proxysvc = { workspace = true}
 motorsvc = { workspace = true}
 cortexsvc = { workspace = true}
-qbrixcore = {index = "envelope"}
-qbrixstore = {index = "envelope"}
-qbrixproto = {index = "envelope"}
+qbrixcore = { path = "../../lib/core", editable = true }
+qbrixstore = { path = "../../lib/store", editable = true }
+qbrixproto = { path = "../../lib/proto", editable = true }
 
 [[tool.uv.index]]
 name = "envelope"
