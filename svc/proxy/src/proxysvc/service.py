@@ -1,6 +1,5 @@
 import time
 
-
 from qbrixstore.postgres.session import init_db, get_session, create_tables
 from qbrixstore.postgres.models import Pool, Experiment
 from qbrixstore.redis.client import RedisClient
@@ -10,6 +9,7 @@ from qbrixstore.config import PostgresSettings, RedisSettings
 from proxysvc.config import ProxySettings
 from proxysvc.repository import PoolRepository, ExperimentRepository
 from proxysvc.motor_client import MotorClient
+from proxysvc.token import SelectionToken
 
 
 class ProxyService:
@@ -132,32 +132,53 @@ class ProxyService:
         context_vector: list[float],
         context_metadata: dict
     ) -> dict:
-        # TODO: Add feature gate check here
-        return await self._motor_client.select(
+        # TODO: add feature gate check here
+        response = await self._motor_client.select(
             experiment_id=experiment_id,
             context_id=context_id,
             context_vector=context_vector,
             context_metadata=context_metadata
         )
 
-    async def feed(
-        self,
-        experiment_id: str,
-        request_id: str,
-        arm_index: int,
-        reward: float,
-        context_id: str,
-        context_vector: list[float],
-        context_metadata: dict
-    ) -> bool:
-        event = FeedbackEvent(
+        token = SelectionToken.encode(
+            secret=self._settings.token_secret_bytes,
             experiment_id=experiment_id,
-            request_id=request_id,
-            arm_index=arm_index,
-            reward=reward,
+            arm_index=response["arm"]["index"],
             context_id=context_id,
             context_vector=context_vector,
             context_metadata=context_metadata,
+        )
+        response["request_id"] = token
+        return response
+
+    async def feed(self, request_id: str, reward: float) -> bool:
+        """
+        process feedback for a prior selection.
+
+        args:
+            request_id: signed token from select() containing selection context
+            reward: observed reward value
+
+        returns:
+            True if feedback was accepted
+
+        raises:
+            TokenError: if token is invalid or expired
+        """
+        selection = SelectionToken.decode(
+            secret=self._settings.token_secret_bytes,
+            token=request_id,
+            max_age_ms=self._settings.token_max_age_ms,
+        )
+
+        event = FeedbackEvent(
+            experiment_id=selection.experiment_id,
+            request_id=request_id,
+            arm_index=selection.arm_index,
+            reward=reward,
+            context_id=selection.context_id,
+            context_vector=selection.context_vector,
+            context_metadata=selection.context_metadata,
             timestamp_ms=int(time.time() * 1000)
         )
         await self._publisher.publish(event)

@@ -3,7 +3,7 @@ from qbrixcore.agent import Agent
 from qbrixcore.protoc import BaseProtocol
 
 from motorsvc.cache import MotorCache
-from motorsvc.param_backend import RedisParamBackend
+from motorsvc.param_backend import RedisBackedInMemoryParamBackend
 
 
 def _build_protocol_map() -> dict[str, type[BaseProtocol]]:
@@ -21,7 +21,7 @@ PROTOCOL_MAP = _build_protocol_map()
 
 
 class AgentFactory:
-    def __init__(self, cache: MotorCache, param_backend: RedisParamBackend):
+    def __init__(self, cache: MotorCache, param_backend: RedisBackedInMemoryParamBackend):
         self._cache = cache
         self._param_backend = param_backend
 
@@ -49,10 +49,11 @@ class AgentFactory:
 
         agent = self._cache.get_agent(experiment_id)
         if agent is not None:
-            params = await self._param_backend.ensure_params(
-                experiment_id,
-                agent.protocol
-            )
+            if (params := self._param_backend.get(experiment_id)) is None:
+                params = await self._param_backend.update_params(
+                    experiment_id,
+                    agent.protocol
+                )
             if params is None:
                 params = agent.protocol.init_params(
                     num_arms=len(agent.pool),
@@ -78,7 +79,7 @@ class AgentFactory:
         # todo: we need to ensure parameters here anyway, just in case it's a new instance.
 
         if self._param_backend.get(experiment_id) is None:
-            await self._param_backend.update_cache(experiment_id, protocol_cls)
+            await self._param_backend.update_params(experiment_id, protocol_cls)
 
         pool = self._build_pool(experiment_data["pool"])
 

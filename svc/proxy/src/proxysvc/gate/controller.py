@@ -1,6 +1,7 @@
 from enum import Flag, auto
 from pydantic import BaseModel
-from optiqgate.config import FeatureGateConfig, Rule, BaseArmModel
+
+from .config import FeatureGateConfig, Rule, BaseArmModel
 
 
 class ExperimentFlagState(Flag):
@@ -30,7 +31,7 @@ class ExperimentFlagState(Flag):
 
 
 class FeatureGate:
-    """Feature gate controller for experiment-based decision making.
+    """Feature gate controller for experiment-based decision-making.
 
     Attributes
     ----------

@@ -23,6 +23,9 @@ class ProxySettings(BaseSettings):
 
     stream_name: str = "qbrix:feedback"
 
+    token_secret: str = "change-me-in-production"  # need to come from secrets.
+    token_max_age_ms: int | None = None
+
     @property
     def postgres_dsn(self) -> str:
         return f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_database}"
@@ -35,3 +38,7 @@ class ProxySettings(BaseSettings):
     @property
     def motor_address(self) -> str:
         return f"{self.motor_host}:{self.motor_port}"
+
+    @property
+    def token_secret_bytes(self) -> bytes:
+        return self.token_secret.encode()

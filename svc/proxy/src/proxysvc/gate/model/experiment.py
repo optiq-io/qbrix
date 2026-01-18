@@ -4,8 +4,8 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field
 
-from optiqgate.model.base import BaseConfig
-from optiqgate.model.base import ArmConfig
+from .base import BaseConfig
+from .base import ArmConfig
 
 
 class RolloutConfig(BaseModel):

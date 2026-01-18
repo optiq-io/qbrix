@@ -108,27 +108,10 @@ class ProxyClient:
             is_default=response.is_default,
         )
 
-    def feedback(
-        self,
-        experiment_id: str,
-        request_id: str,
-        arm_index: int,
-        reward: float,
-        context_id: str | None = None,
-        context_vector: list[float] | None = None,
-        context_metadata: dict[str, str] | None = None,
-    ) -> bool:
-        context = common_pb2.Context(
-            id=context_id or str(uuid.uuid4()),
-            vector=context_vector or [],
-            metadata=context_metadata or {},
-        )
+    def feedback(self, request_id: str, reward: float) -> bool:
         request = proxy_pb2.FeedbackRequest(
-            experiment_id=experiment_id,
             request_id=request_id,
-            arm_index=arm_index,
             reward=reward,
-            context=context,
         )
         response = self.stub.Feedback(request)
         return response.accepted

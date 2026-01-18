@@ -6,7 +6,7 @@ from qbrixstore.redis.client import RedisClient
 from motorsvc.cache import MotorCache
 
 
-class RedisParamBackend(BaseParamBackend):
+class RedisBackedInMemoryParamBackend(BaseParamBackend):
     def __init__(self, redis_client: RedisClient, cache: MotorCache):
         self._redis = redis_client
         self._cache = cache
@@ -17,7 +17,7 @@ class RedisParamBackend(BaseParamBackend):
     def set(self, experiment_id: str, params: BaseParamState) -> None:
         self._cache.set_params(experiment_id, params)
 
-    async def update_cache(
+    async def update_params(
         self,
         experiment_id: str,
         protocol: type[BaseProtocol]
@@ -28,14 +28,3 @@ class RedisParamBackend(BaseParamBackend):
             self._cache.set_params(experiment_id, params)
             return params
         return None
-
-    async def ensure_params(
-        self,
-        experiment_id: str,
-        protocol: type[BaseProtocol]
-    ) -> BaseParamState | None:
-        """ensure params are in local cache, fetching from redis if needed."""
-        params = self._cache.get_params(experiment_id)
-        if params is not None:
-            return params
-        return await self.update_cache(experiment_id, protocol)

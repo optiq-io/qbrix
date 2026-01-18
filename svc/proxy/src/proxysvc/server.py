@@ -6,6 +6,7 @@ from qbrixproto import common_pb2, proxy_pb2, proxy_pb2_grpc
 
 from proxysvc.config import ProxySettings
 from proxysvc.service import ProxyService
+from proxysvc.token import TokenError, TokenExpiredError, TokenInvalidError
 
 
 class ProxyGRPCServicer(proxy_pb2_grpc.ProxyServiceServicer):
@@ -136,17 +137,29 @@ class ProxyGRPCServicer(proxy_pb2_grpc.ProxyServiceServicer):
             return proxy_pb2.SelectResponse()
 
     async def Feedback(self, request, context):
+        if not request.request_id:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details("request_id is required")
+            return proxy_pb2.FeedbackResponse(accepted=False)
+
         try:
             accepted = await self._service.feed(
-                experiment_id=request.experiment_id,
                 request_id=request.request_id,
-                arm_index=request.arm_index,
                 reward=request.reward,
-                context_id=request.context.id,
-                context_vector=list(request.context.vector),
-                context_metadata=dict(request.context.metadata)
             )
             return proxy_pb2.FeedbackResponse(accepted=accepted)
+        except TokenExpiredError as e:
+            context.set_code(grpc.StatusCode.DEADLINE_EXCEEDED)
+            context.set_details(str(e))
+            return proxy_pb2.FeedbackResponse(accepted=False)
+        except TokenInvalidError as e:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details(str(e))
+            return proxy_pb2.FeedbackResponse(accepted=False)
+        except TokenError as e:
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details(str(e))
+            return proxy_pb2.FeedbackResponse(accepted=False)
         except Exception as e:
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(str(e))

@@ -476,29 +476,18 @@ class FeedbackRequest(_message.Message):
 
     DESCRIPTOR: _descriptor.Descriptor
 
-    EXPERIMENT_ID_FIELD_NUMBER: _builtins.int
     REQUEST_ID_FIELD_NUMBER: _builtins.int
-    ARM_INDEX_FIELD_NUMBER: _builtins.int
     REWARD_FIELD_NUMBER: _builtins.int
-    CONTEXT_FIELD_NUMBER: _builtins.int
-    experiment_id: _builtins.str
     request_id: _builtins.str
-    arm_index: _builtins.int
+    """signed token from SelectResponse containing all selection context"""
     reward: _builtins.float
-    @_builtins.property
-    def context(self) -> _common_pb2.Context: ...
     def __init__(
         self,
         *,
-        experiment_id: _builtins.str = ...,
         request_id: _builtins.str = ...,
-        arm_index: _builtins.int = ...,
         reward: _builtins.float = ...,
-        context: _common_pb2.Context | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["context", b"context"]  # noqa: Y015
-    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["arm_index", b"arm_index", "context", b"context", "experiment_id", b"experiment_id", "request_id", b"request_id", "reward", b"reward"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["request_id", b"request_id", "reward", b"reward"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
 
 Global___FeedbackRequest: _TypeAlias = FeedbackRequest  # noqa: Y015

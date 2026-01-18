@@ -1,7 +1,7 @@
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
-from optiqgate.model.base import ArmConfig
+from .base import ArmConfig
 
 OperatorType = Literal[
     "equals", "==", "eq",

@@ -20,10 +20,7 @@ from tests.loadtest.config import settings
 
 @dataclass
 class PendingFeedback:
-    experiment_id: str
     request_id: str
-    arm_index: int
-    context_id: str
 
 
 @dataclass
@@ -122,12 +119,7 @@ class MultiExperimentUser(User):
 
             # probabilistically queue feedback
             if random.random() < settings.feedback_probability:
-                pending = PendingFeedback(
-                    experiment_id=self.assigned_experiment.experiment_id,
-                    request_id=result.request_id,
-                    arm_index=result.arm_index,
-                    context_id=context_id,
-                )
+                pending = PendingFeedback(request_id=result.request_id)
                 self.pending_feedbacks.append(pending)
 
                 delay_ms = random.randint(
@@ -181,11 +173,8 @@ class MultiExperimentUser(User):
 
         try:
             self.client.feedback(
-                experiment_id=pending.experiment_id,
                 request_id=pending.request_id,
-                arm_index=pending.arm_index,
                 reward=reward,
-                context_id=pending.context_id,
             )
             events.request.fire(
                 request_type="grpc",

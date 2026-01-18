@@ -6,7 +6,7 @@ from qbrixstore.config import RedisSettings
 
 from motorsvc.cache import MotorCache
 from motorsvc.config import MotorSettings
-from motorsvc.param_backend import RedisParamBackend
+from motorsvc.param_backend import RedisBackedInMemoryParamBackend
 from motorsvc.agent_factory import AgentFactory
 
 
@@ -15,7 +15,7 @@ class MotorService:
         self._settings = settings
         self._cache = MotorCache(settings)
         self._redis: RedisClient | None = None
-        self._param_backend: RedisParamBackend | None = None
+        self._param_backend: RedisBackedInMemoryParamBackend | None = None
         self._agent_factory: AgentFactory | None = None
 
     async def start(self) -> None:
@@ -27,7 +27,7 @@ class MotorService:
         )
         self._redis = RedisClient(redis_settings)
         await self._redis.connect()
-        self._param_backend = RedisParamBackend(self._redis, self._cache)
+        self._param_backend = RedisBackedInMemoryParamBackend(self._redis, self._cache)
         self._agent_factory = AgentFactory(self._cache, self._param_backend)
 
     async def stop(self) -> None:
