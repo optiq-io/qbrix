@@ -70,5 +70,5 @@ class MotorService:
         try:
             await self._redis.client.ping()
             return True
-        except Exception:  # noqa # todo: catch!
+        except Exception:  # noqa
             return False

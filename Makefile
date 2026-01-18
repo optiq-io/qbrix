@@ -2,7 +2,8 @@
         infra infra-down \
         dev dev-proxy dev-motor dev-cortex \
         docker docker-build docker-build-no-cache docker-up docker-down docker-logs docker-ps \
-        db-reset
+        db-reset \
+        loadtest loadtest-web loadtest-multi loadtest-multi-web
 
 help:
 	@echo "Qbrix Development Commands"
@@ -32,6 +33,12 @@ help:
 	@echo "  make test                 Run all tests"
 	@echo "  make lint                 Run linters"
 	@echo "  make fmt                  Format code"
+	@echo ""
+	@echo "Load Testing:"
+	@echo "  make loadtest             Run single experiment load test (headless, 60s)"
+	@echo "  make loadtest-web         Run single experiment load test (web UI)"
+	@echo "  make loadtest-multi       Run multi-experiment load test (headless, 60s)"
+	@echo "  make loadtest-multi-web   Run multi-experiment load test (web UI)"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  make db-reset             Reset postgres database"
@@ -64,24 +71,24 @@ dev: infra
 	@echo "Starting all services..."
 	@trap 'kill 0' EXIT; \
 	PROXY_POSTGRES_HOST=localhost PROXY_REDIS_HOST=localhost PROXY_MOTOR_HOST=localhost \
-	uv run python -m proxysvc & \
+	uv run --package proxysvc server & \
 	MOTOR_REDIS_HOST=localhost \
-	uv run python -m motorsvc & \
+	uv run --package motorsvc server & \
 	CORTEX_REDIS_HOST=localhost \
-	uv run python -m cortexsvc & \
+	uv run --package cortexsvc server & \
 	wait
 
 dev-proxy:
 	PROXY_POSTGRES_HOST=localhost PROXY_REDIS_HOST=localhost PROXY_MOTOR_HOST=localhost \
-	uv run python -m proxysvc
+	uv run --package proxysvc server
 
 dev-motor:
 	MOTOR_REDIS_HOST=localhost \
-	uv run python -m motorsvc
+	uv run --package motorsvc server
 
 dev-cortex:
 	CORTEX_REDIS_HOST=localhost \
-	uv run python -m cortexsvc
+	uv run --package cortexsvc server
 
 # ============================================================================
 # Docker Compose (full containerized setup)
@@ -130,3 +137,19 @@ clean:
 	find . -type d -name "*.egg-info" -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true
 	rm -rf .coverage htmlcov/ dist/ build/
+
+# ============================================================================
+# Load Testing
+# ============================================================================
+
+loadtest:
+	uv run loadtest -s single -u 10 -r 2 -t 60s
+
+loadtest-web:
+	uv run loadtest -s single --web
+
+loadtest-multi:
+	uv run loadtest -s multi -u 50 -r 5 -t 60s --num-experiments 5
+
+loadtest-multi-web:
+	uv run loadtest -s multi --web --num-experiments 5

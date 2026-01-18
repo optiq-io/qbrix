@@ -34,6 +34,7 @@ dev = [
     "black>=24.0.0",
     "pytest-mock>=3.14.1",
     "mypy-protobuf>=5.0.0",
+    "locust>=2.43.1",
 ]
 
 [tool.pytest.ini_options]
@@ -52,6 +53,9 @@ markers = [
     "integration: Integration tests",
     "slow: Slow running tests",
 ]
+
+[project.scripts]
+loadtest = "tests.loadtest.cli:run"
 
 [build-system]
 requires = ["pdm-backend"]
