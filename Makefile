@@ -99,15 +99,6 @@ docker-up:
 	docker compose up -d
 	@docker compose ps
 
-docker-down:
-	docker compose down
-
-docker-logs:
-	docker compose logs -f
-
-docker-ps:
-	docker compose ps
-
 # ============================================================================
 # Testing & Quality
 # ============================================================================
