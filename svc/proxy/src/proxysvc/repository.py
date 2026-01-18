@@ -24,13 +24,13 @@ class PoolRepository:
 
     async def get(self, pool_id: str) -> Pool | None:
         stmt = select(Pool).options(selectinload(Pool.arms)).where(Pool.id == pool_id)
-        result = await self._session.execute(stmt)
-        return result.scalar_one_or_none()
+        response = await self._session.execute(stmt)
+        return response.scalar_one_or_none()
 
     async def get_by_name(self, name: str) -> Pool | None:
         stmt = select(Pool).options(selectinload(Pool.arms)).where(Pool.name == name)
-        result = await self._session.execute(stmt)
-        return result.scalar_one_or_none()
+        response = await self._session.execute(stmt)
+        return response.scalar_one_or_none()
 
     async def delete(self, pool_id: str) -> bool:
         pool = await self.get(pool_id)
@@ -85,8 +85,8 @@ class ExperimentRepository:
             )
             .where(Experiment.id == experiment_id)
         )
-        result = await self._session.execute(stmt)
-        return result.scalar_one_or_none()
+        response = await self._session.execute(stmt)
+        return response.scalar_one_or_none()
 
     async def get_by_name(self, name: str) -> Experiment | None:
         stmt = (
@@ -97,8 +97,8 @@ class ExperimentRepository:
             )
             .where(Experiment.name == name)
         )
-        result = await self._session.execute(stmt)
-        return result.scalar_one_or_none()
+        response = await self._session.execute(stmt)
+        return response.scalar_one_or_none()
 
     async def update(self, experiment_id: str, **kwargs) -> Experiment | None:
         experiment = await self.get(experiment_id)

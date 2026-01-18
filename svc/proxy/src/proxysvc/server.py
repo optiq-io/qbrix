@@ -15,9 +15,9 @@ class ProxyGRPCServicer(proxy_pb2_grpc.ProxyServiceServicer):
     async def CreatePool(self, request, context):
         try:
             arms = [{"name": arm.name, "metadata": dict(arm.metadata) if hasattr(arm, 'metadata') else {}} for arm in request.arms]
-            result = await self._service.create_pool(request.name, arms)
+            response = await self._service.create_pool(request.name, arms)
             return proxy_pb2.CreatePoolResponse(
-                pool=self._dict_to_pool(result)
+                pool=self._dict_to_pool(response)
             )
         except Exception as e:
             context.set_code(grpc.StatusCode.INTERNAL)
@@ -25,13 +25,13 @@ class ProxyGRPCServicer(proxy_pb2_grpc.ProxyServiceServicer):
             return proxy_pb2.CreatePoolResponse()
 
     async def GetPool(self, request, context):
-        result = await self._service.get_pool(request.pool_id)
-        if result is None:
+        response = await self._service.get_pool(request.pool_id)
+        if response is None:
             context.set_code(grpc.StatusCode.NOT_FOUND)
             context.set_details(f"Pool not found: {request.pool_id}")
             return proxy_pb2.GetPoolResponse()
         return proxy_pb2.GetPoolResponse(
-            pool=self._dict_to_pool(result)
+            pool=self._dict_to_pool(response)
         )
 
     async def DeletePool(self, request, context):
@@ -50,7 +50,7 @@ class ProxyGRPCServicer(proxy_pb2_grpc.ProxyServiceServicer):
                     "default_arm_id": request.feature_gate.default_arm_id or None,
                     "rules": []
                 }
-            result = await self._service.create_experiment(
+            response = await self._service.create_experiment(
                 name=request.name,
                 pool_id=request.pool_id,
                 protocol=request.protocol,
@@ -59,7 +59,7 @@ class ProxyGRPCServicer(proxy_pb2_grpc.ProxyServiceServicer):
                 feature_gate_config=feature_gate
             )
             return proxy_pb2.CreateExperimentResponse(
-                experiment=self._dict_to_experiment(result)
+                experiment=self._dict_to_experiment(response)
             )
         except Exception as e:
             context.set_code(grpc.StatusCode.INTERNAL)
@@ -67,13 +67,13 @@ class ProxyGRPCServicer(proxy_pb2_grpc.ProxyServiceServicer):
             return proxy_pb2.CreateExperimentResponse()
 
     async def GetExperiment(self, request, context):
-        result = await self._service.get_experiment(request.experiment_id)
-        if result is None:
+        response = await self._service.get_experiment(request.experiment_id)
+        if response is None:
             context.set_code(grpc.StatusCode.NOT_FOUND)
             context.set_details(f"Experiment not found: {request.experiment_id}")
             return proxy_pb2.GetExperimentResponse()
         return proxy_pb2.GetExperimentResponse(
-            experiment=self._dict_to_experiment(result)
+            experiment=self._dict_to_experiment(response)
         )
 
     async def UpdateExperiment(self, request, context):
@@ -89,13 +89,13 @@ class ProxyGRPCServicer(proxy_pb2_grpc.ProxyServiceServicer):
                     "default_arm_id": request.feature_gate.default_arm_id or None,
                     "rules": []
                 }
-            result = await self._service.update_experiment(request.experiment_id, **kwargs)
-            if result is None:
+            response = await self._service.update_experiment(request.experiment_id, **kwargs)
+            if response is None:
                 context.set_code(grpc.StatusCode.NOT_FOUND)
                 context.set_details(f"Experiment not found: {request.experiment_id}")
                 return proxy_pb2.UpdateExperimentResponse()
             return proxy_pb2.UpdateExperimentResponse(
-                experiment=self._dict_to_experiment(result)
+                experiment=self._dict_to_experiment(response)
             )
         except Exception as e:
             context.set_code(grpc.StatusCode.INTERNAL)
@@ -111,7 +111,7 @@ class ProxyGRPCServicer(proxy_pb2_grpc.ProxyServiceServicer):
 
     async def Select(self, request, context):
         try:
-            result = await self._service.select(
+            response = await self._service.select(
                 experiment_id=request.experiment_id,
                 context_id=request.context.id,
                 context_vector=list(request.context.vector),
@@ -119,12 +119,12 @@ class ProxyGRPCServicer(proxy_pb2_grpc.ProxyServiceServicer):
             )
             return proxy_pb2.SelectResponse(
                 arm=common_pb2.Arm(
-                    id=result["arm"]["id"],
-                    name=result["arm"]["name"],
-                    index=result["arm"]["index"]
+                    id=response["arm"]["id"],
+                    name=response["arm"]["name"],
+                    index=response["arm"]["index"]
                 ),
-                request_id=result["request_id"],
-                is_default=result.get("is_default", False)
+                request_id=response["request_id"],
+                is_default=response.get("is_default", False)
             )
         except ValueError as e:
             context.set_code(grpc.StatusCode.NOT_FOUND)
