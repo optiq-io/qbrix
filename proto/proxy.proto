@@ -14,6 +14,11 @@ service ProxyService {
   rpc UpdateExperiment(UpdateExperimentRequest) returns (UpdateExperimentResponse);
   rpc DeleteExperiment(DeleteExperimentRequest) returns (DeleteExperimentResponse);
 
+  rpc CreateGateConfig(CreateGateConfigRequest) returns (CreateGateConfigResponse);
+  rpc GetGateConfig(GetGateConfigRequest) returns (GetGateConfigResponse);
+  rpc UpdateGateConfig(UpdateGateConfigRequest) returns (UpdateGateConfigResponse);
+  rpc DeleteGateConfig(DeleteGateConfigRequest) returns (DeleteGateConfigResponse);
+
   rpc Select(SelectRequest) returns (SelectResponse);
   rpc Feedback(FeedbackRequest) returns (FeedbackResponse);
   rpc Health(qbrix.common.HealthCheckRequest) returns (qbrix.common.HealthCheckResponse);
@@ -58,21 +63,30 @@ message CreateExperimentRequest {
 }
 
 message FeatureGateConfig {
-  double rollout_percentage = 1;  // 0.0 - 1.0
-  ScheduleConfig schedule = 2;
-  string default_arm_id = 3;      // Arm to return when gated
-  repeated RuleConfig rules = 4;
+  bool enabled = 1;
+  double rollout_percentage = 2;  // 0.0 - 100.0
+  string default_arm_id = 3;      // arm to return when gated
+  ScheduleConfig schedule = 4;
+  ActiveHoursConfig active_hours = 5;
+  string timezone = 6;            // e.g., "UTC", "America/New_York"
+  repeated RuleConfig rules = 7;
 }
 
 message ScheduleConfig {
-  int64 start_timestamp_ms = 1;
-  int64 end_timestamp_ms = 2;
+  optional int64 start_timestamp_ms = 1;
+  optional int64 end_timestamp_ms = 2;
+}
+
+message ActiveHoursConfig {
+  optional string start = 1;  // HH:MM format
+  optional string end = 2;    // HH:MM format
 }
 
 message RuleConfig {
-  string name = 1;
-  string condition = 2;  // Expression to evaluate against metadata
-  string arm_id = 3;     // Arm to return if rule matches
+  string key = 1;             // metadata key to evaluate
+  string operator = 2;        // ==, !=, >, <, contains, in, etc.
+  string value = 3;           // value to compare against (JSON encoded for complex types)
+  string arm_id = 4;          // arm to return if rule matches
 }
 
 message CreateExperimentResponse {
@@ -104,6 +118,41 @@ message DeleteExperimentRequest {
 }
 
 message DeleteExperimentResponse {
+  bool deleted = 1;
+}
+
+// Gate config management
+message CreateGateConfigRequest {
+  string experiment_id = 1;
+  FeatureGateConfig config = 2;
+}
+
+message CreateGateConfigResponse {
+  FeatureGateConfig config = 1;
+}
+
+message GetGateConfigRequest {
+  string experiment_id = 1;
+}
+
+message GetGateConfigResponse {
+  FeatureGateConfig config = 1;
+}
+
+message UpdateGateConfigRequest {
+  string experiment_id = 1;
+  FeatureGateConfig config = 2;
+}
+
+message UpdateGateConfigResponse {
+  FeatureGateConfig config = 1;
+}
+
+message DeleteGateConfigRequest {
+  string experiment_id = 1;
+}
+
+message DeleteGateConfigResponse {
   bool deleted = 1;
 }
 

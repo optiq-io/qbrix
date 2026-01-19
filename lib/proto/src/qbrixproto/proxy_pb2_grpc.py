@@ -50,6 +50,26 @@ class ProxyServiceStub(object):
                 request_serializer=proxy__pb2.DeleteExperimentRequest.SerializeToString,
                 response_deserializer=proxy__pb2.DeleteExperimentResponse.FromString,
                 _registered_method=True)
+        self.CreateGateConfig = channel.unary_unary(
+                '/qbrix.proxy.ProxyService/CreateGateConfig',
+                request_serializer=proxy__pb2.CreateGateConfigRequest.SerializeToString,
+                response_deserializer=proxy__pb2.CreateGateConfigResponse.FromString,
+                _registered_method=True)
+        self.GetGateConfig = channel.unary_unary(
+                '/qbrix.proxy.ProxyService/GetGateConfig',
+                request_serializer=proxy__pb2.GetGateConfigRequest.SerializeToString,
+                response_deserializer=proxy__pb2.GetGateConfigResponse.FromString,
+                _registered_method=True)
+        self.UpdateGateConfig = channel.unary_unary(
+                '/qbrix.proxy.ProxyService/UpdateGateConfig',
+                request_serializer=proxy__pb2.UpdateGateConfigRequest.SerializeToString,
+                response_deserializer=proxy__pb2.UpdateGateConfigResponse.FromString,
+                _registered_method=True)
+        self.DeleteGateConfig = channel.unary_unary(
+                '/qbrix.proxy.ProxyService/DeleteGateConfig',
+                request_serializer=proxy__pb2.DeleteGateConfigRequest.SerializeToString,
+                response_deserializer=proxy__pb2.DeleteGateConfigResponse.FromString,
+                _registered_method=True)
         self.Select = channel.unary_unary(
                 '/qbrix.proxy.ProxyService/Select',
                 request_serializer=proxy__pb2.SelectRequest.SerializeToString,
@@ -112,6 +132,30 @@ class ProxyServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def CreateGateConfig(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetGateConfig(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def UpdateGateConfig(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DeleteGateConfig(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def Select(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -167,6 +211,26 @@ def add_ProxyServiceServicer_to_server(servicer, server):
                     servicer.DeleteExperiment,
                     request_deserializer=proxy__pb2.DeleteExperimentRequest.FromString,
                     response_serializer=proxy__pb2.DeleteExperimentResponse.SerializeToString,
+            ),
+            'CreateGateConfig': grpc.unary_unary_rpc_method_handler(
+                    servicer.CreateGateConfig,
+                    request_deserializer=proxy__pb2.CreateGateConfigRequest.FromString,
+                    response_serializer=proxy__pb2.CreateGateConfigResponse.SerializeToString,
+            ),
+            'GetGateConfig': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetGateConfig,
+                    request_deserializer=proxy__pb2.GetGateConfigRequest.FromString,
+                    response_serializer=proxy__pb2.GetGateConfigResponse.SerializeToString,
+            ),
+            'UpdateGateConfig': grpc.unary_unary_rpc_method_handler(
+                    servicer.UpdateGateConfig,
+                    request_deserializer=proxy__pb2.UpdateGateConfigRequest.FromString,
+                    response_serializer=proxy__pb2.UpdateGateConfigResponse.SerializeToString,
+            ),
+            'DeleteGateConfig': grpc.unary_unary_rpc_method_handler(
+                    servicer.DeleteGateConfig,
+                    request_deserializer=proxy__pb2.DeleteGateConfigRequest.FromString,
+                    response_serializer=proxy__pb2.DeleteGateConfigResponse.SerializeToString,
             ),
             'Select': grpc.unary_unary_rpc_method_handler(
                     servicer.Select,
@@ -373,6 +437,114 @@ class ProxyService(object):
             '/qbrix.proxy.ProxyService/DeleteExperiment',
             proxy__pb2.DeleteExperimentRequest.SerializeToString,
             proxy__pb2.DeleteExperimentResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CreateGateConfig(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/qbrix.proxy.ProxyService/CreateGateConfig',
+            proxy__pb2.CreateGateConfigRequest.SerializeToString,
+            proxy__pb2.CreateGateConfigResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetGateConfig(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/qbrix.proxy.ProxyService/GetGateConfig',
+            proxy__pb2.GetGateConfigRequest.SerializeToString,
+            proxy__pb2.GetGateConfigResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def UpdateGateConfig(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/qbrix.proxy.ProxyService/UpdateGateConfig',
+            proxy__pb2.UpdateGateConfigRequest.SerializeToString,
+            proxy__pb2.UpdateGateConfigResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DeleteGateConfig(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/qbrix.proxy.ProxyService/DeleteGateConfig',
+            proxy__pb2.DeleteGateConfigRequest.SerializeToString,
+            proxy__pb2.DeleteGateConfigResponse.FromString,
             options,
             channel_credentials,
             insecure,

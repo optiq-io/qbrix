@@ -37,6 +37,10 @@ class RedisClient:
     def _experiment_key(experiment_id: str) -> str:
         return f"qbrix:experiment:{experiment_id}"
 
+    @staticmethod
+    def _gate_key(experiment_id: str) -> str:
+        return f"qbrix:gate:{experiment_id}"
+
     async def get_params(self, experiment_id: str) -> dict | None:
         data = await self.client.get(self._param_key(experiment_id))
         if data is None:
@@ -62,3 +66,22 @@ class RedisClient:
             self._experiment_key(experiment_id),
             self._param_key(experiment_id)
         )
+
+    async def get_gate_config(self, experiment_id: str) -> dict | None:
+        data = await self.client.get(self._gate_key(experiment_id))
+        if data is None:
+            return None
+        return json.loads(data)
+
+    async def set_gate_config(self, experiment_id: str, config: dict, ttl: int | None = None) -> None:
+        key = self._gate_key(experiment_id)
+        await self.client.set(key, json.dumps(config), ex=ttl)
+
+    async def delete_gate_config(self, experiment_id: str) -> None:
+        await self.client.delete(self._gate_key(experiment_id))
+
+    async def publish_gate_invalidation(self, channel: str, experiment_id: str) -> None:
+        """publish gate config invalidation event for cache listeners."""
+        await self.client.publish(channel, experiment_id)
+
+

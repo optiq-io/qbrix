@@ -26,6 +26,11 @@ class ProxySettings(BaseSettings):
     token_secret: str = "change-me-in-production"  # need to come from secrets.
     token_max_age_ms: int | None = None
 
+    gate_cache_maxsize: int = 1000
+    gate_cache_ttl: float = 30.0  # seconds
+    gate_redis_ttl: int = 300  # seconds
+    gate_invalidation_channel: str = "qbrix:gate:invalidate"
+
     @property
     def postgres_dsn(self) -> str:
         return f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_database}"

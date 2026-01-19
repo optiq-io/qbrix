@@ -187,29 +187,40 @@ Global___CreateExperimentRequest: _TypeAlias = CreateExperimentRequest  # noqa: 
 class FeatureGateConfig(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
+    ENABLED_FIELD_NUMBER: _builtins.int
     ROLLOUT_PERCENTAGE_FIELD_NUMBER: _builtins.int
-    SCHEDULE_FIELD_NUMBER: _builtins.int
     DEFAULT_ARM_ID_FIELD_NUMBER: _builtins.int
+    SCHEDULE_FIELD_NUMBER: _builtins.int
+    ACTIVE_HOURS_FIELD_NUMBER: _builtins.int
+    TIMEZONE_FIELD_NUMBER: _builtins.int
     RULES_FIELD_NUMBER: _builtins.int
+    enabled: _builtins.bool
     rollout_percentage: _builtins.float
-    """0.0 - 1.0"""
+    """0.0 - 100.0"""
     default_arm_id: _builtins.str
-    """Arm to return when gated"""
+    """arm to return when gated"""
+    timezone: _builtins.str
+    """e.g., "UTC", "America/New_York" """
     @_builtins.property
     def schedule(self) -> Global___ScheduleConfig: ...
+    @_builtins.property
+    def active_hours(self) -> Global___ActiveHoursConfig: ...
     @_builtins.property
     def rules(self) -> _containers.RepeatedCompositeFieldContainer[Global___RuleConfig]: ...
     def __init__(
         self,
         *,
+        enabled: _builtins.bool = ...,
         rollout_percentage: _builtins.float = ...,
-        schedule: Global___ScheduleConfig | None = ...,
         default_arm_id: _builtins.str = ...,
+        schedule: Global___ScheduleConfig | None = ...,
+        active_hours: Global___ActiveHoursConfig | None = ...,
+        timezone: _builtins.str = ...,
         rules: _abc.Iterable[Global___RuleConfig] | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["schedule", b"schedule"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["active_hours", b"active_hours", "schedule", b"schedule"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["default_arm_id", b"default_arm_id", "rollout_percentage", b"rollout_percentage", "rules", b"rules", "schedule", b"schedule"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["active_hours", b"active_hours", "default_arm_id", b"default_arm_id", "enabled", b"enabled", "rollout_percentage", b"rollout_percentage", "rules", b"rules", "schedule", b"schedule", "timezone", b"timezone"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
 
 Global___FeatureGateConfig: _TypeAlias = FeatureGateConfig  # noqa: Y015
@@ -225,34 +236,80 @@ class ScheduleConfig(_message.Message):
     def __init__(
         self,
         *,
-        start_timestamp_ms: _builtins.int = ...,
-        end_timestamp_ms: _builtins.int = ...,
+        start_timestamp_ms: _builtins.int | None = ...,
+        end_timestamp_ms: _builtins.int | None = ...,
     ) -> None: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["end_timestamp_ms", b"end_timestamp_ms", "start_timestamp_ms", b"start_timestamp_ms"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_end_timestamp_ms", b"_end_timestamp_ms", "_start_timestamp_ms", b"_start_timestamp_ms", "end_timestamp_ms", b"end_timestamp_ms", "start_timestamp_ms", b"start_timestamp_ms"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_end_timestamp_ms", b"_end_timestamp_ms", "_start_timestamp_ms", b"_start_timestamp_ms", "end_timestamp_ms", b"end_timestamp_ms", "start_timestamp_ms", b"start_timestamp_ms"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    _WhichOneofReturnType__end_timestamp_ms: _TypeAlias = _typing.Literal["end_timestamp_ms"]  # noqa: Y015
+    _WhichOneofArgType__end_timestamp_ms: _TypeAlias = _typing.Literal["_end_timestamp_ms", b"_end_timestamp_ms"]  # noqa: Y015
+    _WhichOneofReturnType__start_timestamp_ms: _TypeAlias = _typing.Literal["start_timestamp_ms"]  # noqa: Y015
+    _WhichOneofArgType__start_timestamp_ms: _TypeAlias = _typing.Literal["_start_timestamp_ms", b"_start_timestamp_ms"]  # noqa: Y015
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__end_timestamp_ms) -> _WhichOneofReturnType__end_timestamp_ms | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__start_timestamp_ms) -> _WhichOneofReturnType__start_timestamp_ms | None: ...
 
 Global___ScheduleConfig: _TypeAlias = ScheduleConfig  # noqa: Y015
+
+@_typing.final
+class ActiveHoursConfig(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    START_FIELD_NUMBER: _builtins.int
+    END_FIELD_NUMBER: _builtins.int
+    start: _builtins.str
+    """HH:MM format"""
+    end: _builtins.str
+    """HH:MM format"""
+    def __init__(
+        self,
+        *,
+        start: _builtins.str | None = ...,
+        end: _builtins.str | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_end", b"_end", "_start", b"_start", "end", b"end", "start", b"start"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_end", b"_end", "_start", b"_start", "end", b"end", "start", b"start"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    _WhichOneofReturnType__end: _TypeAlias = _typing.Literal["end"]  # noqa: Y015
+    _WhichOneofArgType__end: _TypeAlias = _typing.Literal["_end", b"_end"]  # noqa: Y015
+    _WhichOneofReturnType__start: _TypeAlias = _typing.Literal["start"]  # noqa: Y015
+    _WhichOneofArgType__start: _TypeAlias = _typing.Literal["_start", b"_start"]  # noqa: Y015
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__end) -> _WhichOneofReturnType__end | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__start) -> _WhichOneofReturnType__start | None: ...
+
+Global___ActiveHoursConfig: _TypeAlias = ActiveHoursConfig  # noqa: Y015
 
 @_typing.final
 class RuleConfig(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
-    NAME_FIELD_NUMBER: _builtins.int
-    CONDITION_FIELD_NUMBER: _builtins.int
+    KEY_FIELD_NUMBER: _builtins.int
+    OPERATOR_FIELD_NUMBER: _builtins.int
+    VALUE_FIELD_NUMBER: _builtins.int
     ARM_ID_FIELD_NUMBER: _builtins.int
-    name: _builtins.str
-    condition: _builtins.str
-    """Expression to evaluate against metadata"""
+    key: _builtins.str
+    """metadata key to evaluate"""
+    operator: _builtins.str
+    """==, !=, >, <, contains, in, etc."""
+    value: _builtins.str
+    """value to compare against (JSON encoded for complex types)"""
     arm_id: _builtins.str
-    """Arm to return if rule matches"""
+    """arm to return if rule matches"""
     def __init__(
         self,
         *,
-        name: _builtins.str = ...,
-        condition: _builtins.str = ...,
+        key: _builtins.str = ...,
+        operator: _builtins.str = ...,
+        value: _builtins.str = ...,
         arm_id: _builtins.str = ...,
     ) -> None: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["arm_id", b"arm_id", "condition", b"condition", "name", b"name"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["arm_id", b"arm_id", "key", b"key", "operator", b"operator", "value", b"value"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
 
 Global___RuleConfig: _TypeAlias = RuleConfig  # noqa: Y015
@@ -419,6 +476,157 @@ class DeleteExperimentResponse(_message.Message):
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
 
 Global___DeleteExperimentResponse: _TypeAlias = DeleteExperimentResponse  # noqa: Y015
+
+@_typing.final
+class CreateGateConfigRequest(_message.Message):
+    """Gate config management"""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    EXPERIMENT_ID_FIELD_NUMBER: _builtins.int
+    CONFIG_FIELD_NUMBER: _builtins.int
+    experiment_id: _builtins.str
+    @_builtins.property
+    def config(self) -> Global___FeatureGateConfig: ...
+    def __init__(
+        self,
+        *,
+        experiment_id: _builtins.str = ...,
+        config: Global___FeatureGateConfig | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["config", b"config"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["config", b"config", "experiment_id", b"experiment_id"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+
+Global___CreateGateConfigRequest: _TypeAlias = CreateGateConfigRequest  # noqa: Y015
+
+@_typing.final
+class CreateGateConfigResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CONFIG_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def config(self) -> Global___FeatureGateConfig: ...
+    def __init__(
+        self,
+        *,
+        config: Global___FeatureGateConfig | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["config", b"config"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["config", b"config"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+
+Global___CreateGateConfigResponse: _TypeAlias = CreateGateConfigResponse  # noqa: Y015
+
+@_typing.final
+class GetGateConfigRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    EXPERIMENT_ID_FIELD_NUMBER: _builtins.int
+    experiment_id: _builtins.str
+    def __init__(
+        self,
+        *,
+        experiment_id: _builtins.str = ...,
+    ) -> None: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["experiment_id", b"experiment_id"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+
+Global___GetGateConfigRequest: _TypeAlias = GetGateConfigRequest  # noqa: Y015
+
+@_typing.final
+class GetGateConfigResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CONFIG_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def config(self) -> Global___FeatureGateConfig: ...
+    def __init__(
+        self,
+        *,
+        config: Global___FeatureGateConfig | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["config", b"config"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["config", b"config"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+
+Global___GetGateConfigResponse: _TypeAlias = GetGateConfigResponse  # noqa: Y015
+
+@_typing.final
+class UpdateGateConfigRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    EXPERIMENT_ID_FIELD_NUMBER: _builtins.int
+    CONFIG_FIELD_NUMBER: _builtins.int
+    experiment_id: _builtins.str
+    @_builtins.property
+    def config(self) -> Global___FeatureGateConfig: ...
+    def __init__(
+        self,
+        *,
+        experiment_id: _builtins.str = ...,
+        config: Global___FeatureGateConfig | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["config", b"config"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["config", b"config", "experiment_id", b"experiment_id"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+
+Global___UpdateGateConfigRequest: _TypeAlias = UpdateGateConfigRequest  # noqa: Y015
+
+@_typing.final
+class UpdateGateConfigResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CONFIG_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def config(self) -> Global___FeatureGateConfig: ...
+    def __init__(
+        self,
+        *,
+        config: Global___FeatureGateConfig | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["config", b"config"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["config", b"config"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+
+Global___UpdateGateConfigResponse: _TypeAlias = UpdateGateConfigResponse  # noqa: Y015
+
+@_typing.final
+class DeleteGateConfigRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    EXPERIMENT_ID_FIELD_NUMBER: _builtins.int
+    experiment_id: _builtins.str
+    def __init__(
+        self,
+        *,
+        experiment_id: _builtins.str = ...,
+    ) -> None: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["experiment_id", b"experiment_id"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+
+Global___DeleteGateConfigRequest: _TypeAlias = DeleteGateConfigRequest  # noqa: Y015
+
+@_typing.final
+class DeleteGateConfigResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    DELETED_FIELD_NUMBER: _builtins.int
+    deleted: _builtins.bool
+    def __init__(
+        self,
+        *,
+        deleted: _builtins.bool = ...,
+    ) -> None: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["deleted", b"deleted"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+
+Global___DeleteGateConfigResponse: _TypeAlias = DeleteGateConfigResponse  # noqa: Y015
 
 @_typing.final
 class SelectRequest(_message.Message):

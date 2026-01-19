@@ -1,6 +1,6 @@
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
 from uuid import uuid4
-from sqlalchemy import String, Boolean, Float, Integer, ForeignKey, JSON, DateTime
+from sqlalchemy import String, Boolean, Float, Integer, ForeignKey, JSON, DateTime, Time
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -55,12 +55,18 @@ class FeatureGate(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: uuid4().hex)
     experiment_id: Mapped[str] = mapped_column(String(32), ForeignKey("experiments.id"), nullable=False, unique=True)
-    rollout_percentage: Mapped[float] = mapped_column(Float, default=1.0)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    rollout_percentage: Mapped[float] = mapped_column(Float, default=100.0)
     default_arm_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("arms.id"), nullable=True)
     schedule_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     schedule_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    active_hours_start: Mapped[time | None] = mapped_column(Time, nullable=True)
+    active_hours_end: Mapped[time | None] = mapped_column(Time, nullable=True)
+    timezone: Mapped[str] = mapped_column(String(64), default="UTC")
     rules: Mapped[list] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     experiment: Mapped["Experiment"] = relationship("Experiment", back_populates="feature_gate")
+    default_arm: Mapped["Arm | None"] = relationship("Arm", foreign_keys=[default_arm_id])
