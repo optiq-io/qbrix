@@ -71,24 +71,24 @@ dev: infra
 	@echo "Starting all services..."
 	@trap 'kill 0' EXIT; \
 	PROXY_POSTGRES_HOST=localhost PROXY_REDIS_HOST=localhost PROXY_MOTOR_HOST=localhost \
-	uv run --package proxysvc server & \
+	uv run python -m proxysvc.cli & \
 	MOTOR_REDIS_HOST=localhost \
-	uv run --package motorsvc server & \
+	uv run python -m motorsvc.cli & \
 	CORTEX_REDIS_HOST=localhost \
-	uv run --package cortexsvc server & \
+	uv run python -m cortexsvc.cli & \
 	wait
 
 dev-proxy:
 	PROXY_POSTGRES_HOST=localhost PROXY_REDIS_HOST=localhost PROXY_MOTOR_HOST=localhost \
-	uv run --package proxysvc server
+	uv run python -m proxysvc.cli
 
 dev-motor:
 	MOTOR_REDIS_HOST=localhost \
-	uv run --package motorsvc server
+	uv run python -m motorsvc.cli
 
 dev-cortex:
 	CORTEX_REDIS_HOST=localhost \
-	uv run --package cortexsvc server
+	uv run python -m cortexsvc.cli
 
 # ============================================================================
 # Docker Compose (full containerized setup)
