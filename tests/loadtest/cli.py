@@ -28,9 +28,9 @@ import click
 @click.option(
     "--port",
     "-p",
-    default=50050,
+    default=8080,
     type=int,
-    help="proxy service port",
+    help="proxy service HTTP port",
 )
 @click.option(
     "--users",
@@ -104,7 +104,7 @@ def run(
         uv run loadtest -s multi --num-experiments 5 -u 50 -t 2m
 
         # connect to remote proxy
-        uv run loadtest -h proxy.example.com -p 50050 --web
+        uv run loadtest -h proxy.example.com -p 8080 --web
     """
     import os
 

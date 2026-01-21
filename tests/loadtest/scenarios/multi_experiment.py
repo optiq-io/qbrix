@@ -117,7 +117,7 @@ class MultiExperimentUser(User):
             )
 
             events.request.fire(
-                request_type="grpc",
+                request_type="http",
                 name="Select",
                 response_time=0,
                 response_length=0,
@@ -138,7 +138,7 @@ class MultiExperimentUser(User):
 
         except Exception as e:
             events.request.fire(
-                request_type="grpc",
+                request_type="http",
                 name="Select",
                 response_time=0,
                 response_length=0,
@@ -155,7 +155,7 @@ class MultiExperimentUser(User):
         try:
             self.client.health_check()
             events.request.fire(
-                request_type="grpc",
+                request_type="http",
                 name="Health",
                 response_time=0,
                 response_length=0,
@@ -164,7 +164,7 @@ class MultiExperimentUser(User):
             )
         except Exception as e:
             events.request.fire(
-                request_type="grpc",
+                request_type="http",
                 name="Health",
                 response_time=0,
                 response_length=0,
@@ -185,7 +185,7 @@ class MultiExperimentUser(User):
                 reward=reward,
             )
             events.request.fire(
-                request_type="grpc",
+                request_type="http",
                 name="Feedback",
                 response_time=0,
                 response_length=0,
@@ -194,7 +194,7 @@ class MultiExperimentUser(User):
             )
         except Exception as e:
             events.request.fire(
-                request_type="grpc",
+                request_type="http",
                 name="Feedback",
                 response_time=0,
                 response_length=0,

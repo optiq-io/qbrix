@@ -80,7 +80,7 @@ class SingleExperimentUser(User):
             )
 
             events.request.fire(
-                request_type="grpc",
+                request_type="http",
                 name="Select",
                 response_time=0,  # locust handles timing
                 response_length=0,
@@ -102,7 +102,7 @@ class SingleExperimentUser(User):
 
         except Exception as e:
             events.request.fire(
-                request_type="grpc",
+                request_type="http",
                 name="Select",
                 response_time=0,
                 response_length=0,
@@ -119,7 +119,7 @@ class SingleExperimentUser(User):
         try:
             self.client.health_check()
             events.request.fire(
-                request_type="grpc",
+                request_type="http",
                 name="Health",
                 response_time=0,
                 response_length=0,
@@ -128,7 +128,7 @@ class SingleExperimentUser(User):
             )
         except Exception as e:
             events.request.fire(
-                request_type="grpc",
+                request_type="http",
                 name="Health",
                 response_time=0,
                 response_length=0,
@@ -150,7 +150,7 @@ class SingleExperimentUser(User):
                 reward=reward,
             )
             events.request.fire(
-                request_type="grpc",
+                request_type="http",
                 name="Feedback",
                 response_time=0,
                 response_length=0,
@@ -159,7 +159,7 @@ class SingleExperimentUser(User):
             )
         except Exception as e:
             events.request.fire(
-                request_type="grpc",
+                request_type="http",
                 name="Feedback",
                 response_time=0,
                 response_length=0,

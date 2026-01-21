@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from zoneinfo import ZoneInfo
+from datetime import datetime
+from datetime import timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from qbrixstore.postgres.models import Pool, Arm, Experiment, FeatureGate
+from qbrixstore.postgres.models import User
+from qbrixstore.postgres.models import APIKey
 
 from proxysvc.gate.config import FeatureGateConfig
 from proxysvc.gate.model.base import BaseArmModel, ArmConfig
@@ -18,6 +22,7 @@ from proxysvc.gate.model.experiment import (
     ActivePeriodConfig,
 )
 from proxysvc.gate.model.rule import Rule
+
 
 
 class PoolRepository:
@@ -237,3 +242,142 @@ class FeatureGateRepository:
             updated_at=gate.updated_at,
             version=gate.version,
         )
+
+
+class UserRepository:
+    def __init__(self, session: AsyncSession):
+        self._session = session
+
+    async def create(
+        self,
+        email: str,
+        password_hash: str,
+        plan_tier: str = "free",
+        role: str = "member",
+    ) -> User:
+        user = User(
+            email=email,
+            password_hash=password_hash,
+            plan_tier=plan_tier,
+            role=role,
+        )
+        self._session.add(user)
+        await self._session.flush()
+        return user
+
+    async def get(self, user_id: str) -> User | None:
+        stmt = (
+            select(User).options(selectinload(User.api_keys)).where(User.id == user_id)
+        )
+        response = await self._session.execute(stmt)
+        return response.scalar_one_or_none()
+
+    async def get_by_email(self, email: str) -> User | None:
+        stmt = (
+            select(User).options(selectinload(User.api_keys)).where(User.email == email)
+        )
+        response = await self._session.execute(stmt)
+        return response.scalar_one_or_none()
+
+    async def update(self, user_id: str, **kwargs) -> User | None:
+        user = await self.get(user_id)
+        if user is None:
+            return None
+
+        for key, value in kwargs.items():
+            if hasattr(user, key) and value is not None:
+                setattr(user, key, value)
+
+        await self._session.flush()
+        return user
+
+    async def deactivate(self, user_id: str) -> bool:
+        user = await self.get(user_id)
+        if user is None:
+            return False
+        user.is_active = False
+        await self._session.flush()
+        return True
+
+    async def delete(self, user_id: str) -> bool:
+        user = await self.get(user_id)
+        if user is None:
+            return False
+        await self._session.delete(user)
+        await self._session.flush()
+        return True
+
+
+class APIKeyRepository:
+    def __init__(self, session: AsyncSession):
+        self._session = session
+
+    async def create(
+        self,
+        user_id: str,
+        key_hash: str,
+        name: str = "Default API Key",
+        rate_limit_per_minute: int = 1000,
+        scopes: list[str] | None = None,
+    ) -> APIKey:
+        api_key = APIKey(
+            user_id=user_id,
+            key_hash=key_hash,
+            name=name,
+            rate_limit_per_minute=rate_limit_per_minute,
+            scopes=scopes or [],
+        )
+        self._session.add(api_key)
+        await self._session.flush()
+        return api_key
+
+    async def get(self, api_key_id: str) -> APIKey | None:
+        stmt = (
+            select(APIKey)
+            .options(selectinload(APIKey.user))
+            .where(APIKey.id == api_key_id)
+        )
+        response = await self._session.execute(stmt)
+        return response.scalar_one_or_none()
+
+    async def get_by_hash(self, key_hash: str) -> APIKey | None:
+        stmt = (
+            select(APIKey)
+            .options(selectinload(APIKey.user))
+            .where(APIKey.key_hash == key_hash)
+        )
+        response = await self._session.execute(stmt)
+        return response.scalar_one_or_none()
+
+    async def list_by_user(self, user_id: str) -> list[APIKey]:
+        stmt = (
+            select(APIKey)
+            .where(APIKey.user_id == user_id)
+            .order_by(APIKey.created_at.desc())
+        )
+        response = await self._session.execute(stmt)
+        return list(response.scalars().all())
+
+    async def update_last_used(self, api_key_id: str) -> bool:
+        api_key = await self.get(api_key_id)
+        if api_key is None:
+            return False
+        api_key.last_used_at = datetime.now(timezone.utc)
+        await self._session.flush()
+        return True
+
+    async def deactivate(self, api_key_id: str) -> bool:
+        api_key = await self.get(api_key_id)
+        if api_key is None:
+            return False
+        api_key.is_active = False
+        await self._session.flush()
+        return True
+
+    async def delete(self, api_key_id: str) -> bool:
+        api_key = await self.get(api_key_id)
+        if api_key is None:
+            return False
+        await self._session.delete(api_key)
+        await self._session.flush()
+        return True

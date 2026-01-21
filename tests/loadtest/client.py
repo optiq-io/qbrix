@@ -2,12 +2,9 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from typing import Optional
 
-import grpc
-
-from qbrixproto import common_pb2
-from qbrixproto import proxy_pb2
-from qbrixproto import proxy_pb2_grpc
+import requests
 
 from .config import settings
 
@@ -21,43 +18,70 @@ class SelectResult:
 
 
 class ProxyClient:
-    """grpc client wrapper for load testing."""
+    """HTTP client wrapper for load testing."""
 
-    def __init__(self, address: str | None = None):
-        self.address = address or settings.proxy_address
-        self._channel: grpc.Channel | None = None
-        self._stub: proxy_pb2_grpc.ProxyServiceStub | None = None
+    def __init__(self, base_url: str | None = None, api_key: str | None = None):
+        self.base_url = (base_url or settings.proxy_address).rstrip("/")
+        self.api_key = api_key or settings.api_key
+        self._session: Optional[requests.Session] = None
+
+    # ------------------------------------------------------------------ #
+    # lifecycle
+    # ------------------------------------------------------------------ #
 
     def connect(self) -> None:
-        self._channel = grpc.insecure_channel(self.address)
-        self._stub = proxy_pb2_grpc.ProxyServiceStub(self._channel)
+        self._session = requests.Session()
+        if self.api_key:
+            self._session.headers.update(
+                {"X-API-Key": self.api_key}
+            )
 
     def close(self) -> None:
-        if self._channel:
-            self._channel.close()
-            self._channel = None
-            self._stub = None
+        if self._session:
+            self._session.close()
+            self._session = None
 
     @property
     def is_connected(self) -> bool:
-        return self._stub is not None
+        return self._session is not None
 
     @property
-    def stub(self) -> proxy_pb2_grpc.ProxyServiceStub:
-        if self._stub is None:
+    def session(self) -> requests.Session:
+        if not self._session:
             raise RuntimeError("client not connected, call connect() first")
-        return self._stub
+        return self._session
+
+    # ------------------------------------------------------------------ #
+    # endpoints
+    # ------------------------------------------------------------------ #
 
     def health_check(self) -> bool:
-        request = common_pb2.HealthCheckRequest()
-        response = self.stub.Health(request)
-        return response.status == common_pb2.HealthCheckResponse.SERVING
+        r = self.session.get(f"{self.base_url}/health", timeout=5)
+        r.raise_for_status()
+        return True
 
     def create_pool(self, name: str, num_arms: int) -> str:
-        arms = [common_pb2.Arm(name=f"arm-{i}", index=i) for i in range(num_arms)]
-        request = proxy_pb2.CreatePoolRequest(name=name, arms=arms)
-        response = self.stub.CreatePool(request)
-        return response.pool.id
+        payload = {
+            "name": name,
+            "arms": [
+                {"name": f"arm-{i}"} for i in range(num_arms)
+            ],
+        }
+        r = self.session.post(
+            f"{self.base_url}/api/v1/pools",
+            json=payload,
+            timeout=10,
+        )
+        r.raise_for_status()
+        return r.json()["id"]
+
+    def delete_pool(self, pool_id: str) -> bool:
+        r = self.session.delete(
+            f"{self.base_url}/api/v1/pools/{pool_id}",
+            timeout=10,
+        )
+        r.raise_for_status()
+        return True
 
     def create_experiment(
         self,
@@ -66,24 +90,31 @@ class ProxyClient:
         protocol: str = "beta_ts",
         enabled: bool = True,
     ) -> str:
-        request = proxy_pb2.CreateExperimentRequest(
-            name=name,
-            pool_id=pool_id,
-            protocol=protocol,
-            enabled=enabled,
+        payload = {
+            "name": name,
+            "pool_id": pool_id,
+            "protocol": protocol,
+            "enabled": enabled,
+        }
+        r = self.session.post(
+            f"{self.base_url}/api/v1/experiments",
+            json=payload,
+            timeout=10,
         )
-        response = self.stub.CreateExperiment(request)
-        return response.experiment.id
-
-    def delete_pool(self, pool_id: str) -> bool:
-        request = proxy_pb2.DeletePoolRequest(pool_id=pool_id)
-        response = self.stub.DeletePool(request)
-        return response.deleted
+        r.raise_for_status()
+        return r.json()["id"]
 
     def delete_experiment(self, experiment_id: str) -> bool:
-        request = proxy_pb2.DeleteExperimentRequest(experiment_id=experiment_id)
-        response = self.stub.DeleteExperiment(request)
-        return response.deleted
+        r = self.session.delete(
+            f"{self.base_url}/api/v1/experiments/{experiment_id}",
+            timeout=10,
+        )
+        r.raise_for_status()
+        return True
+
+    # ------------------------------------------------------------------ #
+    # bandit inference (ASSUMED endpoints)
+    # ------------------------------------------------------------------ #
 
     def select(
         self,
@@ -92,27 +123,46 @@ class ProxyClient:
         context_vector: list[float] | None = None,
         context_metadata: dict[str, str] | None = None,
     ) -> SelectResult:
-        context = common_pb2.Context(
-            id=context_id or str(uuid.uuid4()),
-            vector=context_vector or [],
-            metadata=context_metadata or {},
+        """
+        ⚠️ Endpoint not present in provided OpenAPI.
+        Adjust path/payload to match your actual server.
+        """
+
+        payload = {
+            "experiment_id": experiment_id,
+            "context": {
+                "id": context_id or str(uuid.uuid4()),
+                "vector": context_vector or [],
+                "metadata": context_metadata or {},
+            },
+        }
+
+        r = self.session.post(
+            f"{self.base_url}/api/v1/agent/select",
+            json=payload,
+            timeout=5,
         )
-        request = proxy_pb2.SelectRequest(
-            experiment_id=experiment_id,
-            context=context,
-        )
-        response = self.stub.Select(request)
+        r.raise_for_status()
+        data = r.json()
+
         return SelectResult(
-            request_id=response.request_id,
-            arm_id=response.arm.id,
-            arm_index=response.arm.index,
-            is_default=response.is_default,
+            request_id=data["request_id"],
+            arm_id=data["arm"]["id"],
+            arm_index=data["arm"]["index"],
+            is_default=data.get("is_default", False),
         )
 
     def feedback(self, request_id: str, reward: float) -> bool:
-        request = proxy_pb2.FeedbackRequest(
-            request_id=request_id,
-            reward=reward,
+
+        payload = {
+            "request_id": request_id,
+            "reward": reward,
+        }
+
+        r = self.session.post(
+            f"{self.base_url}/api/v1/agent/feedback",
+            json=payload,
+            timeout=5,
         )
-        response = self.stub.Feedback(request)
-        return response.accepted
+        r.raise_for_status()
+        return r.json().get("accepted", True)

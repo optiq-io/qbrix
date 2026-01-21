@@ -5,7 +5,8 @@ from pydantic_settings import BaseSettings
 
 class LoadTestSettings(BaseSettings):
     proxy_host: str = "localhost"
-    proxy_port: int = 50050
+    proxy_port: int = 8080
+    api_key: str = ""
 
     # single experiment scenario defaults
     default_pool_name: str = "loadtest-pool"
@@ -31,7 +32,7 @@ class LoadTestSettings(BaseSettings):
 
     @property
     def proxy_address(self) -> str:
-        return f"{self.proxy_host}:{self.proxy_port}"
+        return f"http://{self.proxy_host}:{self.proxy_port}"
 
 
 settings = LoadTestSettings()

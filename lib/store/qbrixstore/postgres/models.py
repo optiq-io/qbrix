@@ -123,3 +123,61 @@ class FeatureGate(Base):
     default_arm: Mapped["Arm | None"] = relationship(
         "Arm", foreign_keys=[default_arm_id]
     )
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: uuid4().hex
+    )
+    email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    plan_tier: Mapped[str] = mapped_column(String(32), nullable=False, default="free")
+    role: Mapped[str] = mapped_column(String(32), nullable=False, default="member")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    api_keys: Mapped[list["APIKey"]] = relationship(
+        "APIKey", back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class APIKey(Base):
+    __tablename__ = "api_keys"
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: uuid4().hex
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("users.id"), nullable=False
+    )
+    key_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(
+        String(255), nullable=False, default="Default API Key"
+    )
+    rate_limit_per_minute: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1000
+    )
+    scopes: Mapped[list] = mapped_column(JSON, default=list)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    user: Mapped["User"] = relationship("User", back_populates="api_keys")

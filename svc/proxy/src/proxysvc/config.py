@@ -4,6 +4,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class ProxySettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PROXY_")
 
+    runenv: str = "dev"
+
     grpc_host: str = "0.0.0.0"
     grpc_port: int = 50050
 
@@ -31,6 +33,16 @@ class ProxySettings(BaseSettings):
     gate_redis_ttl: int = 300  # seconds
     gate_invalidation_channel: str = "qbrix:gate:invalidate"
 
+    # jwt settings
+    jwt_secret_key: str = "change-me-in-production"
+    jwt_algorithm: str = "HS256"
+    jwt_access_token_expire_minutes: int = 30
+    jwt_refresh_token_expire_days: int = 7
+
+    # http settings
+    http_host: str = "0.0.0.0"
+    http_port: int = 8080
+
     @property
     def postgres_dsn(self) -> str:
         return f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_database}"
@@ -47,3 +59,6 @@ class ProxySettings(BaseSettings):
     @property
     def token_secret_bytes(self) -> bytes:
         return self.token_secret.encode()
+
+
+settings = ProxySettings()

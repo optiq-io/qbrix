@@ -10,10 +10,14 @@ dependencies = [
     "grpcio>=1.76.0",
     "grpcio-reflection>=1.76.0",
     "grpcio-tools>=1.76.0",
-    "pydantic>=2.12.3",
+    "pydantic[email]>=2.12.3",
     "pydantic-settings>=2.12.0",
     "qbrixstore==0.1.0a0",
     "qbrixproto==0.1.0a0",
+    "fastapi>=0.128.0",
+    "uvicorn>=0.40.0",
+    "python-jose>=3.5.0",
+    "bcrypt>=5.0.0",
 ]
 
 [dependency-groups]
@@ -55,7 +59,7 @@ markers = [
 ]
 
 [project.scripts]
-server = "proxysvc.cli:run"
+proxysvc = "proxysvc.cli:cli"
 
 [build-system]
 requires = ["pdm-backend"]

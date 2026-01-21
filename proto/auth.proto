@@ -1,0 +1,234 @@
+syntax = "proto3";
+
+package qbrix.auth;
+
+service AuthService {
+  // user management
+  rpc RegisterUser(RegisterUserRequest) returns (RegisterUserResponse);
+  rpc AuthenticateUser(AuthenticateUserRequest) returns (AuthenticateUserResponse);
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  rpc GetUserByEmail(GetUserByEmailRequest) returns (GetUserByEmailResponse);
+  rpc UpdateUser(UpdateUserRequest) returns (UpdateUserResponse);
+  rpc DeactivateUser(DeactivateUserRequest) returns (DeactivateUserResponse);
+  rpc AssignRole(AssignRoleRequest) returns (AssignRoleResponse);
+
+  // api key management
+  rpc CreateAPIKey(CreateAPIKeyRequest) returns (CreateAPIKeyResponse);
+  rpc GetAPIKey(GetAPIKeyRequest) returns (GetAPIKeyResponse);
+  rpc ValidateAPIKey(ValidateAPIKeyRequest) returns (ValidateAPIKeyResponse);
+  rpc ListUserAPIKeys(ListUserAPIKeysRequest) returns (ListUserAPIKeysResponse);
+  rpc DeactivateAPIKey(DeactivateAPIKeyRequest) returns (DeactivateAPIKeyResponse);
+  rpc GetAPIKeyUsage(GetAPIKeyUsageRequest) returns (GetAPIKeyUsageResponse);
+
+  // rate limiting
+  rpc CheckRateLimit(CheckRateLimitRequest) returns (CheckRateLimitResponse);
+  rpc CheckUserRateLimit(CheckUserRateLimitRequest) returns (CheckUserRateLimitResponse);
+
+  // permissions
+  rpc CheckUserPermission(CheckUserPermissionRequest) returns (CheckUserPermissionResponse);
+  rpc CheckAPIKeyScope(CheckAPIKeyScopeRequest) returns (CheckAPIKeyScopeResponse);
+}
+
+// enums
+
+enum PlanTier {
+  PLAN_TIER_UNSPECIFIED = 0;
+  PLAN_TIER_FREE = 1;
+  PLAN_TIER_PRO = 2;
+  PLAN_TIER_ENTERPRISE = 3;
+}
+
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_ADMIN = 1;
+  ROLE_MEMBER = 2;
+  ROLE_VIEWER = 3;
+}
+
+// common messages
+
+message User {
+  string id = 1;
+  string email = 2;
+  PlanTier plan_tier = 3;
+  Role role = 4;
+  double created_at = 5;
+  double updated_at = 6;
+  bool is_active = 7;
+}
+
+message APIKey {
+  string id = 1;
+  string user_id = 2;
+  string name = 3;
+  int32 rate_limit_per_minute = 4;
+  repeated string scopes = 5;
+  double created_at = 6;
+  optional double last_used_at = 7;
+  bool is_active = 8;
+}
+
+// user management messages
+
+message RegisterUserRequest {
+  string email = 1;
+  string password = 2;
+  PlanTier plan_tier = 3;
+  Role role = 4;
+}
+
+message RegisterUserResponse {
+  User user = 1;
+}
+
+message AuthenticateUserRequest {
+  string email = 1;
+  string password = 2;
+}
+
+message AuthenticateUserResponse {
+  bool authenticated = 1;
+  User user = 2;
+}
+
+message GetUserRequest {
+  string user_id = 1;
+}
+
+message GetUserResponse {
+  User user = 1;
+}
+
+message GetUserByEmailRequest {
+  string email = 1;
+}
+
+message GetUserByEmailResponse {
+  User user = 1;
+}
+
+message UpdateUserRequest {
+  string user_id = 1;
+  optional PlanTier plan_tier = 2;
+  optional bool is_active = 3;
+}
+
+message UpdateUserResponse {
+  User user = 1;
+}
+
+message DeactivateUserRequest {
+  string user_id = 1;
+}
+
+message DeactivateUserResponse {
+  bool success = 1;
+}
+
+message AssignRoleRequest {
+  string user_id = 1;
+  Role role = 2;
+}
+
+message AssignRoleResponse {
+  bool success = 1;
+  User user = 2;
+}
+
+// api key management messages
+
+message CreateAPIKeyRequest {
+  string user_id = 1;
+  string name = 2;
+  repeated string scopes = 3;
+}
+
+message CreateAPIKeyResponse {
+  APIKey api_key = 1;
+  string plain_key = 2;  // only returned on creation
+}
+
+message GetAPIKeyRequest {
+  string api_key_id = 1;
+}
+
+message GetAPIKeyResponse {
+  APIKey api_key = 1;
+}
+
+message ValidateAPIKeyRequest {
+  string plain_key = 1;
+}
+
+message ValidateAPIKeyResponse {
+  bool valid = 1;
+  APIKey api_key = 2;
+}
+
+message ListUserAPIKeysRequest {
+  string user_id = 1;
+}
+
+message ListUserAPIKeysResponse {
+  repeated APIKey api_keys = 1;
+}
+
+message DeactivateAPIKeyRequest {
+  string api_key_id = 1;
+  string user_id = 2;
+}
+
+message DeactivateAPIKeyResponse {
+  bool success = 1;
+}
+
+message GetAPIKeyUsageRequest {
+  string api_key_id = 1;
+}
+
+message GetAPIKeyUsageResponse {
+  int32 current_minute_usage = 1;
+  int32 rate_limit_per_minute = 2;
+}
+
+// rate limiting messages
+
+message CheckRateLimitRequest {
+  string api_key_id = 1;
+}
+
+message CheckRateLimitResponse {
+  bool allowed = 1;
+  int32 remaining = 2;
+  int32 limit = 3;
+}
+
+message CheckUserRateLimitRequest {
+  string user_id = 1;
+}
+
+message CheckUserRateLimitResponse {
+  bool allowed = 1;
+  int32 remaining = 2;
+  int32 limit = 3;
+}
+
+// permission messages
+
+message CheckUserPermissionRequest {
+  string user_id = 1;
+  string required_scope = 2;
+}
+
+message CheckUserPermissionResponse {
+  bool has_permission = 1;
+}
+
+message CheckAPIKeyScopeRequest {
+  string api_key_id = 1;
+  string required_scope = 2;
+}
+
+message CheckAPIKeyScopeResponse {
+  bool has_scope = 1;
+}
