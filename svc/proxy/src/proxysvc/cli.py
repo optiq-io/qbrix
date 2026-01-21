@@ -28,9 +28,7 @@ from proxysvc.http.auth.operator import init_operators
 logger = logging.getLogger(__name__)
 
 
-async def init_services(
-    settings: ProxySettings,
-) -> tuple[ProxyService, AuthService, RedisClient]:
+async def init_services(settings: ProxySettings,) -> tuple[ProxyService, AuthService, RedisClient]:
     """initialize all services."""
     pg_settings = PostgresSettings(
         host=settings.postgres_host,
@@ -56,7 +54,6 @@ async def init_services(
     await proxy_service.start()
 
     auth_service = AuthService(redis)
-
     init_operators(auth_service)
 
     return proxy_service, auth_service, redis
@@ -101,17 +98,15 @@ async def _serve_http(settings: ProxySettings) -> None:
     proxy_service, auth_service, redis = await init_services(settings)
 
     from proxysvc.http.app import app
-    from proxysvc.http.router.pool import set_proxy_service as set_pool_service
-    from proxysvc.http.router.experiment import (
-        set_proxy_service as set_experiment_service,
-    )
-    from proxysvc.http.router.gate import set_proxy_service as set_gate_service
-    from proxysvc.http.router.agent import set_proxy_service as set_agent_service
+    from proxysvc.http.router.pool import set_proxy_service as set_pool_router
+    from proxysvc.http.router.experiment import set_proxy_service as set_experiment_router
+    from proxysvc.http.router.gate import set_proxy_service as set_gate_router
+    from proxysvc.http.router.agent import set_proxy_service as set_agent_router
 
-    set_pool_service(proxy_service)
-    set_experiment_service(proxy_service)
-    set_gate_service(proxy_service)
-    set_agent_service(proxy_service)
+    set_pool_router(proxy_service)
+    set_experiment_router(proxy_service)
+    set_gate_router(proxy_service)
+    set_agent_router(proxy_service)
 
     config = uvicorn.Config(
         app,

@@ -16,7 +16,6 @@ from dataclasses import dataclass
 
 class TokenError(Exception):
     """raised when token validation fails."""
-
     pass
 
 

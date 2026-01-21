@@ -26,6 +26,7 @@ class RedisSettings(BaseSettings):
     # Stream settings
     stream_name: str = "qbrix:feedback"
     consumer_group: str = "cortex"
+    stream_max_len: int = 1_000_000  # safety cap to prevent unbounded growth
 
     @property
     def url(self) -> str:

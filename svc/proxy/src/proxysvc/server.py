@@ -273,22 +273,18 @@ class ProxyGRPCServicer(proxy_pb2_grpc.ProxyServiceServicer):
         # parse schedule
         if proto.HasField("schedule"):
             if proto.schedule.start_timestamp_ms:
-                config["schedule_start"] = datetime.fromtimestamp(
-                    proto.schedule.start_timestamp_ms / 1000
-                )
+                config["schedule_start"] = datetime.fromtimestamp(proto.schedule.start_timestamp_ms / 1000)  # noqa
             if proto.schedule.end_timestamp_ms:
-                config["schedule_end"] = datetime.fromtimestamp(
-                    proto.schedule.end_timestamp_ms / 1000
-                )
+                config["schedule_end"] = datetime.fromtimestamp(proto.schedule.end_timestamp_ms / 1000)  # noqa
 
         # parse active hours
         if proto.HasField("active_hours"):
             if proto.active_hours.start:
                 h, m = map(int, proto.active_hours.start.split(":"))
-                config["active_hours_start"] = time(h, m)
+                config["active_hours_start"] = time(h, m)  # noqa
             if proto.active_hours.end:
                 h, m = map(int, proto.active_hours.end.split(":"))
-                config["active_hours_end"] = time(h, m)
+                config["active_hours_end"] = time(h, m)  # noqa
 
         # parse rules
         import json

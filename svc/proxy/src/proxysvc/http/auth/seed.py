@@ -32,7 +32,6 @@ async def seed_dev_user() -> Optional[tuple[User, str]]:
                 f"dev user already exists: {DEV_USER_EMAIL} (id: {existing_user.id})"
             )
 
-            # check if user has at least one API key
             api_keys = await auth_operator.get_user_api_keys(existing_user.id)
             if api_keys:
                 logger.info(f"dev user has {len(api_keys)} API key(s)")

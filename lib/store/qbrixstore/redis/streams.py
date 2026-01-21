@@ -62,7 +62,10 @@ class RedisStreamPublisher:
         if self._client is None:
             raise RuntimeError("Publisher not connected. Call connect() first.")
         message_id = await self._client.xadd(
-            self._settings.stream_name, event.to_dict()
+            self._settings.stream_name,
+            event.to_dict(),
+            maxlen=self._settings.stream_max_len,
+            approximate=True,
         )
         return message_id
 
@@ -123,6 +126,8 @@ class RedisStreamConsumer:
             await self._client.xack(
                 self._settings.stream_name, self._settings.consumer_group, *message_ids
             )
+            # delete acknowledged messages to prevent unbounded growth
+            await self._client.xdel(self._settings.stream_name, *message_ids)
 
     async def run(
         self,
