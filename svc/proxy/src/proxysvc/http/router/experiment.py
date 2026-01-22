@@ -2,13 +2,15 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter
-from fastapi import HTTPException
 from fastapi import status
 from fastapi import Depends
 from pydantic import BaseModel
 
 from proxysvc.http.auth.dependencies import get_current_user_id
 from proxysvc.http.auth.dependencies import require_scopes
+from proxysvc.http.exception import ExperimentNotFoundException
+from proxysvc.http.exception import ExperimentCreationException
+from proxysvc.http.exception import InternalServerException
 from proxysvc.service import ProxyService
 
 logger = logging.getLogger(__name__)
@@ -103,12 +105,11 @@ async def create_experiment(
             protocol_params=experiment.get("protocol_params", {}),
             enabled=experiment.get("enabled", True),
         )
+    except ExperimentCreationException:
+        raise
     except Exception as e:
         logger.error(f"experiment creation error: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="experiment creation failed",
-        )
+        raise ExperimentCreationException()
 
 
 @router.get(
@@ -126,10 +127,7 @@ async def get_experiment(
     experiment = await service.get_experiment(experiment_id)
 
     if experiment is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"experiment not found: {experiment_id}",
-        )
+        raise ExperimentNotFoundException(f"experiment not found: {experiment_id}")
 
     return ExperimentResponse(
         id=experiment["id"],
@@ -165,10 +163,7 @@ async def update_experiment(
         experiment = await service.update_experiment(experiment_id, **kwargs)
 
         if experiment is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"experiment not found: {experiment_id}",
-            )
+            raise ExperimentNotFoundException(f"experiment not found: {experiment_id}")
 
         logger.info(f"experiment updated: {experiment_id} by user {user_id}")
         return ExperimentResponse(
@@ -179,14 +174,11 @@ async def update_experiment(
             protocol_params=experiment.get("protocol_params", {}),
             enabled=experiment.get("enabled", True),
         )
-    except HTTPException:
+    except ExperimentNotFoundException:
         raise
     except Exception as e:
         logger.error(f"experiment update error: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="experiment update failed",
-        )
+        raise InternalServerException("experiment update failed")
 
 
 @router.delete(
@@ -203,10 +195,45 @@ async def delete_experiment(
     deleted = await service.delete_experiment(experiment_id)
 
     if not deleted:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"experiment not found: {experiment_id}",
-        )
+        raise ExperimentNotFoundException(f"experiment not found: {experiment_id}")
 
     logger.info(f"experiment deleted: {experiment_id} by user {user_id}")
     return {"message": "experiment deleted successfully"}
+
+
+class ExperimentListResponse(BaseModel):
+    experiments: list[ExperimentResponse]
+    limit: int
+    offset: int
+
+
+@router.get(
+    "",
+    status_code=status.HTTP_200_OK,
+    response_model=ExperimentListResponse,
+)
+async def list_experiments(
+    limit: int = 100,
+    offset: int = 0,
+    user_id: str = Depends(get_current_user_id),
+    _user=Depends(require_scopes(["experiment:read"])),
+):
+    """list all experiments with pagination."""
+    service = get_proxy_service()
+    experiments = await service.list_experiments(limit=limit, offset=offset)
+
+    return ExperimentListResponse(
+        experiments=[
+            ExperimentResponse(
+                id=exp["id"],
+                name=exp["name"],
+                pool_id=exp["pool_id"],
+                protocol=exp["protocol"],
+                protocol_params=exp.get("protocol_params", {}),
+                enabled=exp.get("enabled", True),
+            )
+            for exp in experiments
+        ],
+        limit=limit,
+        offset=offset,
+    )

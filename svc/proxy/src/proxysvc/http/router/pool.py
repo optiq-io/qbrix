@@ -3,13 +3,14 @@ from typing import List
 from typing import Optional
 
 from fastapi import APIRouter
-from fastapi import HTTPException
 from fastapi import status
 from fastapi import Depends
 from pydantic import BaseModel
 
 from proxysvc.http.auth.dependencies import get_current_user_id
 from proxysvc.http.auth.dependencies import require_scopes
+from proxysvc.http.exception import PoolNotFoundException
+from proxysvc.http.exception import PoolCreationException
 from proxysvc.service import ProxyService
 
 logger = logging.getLogger(__name__)
@@ -86,12 +87,11 @@ async def create_pool(
                 for arm in pool["arms"]
             ],
         )
+    except PoolCreationException:
+        raise
     except Exception as e:
         logger.error(f"pool creation error: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="pool creation failed",
-        )
+        raise PoolCreationException()
 
 
 @router.get(
@@ -109,10 +109,7 @@ async def get_pool(
     pool = await service.get_pool(pool_id)
 
     if pool is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"pool not found: {pool_id}",
-        )
+        raise PoolNotFoundException(f"pool not found: {pool_id}")
 
     return PoolResponse(
         id=pool["id"],
@@ -143,10 +140,50 @@ async def delete_pool(
     deleted = await service.delete_pool(pool_id)
 
     if not deleted:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"pool not found: {pool_id}",
-        )
+        raise PoolNotFoundException(f"pool not found: {pool_id}")
 
     logger.info(f"pool deleted: {pool_id} by user {user_id}")
     return {"message": "pool deleted successfully"}
+
+
+class PoolListResponse(BaseModel):
+    pools: List[PoolResponse]
+    limit: int
+    offset: int
+
+
+@router.get(
+    "",
+    status_code=status.HTTP_200_OK,
+    response_model=PoolListResponse,
+)
+async def list_pools(
+    limit: int = 100,
+    offset: int = 0,
+    user_id: str = Depends(get_current_user_id),
+    _user=Depends(require_scopes(["pool:read"])),
+):
+    """list all pools with pagination."""
+    service = get_proxy_service()
+    pools = await service.list_pools(limit=limit, offset=offset)
+
+    return PoolListResponse(
+        pools=[
+            PoolResponse(
+                id=pool["id"],
+                name=pool["name"],
+                arms=[
+                    ArmResponse(
+                        id=arm["id"],
+                        name=arm["name"],
+                        index=arm["index"],
+                        is_active=arm.get("is_active", True),
+                    )
+                    for arm in pool["arms"]
+                ],
+            )
+            for pool in pools
+        ],
+        limit=limit,
+        offset=offset,
+    )

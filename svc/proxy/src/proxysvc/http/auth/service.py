@@ -127,6 +127,13 @@ class AuthService:
             logger.info(f"assigned role {role} to user {user_id}")
             return self._user_to_dict(user)
 
+    async def list_users(self, limit: int = 100, offset: int = 0) -> list[dict]:
+        """list all users with pagination."""
+        async with get_session() as session:
+            repo = UserRepository(session)
+            users = await repo.list(limit=limit, offset=offset)
+            return [self._user_to_dict(user) for user in users]
+
     # api key management
 
     async def create_api_key(

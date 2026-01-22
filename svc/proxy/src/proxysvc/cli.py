@@ -153,17 +153,15 @@ async def serve_both(settings: ProxySettings) -> None:
 
     # http server setup
     from proxysvc.http.app import app
-    from proxysvc.http.router.pool import set_proxy_service as set_pool_service
-    from proxysvc.http.router.experiment import (
-        set_proxy_service as set_experiment_service,
-    )
-    from proxysvc.http.router.gate import set_proxy_service as set_gate_service
-    from proxysvc.http.router.agent import set_proxy_service as set_agent_service
+    from proxysvc.http.router.pool import set_proxy_service as init_pool_service
+    from proxysvc.http.router.experiment import set_proxy_service as init_experiment_service
+    from proxysvc.http.router.gate import set_proxy_service as init_gate_service
+    from proxysvc.http.router.agent import set_proxy_service as init_agent_service
 
-    set_pool_service(proxy_service)
-    set_experiment_service(proxy_service)
-    set_gate_service(proxy_service)
-    set_agent_service(proxy_service)
+    init_pool_service(proxy_service)
+    init_experiment_service(proxy_service)
+    init_gate_service(proxy_service)
+    init_agent_service(proxy_service)
 
     http_config = uvicorn.Config(
         app,

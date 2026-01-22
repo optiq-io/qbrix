@@ -4,7 +4,6 @@ from typing import Literal
 from typing import Optional
 
 from fastapi import APIRouter
-from fastapi import HTTPException
 from fastapi import status
 from fastapi import Depends
 from pydantic import BaseModel
@@ -15,6 +14,14 @@ from proxysvc.http.auth.operator import token_operator
 from proxysvc.http.auth.dependencies import get_current_user_id
 from proxysvc.http.auth.dependencies import get_current_user
 from proxysvc.http.auth.dependencies import require_admin_user
+from proxysvc.http.exception import UserAlreadyExistsException
+from proxysvc.http.exception import UnauthorizedException
+from proxysvc.http.exception import InternalServerException
+from proxysvc.http.exception import InvalidTokenException
+from proxysvc.http.exception import BadRequestException
+from proxysvc.http.exception import APIKeyLimitException
+from proxysvc.http.exception import NotFoundException
+from proxysvc.http.exception import UserNotFoundException
 
 logger = logging.getLogger(__name__)
 
@@ -112,13 +119,12 @@ async def register_user(body: UserRegisterRequest):
             is_active=user.is_active,
         )
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+        raise UserAlreadyExistsException(str(e))
+    except UserAlreadyExistsException:
+        raise
     except Exception as e:
         logger.error(f"registration error: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Registration failed",
-        )
+        raise InternalServerException("registration failed")
 
 
 @router.post("/login", status_code=status.HTTP_200_OK, response_model=LoginResponse)
@@ -126,9 +132,7 @@ async def login_user(body: UserLoginRequest):
     user = await auth_operator.authenticate_user(body.email, body.password)
 
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password"
-        )
+        raise UnauthorizedException("invalid email or password")
 
     access_token = token_operator.create_access_token(user)
     refresh_token = token_operator.create_refresh_token(user)
@@ -154,10 +158,7 @@ async def login_user(body: UserLoginRequest):
 async def refresh_access_token(body: RefreshTokenRequest):
     access_token = await token_operator.refresh_access_token(body.refresh_token)
     if not access_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired refresh token",
-        )
+        raise InvalidTokenException("invalid or expired refresh token")
     return RefreshTokenResponse(access_token=access_token)
 
 
@@ -167,7 +168,6 @@ async def refresh_access_token(body: RefreshTokenRequest):
 async def create_api_key(
     body: APIKeyCreateRequest, user_id: str = Depends(get_current_user_id)
 ):
-
     try:
         api_key, plain_key = await auth_operator.create_api_key(user_id, body.name)
 
@@ -182,20 +182,21 @@ async def create_api_key(
             is_active=api_key.is_active,
         )
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        error_msg = str(e)
+        if "limit" in error_msg.lower():
+            raise APIKeyLimitException(error_msg)
+        raise BadRequestException(error_msg)
+    except (APIKeyLimitException, BadRequestException):
+        raise
     except Exception as e:
         logger.error(f"api key creation error: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="API key creation failed",
-        )
+        raise InternalServerException("api key creation failed")
 
 
 @router.get(
     "/api-keys", status_code=status.HTTP_200_OK, response_model=List[APIKeyListResponse]
 )
 async def list_api_keys(user_id: str = Depends(get_current_user_id)):
-
     try:
         api_keys = await auth_operator.get_user_api_keys(user_id)
 
@@ -213,10 +214,7 @@ async def list_api_keys(user_id: str = Depends(get_current_user_id)):
         ]
     except Exception as e:
         logger.error(f"api key listing error: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve API keys",
-        )
+        raise InternalServerException("failed to retrieve api keys")
 
 
 @router.delete("/api-keys/{api_key_id}", status_code=status.HTTP_200_OK)
@@ -225,19 +223,14 @@ async def deactivate_api_key(
 ):
     api_key = await auth_operator.get_api_key(api_key_id)
     if not api_key or api_key.user_id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="API key not found or access denied",
-        )
+        raise NotFoundException("api key not found or access denied")
 
     success = await auth_operator.deactivate_api_key(api_key_id, user_id)
     if not success:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Failed to deactivate API key"
-        )
+        raise NotFoundException("failed to deactivate api key")
 
-    logger.info(f"API key deactivated: {api_key_id} by user {user_id}")
-    return {"message": "API key deactivated successfully"}
+    logger.info(f"api key deactivated: {api_key_id} by user {user_id}")
+    return {"message": "api key deactivated successfully"}
 
 
 @router.get(
@@ -250,20 +243,16 @@ async def get_api_key_usage(
 ):
     api_key = await auth_operator.get_api_key(api_key_id)
     if not api_key or api_key.user_id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="API key not found or access denied",
-        )
+        raise NotFoundException("api key not found or access denied")
 
     try:
         usage_stats = await auth_operator.get_api_key_usage(api_key)
         return UsageResponse(**usage_stats)
+    except NotFoundException:
+        raise
     except Exception as e:
         logger.error(f"usage stats error: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve usage statistics",
-        )
+        raise InternalServerException("failed to retrieve usage statistics")
 
 
 @router.get("/profile", status_code=status.HTTP_200_OK, response_model=UserResponse)
@@ -290,9 +279,7 @@ async def assign_role_to_user(
 ):
     success = await auth_operator.assign_role_to_user(user_id, body.role)
     if not success:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="user not found"
-        )
+        raise UserNotFoundException(f"user not found: {user_id}")
 
     logger.info(f"role {body.role} assigned to user {user_id}")
     return {"message": f"role {body.role} assigned successfully"}
@@ -319,3 +306,43 @@ async def list_roles():
             },
         ]
     }
+
+
+class UserListResponse(BaseModel):
+    users: List[UserResponse]
+    limit: int
+    offset: int
+
+
+@router.get(
+    "/users",
+    status_code=status.HTTP_200_OK,
+    response_model=UserListResponse,
+)
+async def list_users(
+    limit: int = 100,
+    offset: int = 0,
+    admin_user=Depends(require_admin_user),
+):
+    """list all users with pagination. admin only."""
+    try:
+        users = await auth_operator.list_users(limit=limit, offset=offset)
+
+        return UserListResponse(
+            users=[
+                UserResponse(
+                    id=user.id,
+                    email=user.email,
+                    plan_tier=user.plan_tier,
+                    role=user.role,
+                    created_at=user.created_at,
+                    is_active=user.is_active,
+                )
+                for user in users
+            ],
+            limit=limit,
+            offset=offset,
+        )
+    except Exception as e:
+        logger.error(f"user listing error: {str(e)}")
+        raise InternalServerException("failed to retrieve users")

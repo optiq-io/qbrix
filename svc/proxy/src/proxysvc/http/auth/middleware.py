@@ -1,13 +1,18 @@
 import logging
 import time
 from typing import Optional, Tuple
-from fastapi import Request, HTTPException, status
+from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
 from proxysvc.http.auth.operator import auth_operator, token_operator
 from proxysvc.http.auth.model import APIKey, User
 from proxysvc.http.auth.config import ENDPOINT_SCOPES
+from proxysvc.http.exception import BaseAPIException
+from proxysvc.http.exception import UnauthorizedException
+from proxysvc.http.exception import ForbiddenException
+from proxysvc.http.exception import RateLimitedException
+from proxysvc.http.exception import InsufficientScopesException
 from proxysvc.config import settings
 
 logger = logging.getLogger(__name__)
@@ -62,10 +67,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             if not await self._ensure_scoped_permission(
                 api_key, user, request.method, request.url.path
             ):
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="insufficient permissions for this operation",
-                )
+                raise InsufficientScopesException()
 
             request.state.api_key = api_key
             request.state.user_id = api_key.user_id if api_key else user.id
@@ -85,18 +87,18 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
             return response
 
-        except HTTPException as e:
+        except BaseAPIException as e:
             logger.warning(
                 f"auth failed: {request.method} {request.url.path} | "
                 f"ip: {request.client.host if request.client else 'unknown'} | "
                 f"error: {e.detail}"
             )
-            return JSONResponse(status_code=e.status_code, content={"error": e.detail})
+            return JSONResponse(status_code=e.status_code, content=e.to_dict())
         except Exception as e:
             logger.error(f"auth middleware error: {str(e)}")
             return JSONResponse(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                content={"error": "internal server error"},
+                status_code=500,
+                content={"detail": "internal server error"},
             )
 
     def _is_public_path(self, path: str) -> bool:
@@ -118,32 +120,26 @@ class AuthMiddleware(BaseHTTPMiddleware):
             api_key = await auth_operator.validate_api_key(api_key_header)
             if api_key:
                 if not await auth_operator.check_rate_limit(api_key):
-                    raise HTTPException(
-                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                        detail=f"Rate limit exceeded: {api_key.rate_limit_per_minute} requests per minute",
+                    raise RateLimitedException(
+                        f"rate limit exceeded: {api_key.rate_limit_per_minute} requests per minute"
                     )
 
                 user = await auth_operator.get_user(api_key.user_id)
                 if not user or not user.is_active:
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="User account is inactive",
-                    )
+                    raise UnauthorizedException("user account is inactive")
 
                 return api_key, user
 
         auth_header = request.headers.get("Authorization")
 
         if not auth_header:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication required. Provide X-API-Key header or Bearer token.",
+            raise UnauthorizedException(
+                "authentication required - provide x-api-key header or bearer token"
             )
 
         if not auth_header.startswith("Bearer "):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authorization header format. Use 'Bearer <token>' or 'X-API-Key: <key>'",
+            raise UnauthorizedException(
+                "invalid authorization header format - use 'bearer <token>' or 'x-api-key: <key>'"
             )
 
         token = auth_header[7:]  # remove "Bearer " prefix
@@ -152,38 +148,27 @@ class AuthMiddleware(BaseHTTPMiddleware):
             api_key = await auth_operator.validate_api_key(token)
             if api_key:
                 if not await auth_operator.check_rate_limit(api_key):
-                    raise HTTPException(
-                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                        detail=f"Rate limit exceeded: {api_key.rate_limit_per_minute} requests per minute",
+                    raise RateLimitedException(
+                        f"rate limit exceeded: {api_key.rate_limit_per_minute} requests per minute"
                     )
 
                 user = await auth_operator.get_user(api_key.user_id)
                 if not user or not user.is_active:
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="User account is inactive",
-                    )
+                    raise UnauthorizedException("user account is inactive")
 
                 return api_key, user
 
         user_id = token_operator.get_user_id_from_token(token)
         if not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired authentication token",
-            )
+            raise UnauthorizedException("invalid or expired authentication token")
 
         user = await auth_operator.get_user(user_id)
         if not user or not user.is_active:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User account is inactive or not found",
-            )
+            raise UnauthorizedException("user account is inactive or not found")
 
         if not await auth_operator.check_user_rate_limit(user):
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Rate limit exceeded. Consider using an API key for higher limits.",
+            raise RateLimitedException(
+                "rate limit exceeded - consider using an api key for higher limits"
             )
 
         return None, user

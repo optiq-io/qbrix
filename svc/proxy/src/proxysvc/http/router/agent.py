@@ -2,13 +2,14 @@ import logging
 from typing import Optional, List, Union
 
 from fastapi import APIRouter
-from fastapi import HTTPException
 from fastapi import status
 from fastapi import Depends
 from pydantic import BaseModel
 
 from proxysvc.http.auth.dependencies import get_current_user_id
 from proxysvc.http.auth.dependencies import require_scopes
+from proxysvc.http.exception import SelectionException
+from proxysvc.http.exception import FeedbackException
 from proxysvc.service import ProxyService
 
 logger = logging.getLogger(__name__)
@@ -58,9 +59,7 @@ async def agent_select(
     user_id: str = Depends(get_current_user_id),  # noqa
     _user=Depends(require_scopes(["agent:read"])),
 ):
-
     try:
-
         service = get_proxy_service()
 
         response = await service.select(
@@ -73,12 +72,11 @@ async def agent_select(
         logger.info(f"agent selected for experiment: {body.experiment_id}")
 
         return response
+    except SelectionException:
+        raise
     except Exception as e:
         logger.error(f"agent select: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="agent select operation failed.",
-        )
+        raise SelectionException()
 
 
 @router.post(
@@ -90,7 +88,6 @@ async def agent_feedback(
     user_id: str = Depends(get_current_user_id),  # noqa
     _user=Depends(require_scopes(["agent:write"])),
 ):
-
     try:
         service = get_proxy_service()
         accepted = await service.feed(
@@ -99,9 +96,8 @@ async def agent_feedback(
         )
         logger.info(f"agent feedback received for request: {body.request_id}")
         return {"accepted": accepted}
+    except FeedbackException:
+        raise
     except Exception as e:
         logger.error(f"agent feed: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="agent feed operation failed.",
-        )
+        raise FeedbackException()

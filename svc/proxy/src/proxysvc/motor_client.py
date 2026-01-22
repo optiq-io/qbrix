@@ -1,8 +1,12 @@
+import logging
 from typing import Union, List
 
 import grpc
 
 from qbrixproto import common_pb2, motor_pb2, motor_pb2_grpc
+
+
+logger = logging.getLogger(__name__)
 
 
 class MotorClient:
@@ -12,8 +16,10 @@ class MotorClient:
         self._stub: motor_pb2_grpc.MotorServiceStub | None = None
 
     async def connect(self) -> None:
+        logger.debug('motor client connecting.')
         self._channel = grpc.aio.insecure_channel(self._address)
         self._stub = motor_pb2_grpc.MotorServiceStub(self._channel)
+        logger.debug('motor client connected.')
 
     async def close(self) -> None:
         if self._channel:

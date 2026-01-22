@@ -4,13 +4,15 @@ from typing import List
 from typing import Any
 
 from fastapi import APIRouter
-from fastapi import HTTPException
 from fastapi import status
 from fastapi import Depends
 from pydantic import BaseModel
 
 from proxysvc.http.auth.dependencies import get_current_user_id
 from proxysvc.http.auth.dependencies import require_scopes
+from proxysvc.http.exception import GateNotFoundException
+from proxysvc.http.exception import ExperimentNotFoundException
+from proxysvc.http.exception import InternalServerException
 from proxysvc.service import ProxyService
 
 logger = logging.getLogger(__name__)
@@ -94,10 +96,7 @@ async def create_gate_config(
         result = await service.create_gate_config(experiment_id, config)
 
         if result is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"experiment not found: {experiment_id}",
-            )
+            raise ExperimentNotFoundException(f"experiment not found: {experiment_id}")
 
         logger.info(
             f"gate config created for experiment: {experiment_id} by user {user_id}"
@@ -110,14 +109,11 @@ async def create_gate_config(
             ),
             version=result.get("version", 1),
         )
-    except HTTPException:
+    except ExperimentNotFoundException:
         raise
     except Exception as e:
         logger.error(f"gate config creation error: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="gate config creation failed",
-        )
+        raise InternalServerException("gate config creation failed")
 
 
 @router.get(
@@ -135,9 +131,8 @@ async def get_gate_config(
     result = await service.get_gate_config(experiment_id)
 
     if result is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"gate config not found for experiment: {experiment_id}",
+        raise GateNotFoundException(
+            f"gate config not found for experiment: {experiment_id}"
         )
 
     return GateConfigResponse(
@@ -182,9 +177,8 @@ async def update_gate_config(
         result = await service.update_gate_config(experiment_id, config)
 
         if result is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"gate config not found for experiment: {experiment_id}",
+            raise GateNotFoundException(
+                f"gate config not found for experiment: {experiment_id}"
             )
 
         logger.info(
@@ -198,14 +192,11 @@ async def update_gate_config(
             ),
             version=result.get("version", 1),
         )
-    except HTTPException:
+    except GateNotFoundException:
         raise
     except Exception as e:
         logger.error(f"gate config update error: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="gate config update failed",
-        )
+        raise InternalServerException("gate config update failed")
 
 
 @router.delete(
@@ -222,9 +213,8 @@ async def delete_gate_config(
     deleted = await service.delete_gate_config(experiment_id)
 
     if not deleted:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"gate config not found for experiment: {experiment_id}",
+        raise GateNotFoundException(
+            f"gate config not found for experiment: {experiment_id}"
         )
 
     logger.info(

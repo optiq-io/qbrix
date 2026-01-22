@@ -76,6 +76,12 @@ class ProxyService:
                 return None
             return self._pool_to_dict(pool)
 
+    async def list_pools(self, limit: int = 100, offset: int = 0) -> list[dict]:
+        async with get_session() as session:
+            repo = PoolRepository(session)
+            pools = await repo.list(limit=limit, offset=offset)
+            return [self._pool_to_dict(pool) for pool in pools]
+
     @staticmethod
     async def delete_pool(pool_id: str) -> bool:
         async with get_session() as session:
@@ -122,6 +128,12 @@ class ProxyService:
             if experiment is None:
                 return None
             return self._experiment_to_dict(experiment)
+
+    async def list_experiments(self, limit: int = 100, offset: int = 0) -> list[dict]:
+        async with get_session() as session:
+            repo = ExperimentRepository(session)
+            experiments = await repo.list(limit=limit, offset=offset)
+            return [self._experiment_to_dict(exp) for exp in experiments]
 
     async def update_experiment(self, experiment_id: str, **kwargs) -> dict | None:
         async with get_session() as session:

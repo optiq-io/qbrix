@@ -58,6 +58,17 @@ class PoolRepository:
         await self._session.flush()
         return True
 
+    async def list(self, limit: int = 100, offset: int = 0) -> list[Pool]:
+        stmt = (
+            select(Pool)
+            .options(selectinload(Pool.arms))
+            .order_by(Pool.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        response = await self._session.execute(stmt)
+        return list(response.scalars().all())
+
 
 class ExperimentRepository:
     def __init__(self, session: AsyncSession):
@@ -142,6 +153,20 @@ class ExperimentRepository:
         await self._session.delete(experiment)
         await self._session.flush()
         return True
+
+    async def list(self, limit: int = 100, offset: int = 0) -> list[Experiment]:
+        stmt = (
+            select(Experiment)
+            .options(
+                selectinload(Experiment.pool).selectinload(Pool.arms),
+                selectinload(Experiment.feature_gate),
+            )
+            .order_by(Experiment.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        response = await self._session.execute(stmt)
+        return list(response.scalars().all())
 
 
 class FeatureGateRepository:
@@ -306,6 +331,17 @@ class UserRepository:
         await self._session.delete(user)
         await self._session.flush()
         return True
+
+    async def list(self, limit: int = 100, offset: int = 0) -> list[User]:
+        stmt = (
+            select(User)
+            .options(selectinload(User.api_keys))
+            .order_by(User.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        response = await self._session.execute(stmt)
+        return list(response.scalars().all())
 
 
 class APIKeyRepository:

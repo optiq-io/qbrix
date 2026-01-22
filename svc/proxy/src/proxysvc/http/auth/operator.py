@@ -117,6 +117,11 @@ class AuthOperator:
         result = await self._service.assign_role(user_id, role)
         return result is not None
 
+    async def list_users(self, limit: int = 100, offset: int = 0) -> list:
+        """list all users with pagination."""
+        users = await self._service.list_users(limit=limit, offset=offset)
+        return [_UserWrapper(u) for u in users]
+
     async def user_has_permission(self, user_id: str, required_scope: str) -> bool:
         """check if user has required scope."""
         return await self._service.check_user_permission(user_id, required_scope)

@@ -2,14 +2,16 @@ import logging
 import time
 from typing import List
 
-from fastapi import HTTPException
-from fastapi import status
 from fastapi import Request
 from fastapi import Depends
 
 from proxysvc.http.auth.operator import auth_operator
 from proxysvc.http.auth.operator import token_operator
-from proxysvc.http.auth.operator import _UserWrapper
+from proxysvc.http.exception import UnauthorizedException
+from proxysvc.http.exception import ForbiddenException
+from proxysvc.http.exception import UserNotFoundException
+from proxysvc.http.exception import InvalidTokenException
+from proxysvc.http.exception import InsufficientScopesException
 from proxysvc.config import settings
 
 logger = logging.getLogger(__name__)
@@ -22,25 +24,18 @@ async def get_current_user_id(request: Request) -> str:
 
     auth_header = request.headers.get("Authorization")
     if not auth_header:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="authentication required - provide API key or JWT token",
+        raise UnauthorizedException(
+            "authentication required - provide api key or jwt token"
         )
 
     if not auth_header.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="invalid authorization header format",
-        )
+        raise UnauthorizedException("invalid authorization header format")
 
     token = auth_header[7:]
     user_id = token_operator.get_user_id_from_token(token)
 
     if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="invalid or expired JWT token",
-        )
+        raise InvalidTokenException("invalid or expired jwt token")
 
     return user_id
 
@@ -64,27 +59,21 @@ async def get_current_user(user_id: str = Depends(get_current_user_id)):
 
     user = await auth_operator.get_user(user_id)
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="user not found"
-        )
+        raise UserNotFoundException()
     return user
 
 
 async def get_current_active_user(user=Depends(get_current_user)):
     """ensure current user is active."""
     if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="user account is inactive"
-        )
+        raise ForbiddenException("user account is inactive")
     return user
 
 
 async def require_admin_user(user=Depends(get_current_active_user)):
     """require admin role."""
     if user.role != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="admin role required"
-        )
+        raise ForbiddenException("admin role required")
     return user
 
 
@@ -92,10 +81,7 @@ async def require_member_or_above(user=Depends(get_current_active_user)):
     """require member or admin role."""
     allowed_roles = {"admin", "member"}
     if user.role not in allowed_roles:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="member role or above required",
-        )
+        raise ForbiddenException("member role or above required")
     return user
 
 
@@ -107,9 +93,8 @@ def require_scopes(required_scopes: List[str]):
 
         for scope in required_scopes:
             if scope not in user_scopes:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"required scope '{scope}' not available",
+                raise InsufficientScopesException(
+                    f"required scope '{scope}' not available"
                 )
         return user
 
@@ -123,9 +108,8 @@ def require_any_scope(required_scopes: List[str]):
         user_scopes = auth_operator.get_scopes_for_role(user.role)
 
         if not any(scope in user_scopes for scope in required_scopes):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"at least one of these scopes required: {', '.join(required_scopes)}",
+            raise InsufficientScopesException(
+                f"at least one of these scopes required: {', '.join(required_scopes)}"
             )
         return user
 

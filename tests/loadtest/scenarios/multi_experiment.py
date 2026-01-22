@@ -71,20 +71,18 @@ class MultiExperimentUser(User):
         self._release_experiment()
 
     def _assign_experiment(self) -> None:
-        """assign this user to an experiment with capacity."""
+        """assign this user to an experiment using round-robin."""
         with MultiExperimentUser._assignment_lock:
-            # find experiment with available capacity
-            for exp in MultiExperimentUser.experiments:
-                if exp.user_count < settings.max_users_per_experiment:
-                    exp.user_count += 1
-                    self.assigned_experiment = exp
-                    return
+            if not MultiExperimentUser.experiments:
+                return
 
-            # if all at capacity, assign to least loaded
-            if MultiExperimentUser.experiments:
-                exp = min(MultiExperimentUser.experiments, key=lambda e: e.user_count)
-                exp.user_count += 1
-                self.assigned_experiment = exp
+            # round-robin assignment for even distribution
+            idx = MultiExperimentUser._user_counter % len(MultiExperimentUser.experiments)
+            MultiExperimentUser._user_counter += 1
+
+            exp = MultiExperimentUser.experiments[idx]
+            exp.user_count += 1
+            self.assigned_experiment = exp
 
     def _release_experiment(self) -> None:
         """release user slot from assigned experiment."""

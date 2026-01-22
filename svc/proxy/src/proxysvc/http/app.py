@@ -11,7 +11,7 @@ from proxysvc.http.router.experiment import router as experiment_router
 from proxysvc.http.router.pool import router as pool_router
 from proxysvc.http.router.auth import router as auth_router
 from proxysvc.http.router.gate import router as gate_router
-from proxysvc.http.exception.base import BaseProxyAPIException, BaseEngineException
+from proxysvc.http.exception import BaseAPIException
 
 from proxysvc.http.auth.middleware import AuthMiddleware
 from proxysvc.http.auth.seed import seed_dev_user
@@ -64,7 +64,7 @@ async def lifespan(application: FastAPI):  # noqa
 
 
 app = FastAPI(
-    title="Optiq API",
+    title="qbrix API",
     version="0.1.0",
     description="Multi-Armed Bandit Optimization Platform",
     lifespan=lifespan,
@@ -130,25 +130,14 @@ async def logger_middleware(request: Request, call_next):
     return response
 
 
-@app.exception_handler(BaseProxyAPIException)
-async def handle_proxy_pod_errors(request: Request, exc: BaseProxyAPIException):
+@app.exception_handler(BaseAPIException)
+async def handle_api_exception(request: Request, exc: BaseAPIException):
     logger.error(
-        f"proxy pod error: {exc.detail}, status code: {exc.status_code} on method request: {request.url.path}"
+        f"api error: {exc.detail}, status code: {exc.status_code}, path: {request.url.path}"
     )
     return JSONResponse(
         status_code=exc.status_code,
-        content={"detail": exc.detail},
-    )
-
-
-@app.exception_handler(BaseEngineException)
-async def handle_engine_errors(request: Request, exc: BaseEngineException):
-    logger.error(
-        f"engine error: {exc.detail}, status code: {exc.status_code} on method request: {request.url.path}"
-    )
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"detail": exc.detail},
+        content=exc.to_dict(),
     )
 
 
