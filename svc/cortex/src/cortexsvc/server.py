@@ -4,10 +4,14 @@ from concurrent import futures
 import grpc
 from grpc_reflection.v1alpha import reflection
 
-from qbrixproto import common_pb2, cortex_pb2, cortex_pb2_grpc
+from qbrixlog import get_logger
+from qbrixproto import common_pb2, cortex_pb2_grpc
+from qbrixproto import cortex_pb2
 
 from cortexsvc.config import CortexSettings
 from cortexsvc.service import CortexService
+
+logger = get_logger(__name__)
 
 
 class CortexGRPCServicer(cortex_pb2_grpc.CortexServiceServicer):
@@ -19,6 +23,7 @@ class CortexGRPCServicer(cortex_pb2_grpc.CortexServiceServicer):
             count = await self._service.flush_batch(request.experiment_id or None)
             return cortex_pb2.FlushBatchResponse(events_processed=count)
         except Exception as e:
+            logger.error("flush batch failed: %s", e)
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(str(e))
             return cortex_pb2.FlushBatchResponse(events_processed=0)
@@ -69,7 +74,7 @@ async def serve(settings: CortexSettings | None = None) -> None:
     listen_addr = f"{settings.grpc_host}:{settings.grpc_port}"
     server.add_insecure_port(listen_addr)
 
-    print(f"Starting Cortex gRPC server on {listen_addr}")
+    logger.info("starting cortex grpc server on %s", listen_addr)
     await server.start()
 
     consumer_task = asyncio.create_task(service.run_consumer())
@@ -77,6 +82,7 @@ async def serve(settings: CortexSettings | None = None) -> None:
     try:
         await server.wait_for_termination()
     finally:
+        logger.info("shutting down cortex grpc server")
         consumer_task.cancel()
         await service.stop()
         await server.stop(grace=5)

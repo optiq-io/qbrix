@@ -3,10 +3,14 @@ from concurrent import futures
 import grpc
 from grpc_reflection.v1alpha import reflection
 
-from qbrixproto import common_pb2, motor_pb2, motor_pb2_grpc
+from qbrixlog import get_logger
+from qbrixproto import common_pb2, motor_pb2_grpc
+from qbrixproto import motor_pb2
 
 from motorsvc.config import MotorSettings
 from motorsvc.service import MotorService
+
+logger = get_logger(__name__)
 
 
 class MotorGRPCServicer(motor_pb2_grpc.MotorServiceServicer):
@@ -30,10 +34,12 @@ class MotorGRPCServicer(motor_pb2_grpc.MotorServiceServicer):
                 request_id=result["request_id"],
             )
         except ValueError as e:
+            logger.warning("experiment not found: %s", request.experiment_id)
             context.set_code(grpc.StatusCode.NOT_FOUND)
             context.set_details(str(e))
             return motor_pb2.SelectResponse()
         except Exception as e:
+            logger.error("selection failed for experiment %s: %s", request.experiment_id, e)
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(str(e))
             return motor_pb2.SelectResponse()
@@ -70,11 +76,12 @@ async def serve(settings: MotorSettings | None = None) -> None:
     listen_addr = f"{settings.grpc_host}:{settings.grpc_port}"
     server.add_insecure_port(listen_addr)
 
-    print(f"Starting Motor gRPC server on {listen_addr}")
+    logger.info("starting motor grpc server on %s", listen_addr)
     await server.start()
 
     try:
         await server.wait_for_termination()
     finally:
+        logger.info("shutting down motor grpc server")
         await service.stop()
         await server.stop(grace=5)

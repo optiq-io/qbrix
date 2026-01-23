@@ -655,6 +655,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "qbrixcore" },
+    { name = "qbrixlog" },
     { name = "qbrixproto" },
     { name = "qbrixstore" },
 ]
@@ -677,6 +678,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.12.3" },
     { name = "pydantic-settings", specifier = ">=2.12.0" },
     { name = "qbrixcore", editable = "lib/core" },
+    { name = "qbrixlog", editable = "lib/log" },
     { name = "qbrixproto", editable = "lib/proto" },
     { name = "qbrixstore", editable = "lib/store" },
 ]
@@ -1423,6 +1425,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "qbrixcore" },
+    { name = "qbrixlog" },
     { name = "qbrixproto" },
     { name = "qbrixstore" },
 ]
@@ -1446,6 +1449,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.12.3" },
     { name = "pydantic-settings", specifier = ">=2.12.0" },
     { name = "qbrixcore", editable = "lib/core" },
+    { name = "qbrixlog", editable = "lib/log" },
     { name = "qbrixproto", editable = "lib/proto" },
     { name = "qbrixstore", editable = "lib/store" },
 ]
@@ -1781,6 +1785,7 @@ dependencies = [
     { name = "pydantic", extra = ["email"] },
     { name = "pydantic-settings" },
     { name = "python-jose" },
+    { name = "qbrixlog" },
     { name = "qbrixproto" },
     { name = "qbrixstore" },
     { name = "uvicorn" },
@@ -1807,6 +1812,7 @@ requires-dist = [
     { name = "pydantic", extras = ["email"], specifier = ">=2.12.3" },
     { name = "pydantic-settings", specifier = ">=2.12.0" },
     { name = "python-jose", specifier = ">=3.5.0" },
+    { name = "qbrixlog", editable = "lib/log" },
     { name = "qbrixproto", editable = "lib/proto" },
     { name = "qbrixstore", editable = "lib/store" },
     { name = "uvicorn", specifier = ">=0.40.0" },
@@ -2354,6 +2360,20 @@ dev = [
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "pytest-cov", specifier = ">=6.0.0" },
     { name = "pytest-mock", specifier = ">=3.14.1" },
+]
+
+[[package]]
+name = "qbrixlog"
+version = "0.1.0a0"
+source = { editable = "lib/log" }
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "black", specifier = ">=24.0.0" },
+    { name = "pytest", specifier = ">=8.3.5" },
+    { name = "pytest-cov", specifier = ">=6.0.0" },
 ]
 
 [[package]]

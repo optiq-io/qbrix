@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import grpc
 
-from qbrixproto import auth_pb2
-from qbrixproto import auth_pb2_grpc
+from qbrixproto import auth_pb2, auth_pb2_grpc
 
 from proxysvc.http.auth.service import AuthService
 

@@ -57,6 +57,8 @@ services:
       PROXY_JWT_ALGORITHM: "HS256"
       PROXY_JWT_ACCESS_TOKEN_EXPIRE_MINUTES: "30"
       PROXY_JWT_REFRESH_TOKEN_EXPIRE_DAYS: "7"
+      PROXY_LOG_LEVEL: "INFO"
+      LOG_FORMAT: "json"
     depends_on:
       postgres:
         condition: service_healthy
@@ -74,6 +76,8 @@ services:
       MOTOR_GRPC_PORT: "50051"
       MOTOR_REDIS_HOST: redis
       MOTOR_REDIS_PORT: "6379"
+      MOTOR_LOG_LEVEL: "WARNING"
+      LOG_FORMAT: "json"
     depends_on:
       redis:
         condition: service_healthy
@@ -92,6 +96,8 @@ services:
       CORTEX_REDIS_HOST: redis
       CORTEX_REDIS_PORT: "6379"
       CORTEX_CONSUMER_NAME: "worker-0"
+      CORTEX_LOG_LEVEL: "INFO"
+      LOG_FORMAT: "json"
     depends_on:
       redis:
         condition: service_healthy

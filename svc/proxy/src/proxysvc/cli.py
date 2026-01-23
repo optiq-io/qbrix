@@ -1,5 +1,4 @@
 import asyncio
-import logging
 from concurrent import futures
 
 import click
@@ -7,10 +6,10 @@ import grpc
 import uvicorn
 from grpc_reflection.v1alpha import reflection
 
-from qbrixproto import proxy_pb2
-from qbrixproto import proxy_pb2_grpc
+from qbrixlog import configure_logging
+from qbrixlog import get_logger
+from qbrixproto import proxy_pb2, proxy_pb2_grpc, auth_pb2_grpc
 from qbrixproto import auth_pb2
-from qbrixproto import auth_pb2_grpc
 
 from qbrixstore.postgres.session import init_db
 from qbrixstore.postgres.session import create_tables
@@ -25,7 +24,7 @@ from proxysvc.http.auth.service import AuthService
 from proxysvc.http.auth.server import AuthGRPCServicer
 from proxysvc.http.auth.operator import init_operators
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 async def init_services(settings: ProxySettings,) -> tuple[ProxyService, AuthService, RedisClient]:
@@ -82,7 +81,7 @@ async def _serve_grpc(settings: ProxySettings) -> None:
     listen_addr = f"{settings.grpc_host}:{settings.grpc_port}"
     server.add_insecure_port(listen_addr)
 
-    logger.info(f"starting proxy grpc server on {listen_addr}")
+    logger.info("starting proxy grpc server on %s", listen_addr)
     await server.start()
 
     try:
@@ -112,12 +111,12 @@ async def _serve_http(settings: ProxySettings) -> None:
         app,
         host=settings.http_host,
         port=settings.http_port,
-        log_level="info",
+        log_level="warning",
     )
     server = uvicorn.Server(config)
 
     logger.info(
-        f"starting proxy http server on {settings.http_host}:{settings.http_port}"
+        "starting proxy http server on %s:%s", settings.http_host, settings.http_port
     )
 
     try:
@@ -131,7 +130,6 @@ async def serve_both(settings: ProxySettings) -> None:
     """start both grpc and http servers concurrently."""
     proxy_service, auth_service, redis = await init_services(settings)
 
-    # grpc server setup
     grpc_server = grpc.aio.server(futures.ThreadPoolExecutor(max_workers=10))
 
     proxy_pb2_grpc.add_ProxyServiceServicer_to_server(
@@ -151,7 +149,6 @@ async def serve_both(settings: ProxySettings) -> None:
     grpc_addr = f"{settings.grpc_host}:{settings.grpc_port}"
     grpc_server.add_insecure_port(grpc_addr)
 
-    # http server setup
     from proxysvc.http.app import app
     from proxysvc.http.router.pool import set_proxy_service as init_pool_service
     from proxysvc.http.router.experiment import set_proxy_service as init_experiment_service
@@ -167,13 +164,13 @@ async def serve_both(settings: ProxySettings) -> None:
         app,
         host=settings.http_host,
         port=settings.http_port,
-        log_level="info",
+        log_level="warning",
     )
     http_server = uvicorn.Server(http_config)
 
-    logger.info(f"starting proxy grpc server on {grpc_addr}")
+    logger.info("starting proxy grpc server on %s", grpc_addr)
     logger.info(
-        f"starting proxy http server on {settings.http_host}:{settings.http_port}"
+        "starting proxy http server on %s:%s", settings.http_host, settings.http_port
     )
 
     await grpc_server.start()
@@ -189,10 +186,7 @@ async def serve_both(settings: ProxySettings) -> None:
 @click.group()
 def cli():
     """proxy service cli."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
+    configure_logging("proxy")
 
 
 @cli.command()

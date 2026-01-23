@@ -17,6 +17,7 @@ COPY pyproject.toml uv.lock ./
 COPY lib/core lib/core
 COPY lib/store lib/store
 COPY lib/proto lib/proto
+COPY lib/log lib/log
 
 # copy service
 COPY svc/cortex svc/cortex

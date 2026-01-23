@@ -16,6 +16,7 @@ COPY pyproject.toml uv.lock ./
 # copy lib dependencies (required by tool.uv.sources)
 COPY lib/store lib/store
 COPY lib/proto lib/proto
+COPY lib/log lib/log
 
 # copy service
 COPY svc/proxy svc/proxy

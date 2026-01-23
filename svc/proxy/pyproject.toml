@@ -14,6 +14,7 @@ dependencies = [
     "pydantic-settings>=2.12.0",
     "qbrixstore==0.1.0a0",
     "qbrixproto==0.1.0a0",
+    "qbrixlog==0.1.0a0",
     "fastapi>=0.128.0",
     "uvicorn>=0.40.0",
     "python-jose>=3.5.0",
@@ -35,6 +36,7 @@ prerelease = "if-necessary-or-explicit"
 [tool.uv.sources]
 qbrixstore = { path = "../../lib/store", editable = true }
 qbrixproto = { path = "../../lib/proto", editable = true }
+qbrixlog = { path = "../../lib/log", editable = true }
 
 [[tool.uv.index]]
 name = "envelope"

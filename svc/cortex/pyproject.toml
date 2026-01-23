@@ -14,6 +14,7 @@ dependencies = [
     "qbrixcore==0.1.0a0",
     "qbrixstore==0.1.0a0",
     "qbrixproto==0.1.0a0",
+    "qbrixlog==0.1.0a0",
 ]
 
 [dependency-groups]
@@ -32,6 +33,7 @@ prerelease = "if-necessary-or-explicit"
 qbrixcore = { path = "../../lib/core", editable = true }
 qbrixstore = { path = "../../lib/store", editable = true }
 qbrixproto = { path = "../../lib/proto", editable = true }
+qbrixlog = { path = "../../lib/log", editable = true }
 
 [[tool.uv.index]]
 name = "envelope"

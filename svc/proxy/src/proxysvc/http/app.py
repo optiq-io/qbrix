@@ -1,10 +1,11 @@
-import logging.config
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+
+from qbrixlog import get_logger
 
 from proxysvc.http.router.agent import router as agent_router
 from proxysvc.http.router.experiment import router as experiment_router
@@ -19,44 +20,18 @@ from proxysvc.config import settings
 
 __all__ = ["app"]
 
-
-def configure_logging(log_level=logging.INFO):
-    log_config = {
-        "version": 1,
-        "disable_existing_loggers": False,
-        "formatters": {
-            "default": {
-                "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            },
-        },
-        "handlers": {
-            "console": {
-                "class": "logging.StreamHandler",
-                "formatter": "default",
-            },
-        },
-        "root": {
-            "level": log_level,
-            "handlers": ["console"],
-        },
-    }
-    logging.config.dictConfig(log_config)
-
-
-configure_logging()
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(application: FastAPI):  # noqa
-    logger.info("proxy http server initializing...")
+async def lifespan(application: FastAPI):
+    logger.info("proxy http server initializing")
 
-    # seed dev user in dev mode
     if settings.runenv == "dev":
         try:
             await seed_dev_user()
         except Exception as e:
-            logger.warning(f"failed to seed dev user: {e}")
+            logger.warning("failed to seed dev user: %s", e)
 
     logger.info("proxy http server initialized")
     yield
@@ -83,7 +58,7 @@ def custom_openapi():
         version=app.version,
         description=app.description,
         routes=app.routes,
-    )  # noqa
+    )
 
     openapi_schema["components"]["securitySchemes"] = {
         "APIKeyHeader": {
@@ -123,17 +98,11 @@ app.include_router(gate_router, prefix="/api/v1")
 app.include_router(agent_router, prefix="/api/v1")
 
 
-@app.middleware("http")
-async def logger_middleware(request: Request, call_next):
-    logger.info("processing request: %s %s", request.method, request.url.path)
-    response = await call_next(request)
-    return response
-
-
 @app.exception_handler(BaseAPIException)
 async def handle_api_exception(request: Request, exc: BaseAPIException):
     logger.error(
-        f"api error: {exc.detail}, status code: {exc.status_code}, path: {request.url.path}"
+        "api error: %s, status code: %s, path: %s",
+        exc.detail, exc.status_code, request.url.path
     )
     return JSONResponse(
         status_code=exc.status_code,

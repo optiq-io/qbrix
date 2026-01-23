@@ -1,12 +1,16 @@
 import asyncio
+import time
 from collections import defaultdict
 
+from qbrixlog import get_logger
 from qbrixstore.redis.client import RedisClient
 from qbrixstore.redis.streams import RedisStreamConsumer
 from qbrixstore.config import RedisSettings
 
 from cortexsvc.config import CortexSettings
 from cortexsvc.trainer import BatchTrainer
+
+logger = get_logger(__name__)
 
 
 class CortexService:
@@ -31,11 +35,13 @@ class CortexService:
         )
         self._redis = RedisClient(redis_settings)
         await self._redis.connect()
+        logger.info("connected to redis at %s:%s", self._settings.redis_host, self._settings.redis_port)
 
         self._consumer = RedisStreamConsumer(
             redis_settings, self._settings.consumer_name
         )
         await self._consumer.connect()
+        logger.info("stream consumer started: %s", self._settings.consumer_name)
 
         self._trainer = BatchTrainer(self._redis)
         self._running = True
@@ -46,8 +52,10 @@ class CortexService:
             await self._consumer.close()
         if self._redis:
             await self._redis.close()
+        logger.info("cortex service stopped")
 
     async def run_consumer(self) -> None:
+        logger.info("starting feedback consumer loop")
         while self._running:
             try:
                 messages = await self._consumer.consume(
@@ -65,18 +73,18 @@ class CortexService:
 
                 for experiment_id, count in ledger.items():
                     self._stats[experiment_id]["total"] += count
-                    import time
-
                     self._stats[experiment_id]["last_train"] = int(time.time() * 1000)
 
                 await self._consumer.ack(message_ids)
 
-            except Exception as e:  # noqa
-                print(f"Error processing batch: {e}")
+                logger.info("trained batch: %d events across %d experiments", len(events), len(ledger))
+
+            except Exception as e:
+                logger.error("error processing batch: %s", e)
                 await asyncio.sleep(1)
 
     @staticmethod
-    async def flush_batch(experiment_id: str | None = None) -> int:  # noqa
+    async def flush_batch(experiment_id: str | None = None) -> int:
         return 0
 
     def get_stats(self, experiment_id: str | None = None) -> list[dict]:
@@ -91,5 +99,5 @@ class CortexService:
         try:
             await self._redis.client.ping()
             return True
-        except Exception:  # noqa
+        except Exception:
             return False
