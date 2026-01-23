@@ -126,8 +126,55 @@ class RedisStreamConsumer:
             await self._client.xack(
                 self._settings.stream_name, self._settings.consumer_group, *message_ids
             )
-            # delete acknowledged messages to prevent unbounded growth
             await self._client.xdel(self._settings.stream_name, *message_ids)
+
+    async def get_pending_count(self) -> int:
+        """get count of pending messages for this consumer."""
+        if self._client is None:
+            raise RuntimeError("Consumer not connected. Call connect() first.")
+
+        info = await self._client.xpending(
+            self._settings.stream_name,
+            self._settings.consumer_group,
+        )
+
+        if not info or info["pending"] == 0:
+            return 0
+
+        for consumer_info in info.get("consumers", []):
+            if consumer_info["name"] == self._consumer_name:
+                return consumer_info["pending"]
+
+        return 0
+
+    async def claim_pending(
+        self, count: int = 100, min_idle_ms: int = 0
+    ) -> list[tuple[str, FeedbackEvent]]:
+        """claim pending messages that were read but not acked (e.g., after crash)."""
+        if self._client is None:
+            raise RuntimeError("Consumer not connected. Call connect() first.")
+
+        results = await self._client.xautoclaim(
+            self._settings.stream_name,
+            self._settings.consumer_group,
+            self._consumer_name,
+            min_idle_time=min_idle_ms,
+            start_id="0-0",
+            count=count,
+        )
+
+        # xautoclaim returns: [next_start_id, [[id, data], ...], [deleted_ids]]
+        if not results or len(results) < 2:
+            return []
+
+        messages = results[1]
+        events = []
+        for message_id, data in messages:
+            if data:
+                event = FeedbackEvent.from_dict(data)
+                events.append((message_id, event))
+
+        return events
 
     async def run(
         self,
