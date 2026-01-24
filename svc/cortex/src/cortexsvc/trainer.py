@@ -42,20 +42,20 @@ class BatchTrainer:
     async def _train_experiment(
         self, experiment_id: str, events: list[FeedbackEvent]
     ) -> int:
-        experiment_data = await self._redis.get_experiment(experiment_id)
-        if experiment_data is None:
+        experiment = await self._redis.get_experiment(experiment_id)
+        if experiment is None:
             return 0
 
-        protocol_name = experiment_data["protocol"]
+        protocol_name = experiment["protocol"]
         protocol_cls = PROTOCOL_MAP.get(protocol_name)
         if protocol_cls is None:
             return 0
 
         params = await self._redis.get_params(experiment_id)
         if params is None:
-            num_arms = len(experiment_data["pool"]["arms"])
+            num_arms = len(experiment["pool"]["arms"])
             param_state = protocol_cls.init_params(
-                num_arms=num_arms, **experiment_data.get("protocol_params", {})
+                num_arms=num_arms, **experiment.get("protocol_params", {})
             )
         else:
             param_state = protocol_cls.param_state_cls.model_validate(params)
