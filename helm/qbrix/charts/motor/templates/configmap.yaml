@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "motor.fullname" . }}
+  labels:
+    {{- include "motor.labels" . | nindent 4 }}
+data:
+  # grpc settings
+  MOTOR_GRPC_HOST: {{ .Values.config.grpc.host | quote }}
+  MOTOR_GRPC_PORT: {{ .Values.config.grpc.port | quote }}
+
+  # redis connection
+  MOTOR_REDIS_HOST: {{ .Values.global.redis.host | quote }}
+  MOTOR_REDIS_PORT: {{ .Values.global.redis.port | quote }}
+  MOTOR_REDIS_DB: {{ .Values.global.redis.db | quote }}
+
+  # param cache settings (in-memory via cachebox)
+  MOTOR_PARAM_CACHE_TTL: {{ .Values.config.paramCache.ttl | quote }}
+  MOTOR_PARAM_CACHE_MAXSIZE: {{ .Values.config.paramCache.maxSize | quote }}
+
+  # agent cache settings
+  MOTOR_AGENT_CACHE_TTL: {{ .Values.config.agentCache.ttl | quote }}
+  MOTOR_AGENT_CACHE_MAXSIZE: {{ .Values.config.agentCache.maxSize | quote }}
+
+  # logging
+  MOTOR_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  LOG_FORMAT: {{ .Values.global.logging.format | quote }}

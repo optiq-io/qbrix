@@ -1,0 +1,13 @@
+apiVersion: v2
+name: cortex
+description: Qbrix Cortex Service - Training service for bandit parameter updates
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+
+keywords:
+  - qbrix
+  - cortex
+  - training
+  - bandit
+  - grpc

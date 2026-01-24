@@ -1,0 +1,75 @@
+# qbrix helm chart - production-ready defaults
+# for development, use: helm install qbrix ./qbrix -f values-dev.yaml
+
+global:
+  # container registry prefix (e.g., "ghcr.io/myorg")
+  imageRegistry: ""
+  imagePullSecrets: []
+  storageClass: ""
+
+  postgres:
+    host: "qbrix-postgres"
+    port: 5432
+    database: "qbrix"
+    # use existingSecret in production (must have keys: username, password)
+    existingSecret: ""
+    username: "qbrix"
+    password: ""
+
+  redis:
+    host: "qbrix-redis"
+    port: 6379
+    db: 0
+    # use existingSecret in production (must have key: password)
+    existingSecret: ""
+    password: ""
+
+  logging:
+    format: "json"
+    level: "WARNING"
+
+# subcharts
+proxy:
+  enabled: true
+motor:
+  enabled: true
+cortex:
+  enabled: true
+
+# in-cluster infrastructure (disabled by default - use external managed services)
+infrastructure:
+  postgres:
+    enabled: false
+    image:
+      repository: postgres
+      tag: "16-alpine"
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "1Gi"
+        cpu: "500m"
+    persistence:
+      enabled: true
+      size: "10Gi"
+      storageClass: ""
+
+  redis:
+    enabled: false
+    image:
+      repository: redis
+      tag: "7-alpine"
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        memory: "128Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+        cpu: "250m"
+    persistence:
+      enabled: true
+      size: "5Gi"
+      storageClass: ""

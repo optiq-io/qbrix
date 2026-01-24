@@ -1,0 +1,12 @@
+apiVersion: v2
+name: proxy
+description: Qbrix Proxy Service - Gateway and control plane for routing requests
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+
+keywords:
+  - qbrix
+  - proxy
+  - gateway
+  - grpc

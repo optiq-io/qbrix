@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "proxy.fullname" . }}
+  labels:
+    {{- include "proxy.labels" . | nindent 4 }}
+data:
+  # runtime environment
+  PROXY_RUNENV: {{ .Values.config.runenv | quote }}
+
+  # grpc settings
+  PROXY_GRPC_HOST: {{ .Values.config.grpc.host | quote }}
+  PROXY_GRPC_PORT: {{ .Values.config.grpc.port | quote }}
+
+  # http settings
+  PROXY_HTTP_HOST: {{ .Values.config.http.host | quote }}
+  PROXY_HTTP_PORT: {{ .Values.config.http.port | quote }}
+
+  # postgres connection
+  PROXY_POSTGRES_HOST: {{ .Values.global.postgres.host | quote }}
+  PROXY_POSTGRES_PORT: {{ .Values.global.postgres.port | quote }}
+  PROXY_POSTGRES_DATABASE: {{ .Values.global.postgres.database | quote }}
+
+  # redis connection
+  PROXY_REDIS_HOST: {{ .Values.global.redis.host | quote }}
+  PROXY_REDIS_PORT: {{ .Values.global.redis.port | quote }}
+  PROXY_REDIS_DB: {{ .Values.global.redis.db | quote }}
+
+  # motor service connection
+  PROXY_MOTOR_HOST: {{ include "proxy.motorHost" . | quote }}
+  PROXY_MOTOR_PORT: {{ .Values.config.motor.port | quote }}
+
+  # redis stream for feedback
+  PROXY_STREAM_NAME: {{ .Values.config.stream.name | quote }}
+
+  # feature gate cache settings
+  PROXY_GATE_CACHE_MAXSIZE: {{ .Values.config.gateCache.maxSize | quote }}
+  PROXY_GATE_CACHE_TTL: {{ .Values.config.gateCache.ttl | quote }}
+  PROXY_GATE_REDIS_TTL: {{ .Values.config.gateCache.redisTtl | quote }}
+
+  # jwt settings
+  PROXY_JWT_ALGORITHM: {{ .Values.config.jwt.algorithm | quote }}
+  PROXY_JWT_ACCESS_TOKEN_EXPIRE_MINUTES: {{ .Values.config.jwt.accessTokenExpireMinutes | quote }}
+  PROXY_JWT_REFRESH_TOKEN_EXPIRE_DAYS: {{ .Values.config.jwt.refreshTokenExpireDays | quote }}
+
+  # logging
+  PROXY_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  LOG_FORMAT: {{ .Values.global.logging.format | quote }}

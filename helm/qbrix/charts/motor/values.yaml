@@ -1,0 +1,125 @@
+# motor service values
+# stateless selection service - horizontally scalable (hot path)
+# reads params from redis with in-memory TTL cache (cachebox)
+
+replicaCount: 3
+
+image:
+  repository: qbrix/motor
+  pullPolicy: IfNotPresent
+  tag: ""  # defaults to chart appVersion
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# service configuration
+service:
+  type: ClusterIP
+  port: 50051
+  annotations: {}
+
+# horizontal pod autoscaler - enabled by default for hot path scaling
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 60
+  targetMemoryUtilizationPercentage: 70
+
+# pod disruption budget - maintain availability during updates
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+  # maxUnavailable: 1
+
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "200m"
+  limits:
+    memory: "512Mi"
+    cpu: "1000m"
+
+# grpc health check probes
+livenessProbe:
+  grpc:
+    port: 50051
+  initialDelaySeconds: 10
+  periodSeconds: 15
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  grpc:
+    port: 50051
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# node selection
+nodeSelector: {}
+tolerations: []
+
+# prefer spreading pods across nodes for high availability
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: motor
+          topologyKey: kubernetes.io/hostname
+
+# pod annotations and labels
+podAnnotations: {}
+podLabels: {}
+
+# security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# service account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# environment-specific config
+config:
+  logLevel: "WARNING"  # minimal logging for hot path
+
+  # grpc settings
+  grpc:
+    host: "0.0.0.0"
+    port: 50051
+
+  # cache settings for hot path performance
+  # param cache: stores bandit parameters from redis
+  paramCache:
+    ttl: 60       # seconds - balance freshness vs redis load
+    maxSize: 1000
+
+  # agent cache: stores agent/protocol objects
+  agentCache:
+    ttl: 300      # seconds - agents change less frequently
+    maxSize: 100
+
+# extra environment variables
+extraEnv: []
+
+# extra volumes and mounts
+extraVolumes: []
+extraVolumeMounts: []

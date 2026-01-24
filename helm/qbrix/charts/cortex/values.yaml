@@ -1,0 +1,123 @@
+# cortex service values
+# training service - SINGLE REPLICA ONLY
+#
+# important: cortex does NOT support horizontal scaling yet due to:
+# - redis stream consumer name conflicts (all pods would use same name)
+# - local in-memory pending batch buffer (no coordination between pods)
+# - local asyncio.Lock (doesn't work across pods)
+#
+# distributed training support is planned for future releases
+
+# fixed at 1 - do not increase without implementing distributed training
+replicaCount: 1
+
+image:
+  repository: qbrix/cortex
+  pullPolicy: IfNotPresent
+  tag: ""  # defaults to chart appVersion
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# service configuration
+service:
+  type: ClusterIP
+  port: 50052
+  annotations: {}
+
+# autoscaling disabled - cortex cannot scale horizontally yet
+autoscaling:
+  enabled: false
+  # these values are here for future use when distributed training is implemented
+  # minReplicas: 1
+  # maxReplicas: 5
+  # targetCPUUtilizationPercentage: 70
+
+# no PDB needed for single replica
+podDisruptionBudget:
+  enabled: false
+
+resources:
+  requests:
+    memory: "512Mi"
+    cpu: "200m"
+  limits:
+    memory: "2Gi"
+    cpu: "2000m"
+
+# grpc health check probes
+livenessProbe:
+  grpc:
+    port: 50052
+  initialDelaySeconds: 15
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  grpc:
+    port: 50052
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# node selection
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# pod annotations and labels
+podAnnotations: {}
+podLabels: {}
+
+# security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# service account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# environment-specific config
+config:
+  logLevel: "INFO"
+
+  # grpc settings
+  grpc:
+    host: "0.0.0.0"
+    port: 50052
+
+  # redis stream settings for feedback consumption
+  stream:
+    name: "qbrix:feedback"
+    consumerGroup: "cortex"
+    # consumer name - unique identifier for this worker
+    # when distributed training is implemented, this should be dynamically generated
+    consumerName: "worker-0"
+
+  # batch processing settings
+  batch:
+    size: 256              # number of feedback events per batch
+    timeoutMs: 100         # max wait time for batch accumulation
+    flushIntervalSec: 10   # periodic flush interval
+
+# extra environment variables
+extraEnv: []
+
+# extra volumes and mounts
+extraVolumes: []
+extraVolumeMounts: []

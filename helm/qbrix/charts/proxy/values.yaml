@@ -1,0 +1,157 @@
+# proxy service values
+# gateway/control plane - horizontally scalable
+
+replicaCount: 2
+
+image:
+  repository: qbrix/proxy
+  pullPolicy: IfNotPresent
+  tag: ""  # defaults to chart appVersion
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# service configuration
+service:
+  type: ClusterIP
+  grpcPort: 50050
+  httpPort: 8080
+  annotations: {}
+
+# ingress for HTTP API
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: qbrix.local
+      paths:
+        - path: /
+          pathType: Prefix
+          port: 8080
+  tls: []
+    # - secretName: qbrix-tls
+    #   hosts:
+    #     - qbrix.local
+
+# horizontal pod autoscaler
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# pod disruption budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+  # maxUnavailable: 1
+
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "100m"
+  limits:
+    memory: "512Mi"
+    cpu: "500m"
+
+# liveness and readiness probes
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 15
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# node selection
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# pod annotations and labels
+podAnnotations: {}
+podLabels: {}
+
+# security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# service account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# environment-specific config
+config:
+  runenv: "production"
+  logLevel: "INFO"
+
+  # grpc settings
+  grpc:
+    host: "0.0.0.0"
+    port: 50050
+
+  # http settings
+  http:
+    host: "0.0.0.0"
+    port: 8080
+
+  # motor service connection
+  motor:
+    host: ""  # auto-discovered if empty
+    port: 50051
+
+  # redis streams
+  stream:
+    name: "qbrix:feedback"
+
+  # feature gate cache
+  gateCache:
+    maxSize: 1000
+    ttl: 30.0
+    redisTtl: 300
+
+  # jwt settings
+  jwt:
+    algorithm: "HS256"
+    accessTokenExpireMinutes: 30
+    refreshTokenExpireDays: 7
+    # secret key - use existingSecret in production
+    secretKey: ""
+    existingSecret: ""
+    existingSecretKey: "jwt-secret"
+
+# extra environment variables
+extraEnv: []
+  # - name: EXTRA_VAR
+  #   value: "value"
+
+# extra volumes and mounts
+extraVolumes: []
+extraVolumeMounts: []

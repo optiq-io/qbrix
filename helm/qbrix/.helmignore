@@ -1,0 +1,26 @@
+# patterns to ignore when building packages
+.DS_Store
+.git/
+.gitignore
+.bzr/
+.bzrignore
+.hg/
+.hgignore
+.svn/
+
+# common development files
+*.swp
+*.bak
+*.tmp
+*.orig
+*~
+
+# ide files
+.project
+.idea/
+*.tmproj
+.vscode/
+
+# test files
+*_test.yaml
+tests/

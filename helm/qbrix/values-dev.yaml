@@ -1,0 +1,75 @@
+# development environment overrides
+# use with: helm install qbrix ./qbrix -f values-dev.yaml
+
+global:
+  postgres:
+    host: "qbrix-postgres"
+    username: "qbrix"
+    password: "qbrix-dev"
+
+  redis:
+    host: "qbrix-redis"
+
+  logging:
+    format: "text"
+    level: "DEBUG"
+
+# enable in-cluster postgres and redis
+infrastructure:
+  postgres:
+    enabled: true
+    persistence:
+      size: "1Gi"
+  redis:
+    enabled: true
+    persistence:
+      size: "1Gi"
+
+# proxy - single replica, no autoscaling
+proxy:
+  replicaCount: 1
+  autoscaling:
+    enabled: false
+  podDisruptionBudget:
+    enabled: false
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "50m"
+    limits:
+      memory: "256Mi"
+      cpu: "250m"
+  config:
+    runenv: "dev"
+    logLevel: "DEBUG"
+    jwt:
+      secretKey: "dev-secret-change-in-production"
+
+# motor - single replica, no autoscaling
+motor:
+  replicaCount: 1
+  autoscaling:
+    enabled: false
+  podDisruptionBudget:
+    enabled: false
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "50m"
+    limits:
+      memory: "256Mi"
+      cpu: "250m"
+  config:
+    logLevel: "DEBUG"
+
+# cortex - lower resources for dev
+cortex:
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  config:
+    logLevel: "DEBUG"

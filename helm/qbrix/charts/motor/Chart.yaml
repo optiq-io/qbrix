@@ -1,0 +1,13 @@
+apiVersion: v2
+name: motor
+description: Qbrix Motor Service - Stateless arm selection service (hot path)
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+
+keywords:
+  - qbrix
+  - motor
+  - selection
+  - bandit
+  - grpc
