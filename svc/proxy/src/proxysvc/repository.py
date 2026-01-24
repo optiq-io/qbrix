@@ -26,6 +26,7 @@ from proxysvc.gate.model.rule import Rule
 
 
 class PoolRepository:
+
     def __init__(self, session: AsyncSession):
         self._session = session
 
@@ -71,6 +72,7 @@ class PoolRepository:
 
 
 class ExperimentRepository:
+
     def __init__(self, session: AsyncSession):
         self._session = session
 
@@ -270,6 +272,7 @@ class FeatureGateRepository:
 
 
 class UserRepository:
+
     def __init__(self, session: AsyncSession):
         self._session = session
 
@@ -345,6 +348,7 @@ class UserRepository:
 
 
 class APIKeyRepository:
+
     def __init__(self, session: AsyncSession):
         self._session = session
 

@@ -52,7 +52,6 @@ services:
       PROXY_GATE_CACHE_MAXSIZE: "1000"
       PROXY_GATE_CACHE_TTL: "30.0"
       PROXY_GATE_REDIS_TTL: "300"
-      PROXY_GATE_INVALIDATION_CHANNEL: "qbrix:gate:invalidate"
       PROXY_JWT_SECRET_KEY: "docker-dev-secret-change-in-production"
       PROXY_JWT_ALGORITHM: "HS256"
       PROXY_JWT_ACCESS_TOKEN_EXPIRE_MINUTES: "30"

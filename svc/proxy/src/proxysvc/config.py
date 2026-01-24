@@ -31,7 +31,6 @@ class ProxySettings(BaseSettings):
     gate_cache_maxsize: int = 1000
     gate_cache_ttl: float = 30.0  # seconds
     gate_redis_ttl: int = 300  # seconds
-    gate_invalidation_channel: str = "qbrix:gate:invalidate"
 
     # jwt settings
     jwt_secret_key: str = "change-me-in-production"
