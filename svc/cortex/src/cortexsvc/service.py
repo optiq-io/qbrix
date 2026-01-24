@@ -27,6 +27,7 @@ class CortexService:
         )
         self._running = False
         self._pending: list[tuple[str, FeedbackEvent]] = []
+        self._batch_lock = asyncio.Lock()
 
     async def start(self) -> None:
         redis_settings = RedisSettings(
@@ -53,13 +54,14 @@ class CortexService:
     async def stop(self) -> None:
         self._running = False
 
-        if self._pending:
-            logger.info("flushing %d pending messages before shutdown", len(self._pending))
-            try:
-                await self._process_batch(self._pending)
-                self._pending = []
-            except Exception as e:  # noqa
-                logger.error("failed to flush pending messages: %s", e)
+        async with self._batch_lock:
+            if self._pending:
+                logger.info("flushing %d pending messages before shutdown", len(self._pending))
+                try:
+                    await self._process_batch(self._pending)
+                    self._pending = []
+                except Exception as e:  # noqa
+                    logger.error("failed to flush pending messages: %s", e)
 
         if self._consumer:
             await self._consumer.close()
@@ -113,34 +115,61 @@ class CortexService:
         last_flush = time.time()
         while self._running:
             try:
-                remaining_capacity = self._settings.batch_size - len(self._pending)
+                async with self._batch_lock:
+                    remaining_capacity = self._settings.batch_size - len(self._pending)
+
                 messages = await self._consumer.consume(
                     batch_size=max(1, remaining_capacity),
                     block_ms=100,
                 )
 
-                if messages:
-                    self._pending.extend(messages)
+                async with self._batch_lock:
+                    if messages:
+                        self._pending.extend(messages)
 
-                elapsed = time.time() - last_flush
-                batch_full = len(self._pending) >= self._settings.batch_size
-                time_to_flush = elapsed >= self._settings.flush_interval_sec
+                    elapsed = time.time() - last_flush
+                    batch_full = len(self._pending) >= self._settings.batch_size
+                    time_to_flush = elapsed >= self._settings.flush_interval_sec
 
-                if not self._pending or (not batch_full and not time_to_flush):
-                    continue
+                    should_flush = self._pending and (batch_full or time_to_flush)
 
-                await self._process_batch(self._pending)
-
-                self._pending = []
-                last_flush = time.time()
+                    if should_flush:
+                        await self._process_batch(self._pending)
+                        self._pending = []
+                        last_flush = time.time()
 
             except Exception as e:  # noqa
                 logger.error("error processing batch: %s", e)
                 await asyncio.sleep(1)
 
-    @staticmethod
-    async def flush_batch(experiment_id: str | None = None) -> int:  # noqa
-        return 0
+    async def flush_batch(self, experiment_id: str | None = None) -> int:
+        """force flush pending batch, optionally filtered by experiment_id."""
+        async with self._batch_lock:
+            if not self._pending:
+                return 0
+
+            if experiment_id:
+                to_flush = [
+                    (mid, ev) for mid, ev in self._pending
+                    if ev.experiment_id == experiment_id
+                ]
+                to_keep = [
+                    (mid, ev) for mid, ev in self._pending
+                    if ev.experiment_id != experiment_id
+                ]
+            else:
+                to_flush = self._pending
+                to_keep = []
+
+            if not to_flush:
+                return 0
+
+            count = len(to_flush)
+            await self._process_batch(to_flush)
+            self._pending = to_keep
+
+            logger.info("force flushed %d events", count)
+            return count
 
     def get_stats(self, experiment_id: str | None = None) -> list[dict]:
         if experiment_id:
