@@ -95,16 +95,16 @@ def run(
     examples:
 
         # run single experiment scenario with web ui
-        uv run loadtest --web
+        make loadtest-web
 
         # run headless for 60 seconds with 100 users
-        uv run loadtest -u 100 -r 10 -t 60s
+        make loadtest
 
         # run multi-experiment scenario
-        uv run loadtest -s multi --num-experiments 5 -u 50 -t 2m
+        make loadtest-multi
 
         # connect to remote proxy
-        uv run loadtest -h proxy.example.com -p 8080 --web
+        uv run python -m tests.loadtest.cli -h proxy.example.com -p 8080 --web
     """
     import os
 

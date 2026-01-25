@@ -204,7 +204,7 @@ class MultiExperimentUser(User):
 @events.test_start.add_listener
 def on_test_start(environment, **kwargs):
     """setup multiple experiments before test starts."""
-    if MultiExperimentUser._setup_done:
+    if MultiExperimentUser._setup_done:  # noqa
         return
 
     client = ProxyClient()

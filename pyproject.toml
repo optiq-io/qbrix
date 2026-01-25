@@ -39,7 +39,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["svc/*/tests", "libs/*/tests"]
+testpaths = ["tests", "svc/*/tests", "libs/*/tests"]
 python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
@@ -54,9 +54,6 @@ markers = [
     "integration: Integration tests",
     "slow: Slow running tests",
 ]
-
-[project.scripts]
-loadtest = "tests.loadtest.cli:run"
 
 [build-system]
 requires = ["pdm-backend"]
