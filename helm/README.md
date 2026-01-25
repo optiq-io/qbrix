@@ -56,11 +56,11 @@ Helm charts for deploying Qbrix - a distributed multi-armed bandit system for si
 
 ## Service Scaling
 
-| Service | Scaling | Reason |
-|---------|---------|--------|
-| **proxy** | Horizontal (HPA) | Stateless gateway, cache with Redis fallback |
-| **motor** | Horizontal (HPA) | Stateless selection, TTL cache |
-| **cortex** | Single instance | By design - see below |
+| Service    | Scaling          | Reason                                       |
+|------------|------------------|----------------------------------------------|
+| **proxy**  | Horizontal (HPA) | Stateless gateway, cache with Redis fallback |
+| **motor**  | Horizontal (HPA) | Stateless selection, TTL cache               |
+| **cortex** | Single instance  | By design - see below                        |
 
 ### Why Cortex is Single Instance
 
@@ -140,36 +140,36 @@ helm/
 
 ### Global
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `global.imageRegistry` | Registry prefix | `""` |
-| `global.postgres.host` | PostgreSQL host | `qbrix-postgres` |
-| `global.postgres.existingSecret` | Secret with credentials | `""` |
-| `global.redis.host` | Redis host | `qbrix-redis` |
-| `global.redis.existingSecret` | Secret with password | `""` |
-| `global.logging.format` | json or text | `json` |
-| `global.logging.level` | Log level | `WARNING` |
+| Parameter                        | Description             | Default          |
+|----------------------------------|-------------------------|------------------|
+| `global.imageRegistry`           | Registry prefix         | `""`             |
+| `global.postgres.host`           | PostgreSQL host         | `qbrix-postgres` |
+| `global.postgres.existingSecret` | Secret with credentials | `""`             |
+| `global.redis.host`              | Redis host              | `qbrix-redis`    |
+| `global.redis.existingSecret`    | Secret with password    | `""`             |
+| `global.logging.format`          | json or text            | `json`           |
+| `global.logging.level`           | Log level               | `WARNING`        |
 
 ### Infrastructure (Dev Only)
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
+| Parameter                         | Description                  | Default |
+|-----------------------------------|------------------------------|---------|
 | `infrastructure.postgres.enabled` | Deploy in-cluster PostgreSQL | `false` |
-| `infrastructure.redis.enabled` | Deploy in-cluster Redis | `false` |
+| `infrastructure.redis.enabled`    | Deploy in-cluster Redis      | `false` |
 
 ### Services
 
 Each service (proxy, motor, cortex) supports:
 
-| Parameter | Description |
-|-----------|-------------|
-| `<svc>.enabled` | Enable/disable service |
-| `<svc>.replicaCount` | Replicas (if HPA disabled) |
-| `<svc>.autoscaling.enabled` | Enable HPA |
-| `<svc>.autoscaling.minReplicas` | Min replicas |
-| `<svc>.autoscaling.maxReplicas` | Max replicas |
-| `<svc>.resources` | CPU/memory requests/limits |
-| `<svc>.config.*` | Service-specific config |
+| Parameter                       | Description                |
+|---------------------------------|----------------------------|
+| `<svc>.enabled`                 | Enable/disable service     |
+| `<svc>.replicaCount`            | Replicas (if HPA disabled) |
+| `<svc>.autoscaling.enabled`     | Enable HPA                 |
+| `<svc>.autoscaling.minReplicas` | Min replicas               |
+| `<svc>.autoscaling.maxReplicas` | Max replicas               |
+| `<svc>.resources`               | CPU/memory requests/limits |
+| `<svc>.config.*`                | Service-specific config    |
 
 ## Secrets
 
