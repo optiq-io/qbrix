@@ -143,13 +143,13 @@ clean:
 # ============================================================================
 
 loadtest:
-	uv run loadtest -s single -u 10 -r 2 -t 60s
+	uv run python -m tests.loadtest.cli -s single -u 10 -r 2 -t 60s
 
 loadtest-web:
-	uv run loadtest -s single --web
+	uv run python -m tests.loadtest.cli -s single --web
 
 loadtest-multi:
-	uv run loadtest -s multi -u 50 -r 5 -t 60s --num-experiments 5
+	uv run python -m tests.loadtest.cli -s multi -u 50 -r 5 -t 60s --num-experiments 5
 
 loadtest-multi-web:
-	uv run loadtest -s multi --web --num-experiments 5
+	uv run python -m tests.loadtest.cli -s multi --web --num-experiments 5
