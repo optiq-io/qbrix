@@ -8,13 +8,11 @@ from qbrixcore.pool import Arm
 from qbrixcore.agent import Agent
 from qbrixcore.protoc.stochastic.ts import BetaTSProtocol
 from qbrixcore.protoc.stochastic.ts import BetaTSParamState
-from qbrixcore.protoc.stochastic.ts import GaussianTSProtocol
 from qbrixcore.protoc.stochastic.ts import GaussianTSParamState
 from qbrixstore.redis.client import RedisClient
 
 from motorsvc.config import MotorSettings
 from motorsvc.cache import MotorCache
-from motorsvc.param_backend import RedisBackedInMemoryParamBackend
 
 
 @pytest.fixture

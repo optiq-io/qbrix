@@ -1,15 +1,14 @@
 import pytest
-from unittest.mock import AsyncMock
 import numpy as np
 
 from qbrixcore.protoc.stochastic.ts import BetaTSProtocol
-from qbrixcore.protoc.stochastic.ts import BetaTSParamState
 from qbrixcore.protoc.stochastic.ts import GaussianTSProtocol
 
 from motorsvc.param_backend import RedisBackedInMemoryParamBackend
 
 
 class TestRedisBackedInMemoryParamBackend:
+
     def test_get_returns_cached_params(self, mock_redis_client, motor_cache, beta_ts_params):
         backend = RedisBackedInMemoryParamBackend(mock_redis_client, motor_cache)
         experiment_id = "exp-123"
@@ -109,7 +108,7 @@ class TestRedisBackedInMemoryParamBackend:
 
         # invalid params dict (missing required fields)
         # note: pydantic will use defaults if fields are missing, so this won't fail
-        # but we can test that the params are properly validated
+        # , but we can test that the params are properly validated
         params_dict = {
             "num_arms": 3,
             "alpha_prior": 1.0,

@@ -1,13 +1,8 @@
 import pytest
 from unittest.mock import Mock
 from unittest.mock import AsyncMock
-import numpy as np
 
-from qbrixcore.pool import Pool
-from qbrixcore.pool import Arm
-from qbrixcore.agent import Agent
 from qbrixcore.protoc.stochastic.ts import BetaTSProtocol
-from qbrixcore.protoc.stochastic.ts import BetaTSParamState
 from qbrixcore.protoc.stochastic.ts import GaussianTSProtocol
 from qbrixcore.protoc.stochastic.ucb import UCB1TunedProtocol
 
@@ -67,7 +62,7 @@ class TestAgentFactoryBuildPool:
             "id": "pool-123",
             "name": "test-pool",
             "arms": [
-                {"id": "arm-0", "name": "arm-0"},  # no is_active field
+                {"id": "arm-0", "name": "arm-0"},  # noqa is_active field
             ],
         }
 
@@ -193,7 +188,7 @@ class TestAgentFactoryGetOrCreate:
         backend.set = Mock()
         factory = AgentFactory(motor_cache, backend)
 
-        agent = await factory.get_or_create(experiment_data_dict)
+        agent = await factory.get_or_create(experiment_data_dict)  # noqa
 
         # when update_params returns params, they are already cached by update_params
         # so set should not be called (params are fetched, not initialized)
@@ -207,7 +202,7 @@ class TestAgentFactoryGetOrCreate:
         backend = Mock()
         backend.get.return_value = None  # params not in cache
 
-        async def mock_update_params(exp_id, protocol):
+        async def mock_update_params(exp_id, protocol):  # noqa
             return beta_ts_params
 
         backend.update_params = mock_update_params
@@ -228,7 +223,7 @@ class TestAgentFactoryGetOrCreate:
         backend = Mock()
         backend.get.return_value = None
 
-        async def mock_update_params(exp_id, protocol):
+        async def mock_update_params(exp_id, protocol):  # noqa
             return None  # no params in redis
 
         backend.update_params = mock_update_params
@@ -237,7 +232,7 @@ class TestAgentFactoryGetOrCreate:
 
         motor_cache.set_agent("exp-123", mock_agent)
 
-        agent = await factory.get_or_create(experiment_data_dict)
+        agent = await factory.get_or_create(experiment_data_dict)  # noqa
 
         # should initialize and set params
         backend.set.assert_called_once()

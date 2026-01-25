@@ -1,13 +1,10 @@
 import pytest
 from unittest.mock import AsyncMock
 from unittest.mock import Mock
-import numpy as np
 
 from qbrixcore.context import Context
-from qbrixstore.config import RedisSettings
 
 from motorsvc.service import MotorService
-from motorsvc.config import MotorSettings
 
 
 class TestMotorServiceLifecycle:
@@ -204,8 +201,8 @@ class TestMotorServiceSelect:
         await service.select(
             experiment_id="exp-123",
             context_id="ctx-1",
-            context_vector=None,
-            context_metadata=None,
+            context_vector=None,  # noqa
+            context_metadata=None,  # noqa
         )
 
         mock_agent.select.assert_called_once()
@@ -235,7 +232,7 @@ class TestMotorServiceSelect:
             experiment_id="exp-123",
             context_id="ctx-1",
             context_vector=[],
-            context_metadata=None,
+            context_metadata=None,  # noqa
         )
 
         mock_agent.select.assert_called_once()
@@ -249,20 +246,15 @@ class TestMotorServiceHealth:
     async def test_health_returns_true_when_redis_responds(self, motor_settings, mock_redis_client):
         service = MotorService(motor_settings)
         service._redis = mock_redis_client
-
         mock_redis_client.client.ping.return_value = True
-
         result = await service.health()
-
         assert result is True
 
     @pytest.mark.asyncio
     async def test_health_returns_false_when_redis_fails(self, motor_settings, mock_redis_client):
         service = MotorService(motor_settings)
         service._redis = mock_redis_client
-
         mock_redis_client.client.ping.side_effect = Exception("connection failed")
-
         result = await service.health()
 
         assert result is False

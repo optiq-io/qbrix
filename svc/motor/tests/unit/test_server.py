@@ -1,6 +1,5 @@
 import pytest
 from unittest.mock import AsyncMock
-from unittest.mock import Mock
 import grpc
 
 from qbrixproto import common_pb2
@@ -36,6 +35,7 @@ class TestMotorGRPCServicerSelect:
         call_kwargs = mock_service.select.call_args.kwargs
         assert call_kwargs["experiment_id"] == "exp-123"
         assert call_kwargs["context_id"] == "ctx-1"
+
         # protobuf floats may have precision issues, verify length and approximate values
         assert len(call_kwargs["context_vector"]) == 2
         assert pytest.approx(call_kwargs["context_vector"][0], rel=1e-6) == 0.5
@@ -75,7 +75,7 @@ class TestMotorGRPCServicerSelect:
             context=common_pb2.Context(id="ctx-1", vector=[], metadata={}),
         )
 
-        response = await servicer.Select(request, mock_grpc_context)
+        response = await servicer.Select(request, mock_grpc_context)  # noqa
 
         mock_grpc_context.set_code.assert_called_once_with(grpc.StatusCode.NOT_FOUND)
         mock_grpc_context.set_details.assert_called_once()
@@ -94,7 +94,7 @@ class TestMotorGRPCServicerSelect:
             context=common_pb2.Context(id="ctx-1", vector=[], metadata={}),
         )
 
-        response = await servicer.Select(request, mock_grpc_context)
+        response = await servicer.Select(request, mock_grpc_context)  # noqa
 
         mock_grpc_context.set_code.assert_called_once_with(grpc.StatusCode.INTERNAL)
         mock_grpc_context.set_details.assert_called_once()
