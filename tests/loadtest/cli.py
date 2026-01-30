@@ -125,7 +125,7 @@ def run(
 
     if web:
         locust_args.extend(["--web-host", web_host, "--web-port", str(web_port)])
-        click.echo(f"starting locust web interface at http://{web_host}:{web_port}")
+        click.echo(f"starting locust web interface at http://{web_host}:{web_port}")  # noqa
         click.echo(f"scenario: {scenario}")
         click.echo(f"target: {host}:{port}")
     else:
