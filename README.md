@@ -1,316 +1,324 @@
-# Qbrix - Distributed Multi-Armed Bandit System
+<p align="center">
+  <h1 align="center">Qbrix</h1>
+  <p align="center">
+    <strong>Distributed Multi-Armed Bandit Optimization Platform</strong>
+  </p>
+  <p align="center">
+    Real-time decisions. Continuous learning. Infinite scale.
+  </p>
+</p>
 
-## Project Overview
+<p align="center">
+  <a href="#features">Features</a> &bull;
+  <a href="#architecture">Architecture</a> &bull;
+  <a href="#quick-start">Quick Start</a> &bull;
+  <a href="#api-reference">API Reference</a> &bull;
+  <a href="#deployment">Deployment</a> &bull;
+  <a href="#documentation">Documentation</a>
+</p>
 
-Qbrix is a distributed system for multi-armed bandit (MAB) optimizations. It separates the hot path (selection) from the learning path (training) to achieve low-latency decisions with eventual consistency in parameter updates.
+---
+
+## What is Qbrix?
+
+Qbrix is a **production-grade multi-armed bandit (MAB) platform** designed for high-throughput, low-latency decision optimization. It separates the hot path (selection) from the learning path (training) to deliver sub-millisecond decisions while continuously learning from feedback.
+
+**Use Cases:**
+- **A/B Testing** — Dynamically allocate traffic to winning variants
+- **Recommendation Systems** — Personalize content in real-time
+- **Ad Optimization** — Maximize CTR with contextual bandits
+- **Dynamic Pricing** — Optimize prices based on demand signals
+- **Feature Rollouts** — Gradual rollouts with automatic winner detection
+
+---
+
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| **Multi-Tenant Architecture** | Secure data isolation with implicit tenant resolution via authentication |
+| **12+ Bandit Algorithms** | Thompson Sampling, UCB, LinUCB, EXP3, and more |
+| **Contextual Bandits** | Leverage user/item features for personalized decisions |
+| **Feature Gates** | Percentage-based rollouts with targeting rules |
+| **Horizontal Scaling** | Stateless selection service scales to millions of requests |
+| **Event Sourcing** | Reliable training with Redis Streams back-pressure |
+| **Dual Protocol** | gRPC for internal services, REST API for external clients |
+| **JWT & API Keys** | Flexible authentication for different use cases |
+
+---
 
 ## Architecture
 
-```
-                              ┌─────────────────────────────────────┐
-                              │            proxysvc                 │
-                              │  - Request routing                  │
-                              │  - Experiment/pool management       │
-                              │  - Feature gates                    │
-                              └──────────┬──────────────────────────┘
-                                         │ gRPC
-                    ┌────────────────────┼────────────────────┐
-                    │                    │                    │
-                    ▼                    ▼                    ▼
-            ┌───────────────┐    ┌───────────────┐    ┌───────────────┐
-            │   motorsvc    │    │   motorsvc    │    │   motorsvc    │
-            │  (selection)  │    │  (selection)  │    │  (selection)  │
-            └───────┬───────┘    └───────┬───────┘    └───────┬───────┘
-                    │                    │                    │
-                    └────────────────────┼────────────────────┘
-                                         │ Read (TTL cache via cachebox)
-                                         ▼
-                              ┌─────────────────────┐
-                              │       Redis         │
-                              │   (params cache)    │
-                              └─────────────────────┘
-                                         ▲
-                                         │ Write (batch)
-                              ┌─────────────────────┐
-                              │     cortexsvc       │
-                              │    (training)       │
-                              └──────────┬──────────┘
-                                         │ Consume
-                              ┌─────────────────────┐
-                              │   Redis Streams     │
-                              │   (feedback queue)  │
-                              └─────────────────────┘
-                                         ▲
-                                         │ Publish (feedback)
-                              ┌─────────────────────┐
-                              │      proxysvc       │
-                              └──────────┬──────────┘
-                                         │
-                              ┌─────────────────────┐
-                              │     Postgres        │
-                              │ (experiments/pools) │
-                              └─────────────────────┘
-```
+<p align="center">
+  <img src="asset/architecture.png" alt="Qbrix Architecture" width="800">
+</p>
 
-## Services
+### Services
 
-### proxysvc (Gateway/Control Plane) - Port 50050
-- Entry point for all client requests
-- Manages experiments and pools in Postgres
-- Routes selection requests to motorsvc via gRPC
-- Publishes feedback events to Redis Streams
-- Feature gates and targeting
+| Service | Role | Scaling |
+|---------|------|---------|
+| **proxysvc** | Gateway & control plane | Horizontal |
+| **motorsvc** | Hot path selection | Horizontal |
+| **cortexsvc** | Batch training (event sourcing) | Single instance |
 
-### motorsvc (Selection Service) - Port 50051
-- Hot path for arm selection only
-- Stateless, horizontally scalable
-- Reads params from Redis with TTL-based caching (cachebox)
-- Receives routed requests from proxysvc
-
-### cortexsvc (Training Service) - Port 50052
-- Consumes feedback from Redis Streams
-- Batch training of bandit algorithms
-- Writes updated params to Redis for motorsvc
-
-## Libraries
-
-### qbrixcore (lib/core)
-Core MAB algorithms. Published to envelope registry.
-
-**Protocols**:
-- Stochastic: BetaTSProtocol, GaussianTSProtocol, UCB1TunedProtocol, KLUCBProtocol, KLUCBPlusProtocol, EpsilonProtocol, MOSSProtocol, MOSSAnyTimeProtocol
-- Contextual: LinUCBProtocol, LinTSProtocol
-- Adversarial: EXP3Protocol, FPLProtocol
-
-**Key abstractions**:
-- `BaseProtocol`: Interface with `name`, `select()`, `train()`, `init_params()`
-- `BaseParamState`: Pydantic model for parameter state
-- `BaseParamBackend`: Abstract backend for param storage (InMemoryParamBackend, RedisParamBackend)
-- `Agent`: Orchestrates protocol execution with callbacks
-- `Pool` / `Arm`: Experiment structure
-- `Context`: Request context with id, vector, metadata
-
-### qbrixstore (lib/store)
-Storage layer for Postgres and Redis. Published to envelope registry.
-
-**Postgres**:
-- `Pool`, `Arm`, `Experiment`, `FeatureGate` SQLAlchemy models (SQLAlchemy 2.0 + asyncpg)
-- Async session management with `get_session()`, `init_db()`
-
-**Redis**:
-- `RedisClient`: Params and experiment caching
-- `RedisStreamPublisher` / `RedisStreamConsumer`: Feedback queue with consumer groups
-- `FeedbackEvent`: Dataclass with experiment_id, request_id, arm_index, reward, context
-
-### qbrixproto (lib/proto)
-Generated gRPC stubs from proto definitions.
-
-- `common_pb2`: Base types (Context, Arm, Pool, Experiment)
-- `motor_pb2` / `motor_pb2_grpc`: MotorService stubs
-- `proxy_pb2` / `proxy_pb2_grpc`: ProxyService stubs
-- `cortex_pb2` / `cortex_pb2_grpc`: CortexService stubs
-
-## Project Structure
+### Data Flow
 
 ```
-qbrix/
-├── proto/                    # gRPC proto definitions
-│   ├── buf.yaml              # Buf configuration
-│   ├── buf.gen.yaml          # Buf generation config
-│   ├── common.proto
-│   ├── motor.proto
-│   ├── cortex.proto
-│   └── proxy.proto
-├── lib/
-│   ├── core/                 # qbrixcore - MAB algorithms
-│   ├── store/                # qbrixstore - storage layer
-│   └── proto/                # qbrixproto - generated gRPC stubs
-├── svc/
-│   ├── proxy/                # proxysvc - gateway
-│   ├── motor/                # motorsvc - selection
-│   └── cortex/               # cortexsvc - training
-├── docker-compose.yml        # Local deployment
-├── Makefile                  # Development commands
-└── bin/                      # Scripts (proto generation)
+┌─────────┐      ┌───────────┐      ┌───────────┐      ┌───────┐
+│  Client │─────▶│  proxysvc │─────▶│  motorsvc │─────▶│ Redis │
+└─────────┘      └───────────┘      └───────────┘      └───────┘
+     │                 │                                    ▲
+     │                 │ feedback                           │
+     │                 ▼                                    │
+     │           ┌───────────┐      ┌───────────┐          │
+     │           │  Streams  │─────▶│ cortexsvc │──────────┘
+     │           └───────────┘      └───────────┘
+     │                                    │
+     │           ┌───────────┐            │
+     └──────────▶│ Postgres  │◀───────────┘
+                 └───────────┘
 ```
+
+**Selection Path** (hot): Client → proxysvc → motorsvc → Redis (cached params)
+**Training Path** (async): Feedback → Redis Streams → cortexsvc → Redis (updated params)
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.10+
+- Docker & Docker Compose
+- [uv](https://github.com/astral-sh/uv) package manager
+
+### 1. Clone & Install
+
+```bash
+git clone https://github.com/your-org/qbrix.git
+cd qbrix
+make install
+```
+
+### 2. Start Infrastructure
+
+```bash
+make infra    # Postgres + Redis
+make dev      # All services
+```
+
+### 3. Create Your First Experiment
+
+```bash
+# Register and get API key
+curl -X POST http://localhost:8080/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email": "you@example.com", "password": "secure123"}'
+
+# Create a pool of arms
+curl -X POST http://localhost:8080/api/v1/pools \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "homepage-buttons",
+    "arms": [
+      {"name": "blue", "metadata": {"color": "#0066cc"}},
+      {"name": "green", "metadata": {"color": "#00cc66"}},
+      {"name": "red", "metadata": {"color": "#cc0000"}}
+    ]
+  }'
+
+# Create an experiment
+curl -X POST http://localhost:8080/api/v1/experiments \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "button-color-test",
+    "pool_id": "<pool_id>",
+    "protocol": "beta_ts"
+  }'
+```
+
+### 4. Get a Selection
+
+```bash
+curl -X POST http://localhost:8080/api/v1/select \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "experiment_id": "<experiment_id>",
+    "context": {
+      "user_segment": "premium",
+      "device": "mobile"
+    }
+  }'
+```
+
+**Response:**
+```json
+{
+  "arm": {"name": "green", "metadata": {"color": "#00cc66"}},
+  "selection_token": "eyJ0bnRfaWQiOiJ...",
+  "request_id": "req_abc123"
+}
+```
+
+### 5. Send Feedback
+
+```bash
+curl -X POST http://localhost:8080/api/v1/feedback \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "selection_token": "eyJ0bnRfaWQiOiJ...",
+    "reward": 1.0
+  }'
+```
+
+---
+
+## API Reference
+
+### Authentication
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/auth/register` | POST | Register new user (creates tenant) |
+| `/auth/login` | POST | Get JWT access token |
+| `/auth/api-keys` | POST | Create API key |
+
+### Resources
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/pools` | GET, POST | List/create arm pools |
+| `/api/v1/pools/{id}` | GET, PUT, DELETE | Manage pool |
+| `/api/v1/experiments` | GET, POST | List/create experiments |
+| `/api/v1/experiments/{id}` | GET, PUT, DELETE | Manage experiment |
+| `/api/v1/gates` | GET, POST | List/create feature gates |
+
+### Selection & Feedback
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/select` | POST | Get arm selection |
+| `/api/v1/feedback` | POST | Submit reward feedback |
+
+---
+
+## Supported Algorithms
+
+### Stochastic Bandits
+| Algorithm | Best For |
+|-----------|----------|
+| `beta_ts` | Binary rewards (clicks, conversions) |
+| `gaussian_ts` | Continuous rewards |
+| `ucb1_tuned` | When you need theoretical guarantees |
+| `kl_ucb` | Binary rewards with tight bounds |
+| `epsilon_greedy` | Simple baseline |
+| `moss` | Fixed horizon problems |
+
+### Contextual Bandits
+| Algorithm | Best For |
+|-----------|----------|
+| `lin_ucb` | Linear reward models with features |
+| `lin_ts` | Linear models with uncertainty |
+
+### Adversarial Bandits
+| Algorithm | Best For |
+|-----------|----------|
+| `exp3` | Non-stationary environments |
+| `fpl` | Follow the perturbed leader |
+
+---
+
+## Deployment
+
+### Docker Compose (Development)
+
+```bash
+docker compose up --build
+```
+
+### Kubernetes (Production)
+
+```bash
+# Development cluster
+helm install qbrix ./helm/qbrix -f helm/qbrix/values-dev.yaml
+
+# Production with managed services
+helm install qbrix ./helm/qbrix \
+  --set global.postgres.host=your-postgres.example.com \
+  --set global.redis.host=your-redis.example.com
+```
+
+### Scaling Guidelines
+
+| Service | Replicas | Notes |
+|---------|----------|-------|
+| proxysvc | 2-10 | Scale with request volume |
+| motorsvc | 3-20 | Scale with selection QPS |
+| cortexsvc | 1 | Single instance (event sourcing) |
+
+---
+
+## Multi-Tenancy
+
+Qbrix supports **multi-tenant deployments** with complete data isolation:
+
+- **Implicit tenant resolution** — No `X-Tenant-ID` header required
+- **1:1 user-tenant mapping** — Each user belongs to exactly one tenant
+- **Automatic tenant creation** — New tenant created on user registration
+- **Isolated data** — Separate pools, experiments, and parameters per tenant
+
+See [`TENANTIDENTIFICATION.md`](TENANTIDENTIFICATION.md) for implementation details.
+
+---
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [`CLAUDE.md`](CLAUDE.md) | Developer guide & coding conventions |
+| [`TENANTIDENTIFICATION.md`](TENANTIDENTIFICATION.md) | Multi-tenancy architecture |
+| [`helm/README.md`](helm/README.md) | Kubernetes deployment guide |
+
+---
 
 ## Tech Stack
 
-- **Language**: Python 3.10+
-- **Package manager**: uv (workspace mode)
-- **Persistent storage**: Postgres (experiments, pools)
-- **Hot storage**: Redis (params cache)
-- **Message queue**: Redis Streams (feedback)
-- **Caching**: cachebox (in-memory TTL cache)
-- **Inter-service**: gRPC
-- **Container orchestration**: Docker Compose (local), Kubernetes (production)
+| Component | Technology |
+|-----------|------------|
+| Language | Python 3.10+ |
+| Package Manager | uv (workspace mode) |
+| HTTP API | FastAPI |
+| Inter-service | gRPC |
+| Database | PostgreSQL |
+| Cache | Redis |
+| Queue | Redis Streams |
+| Orchestration | Kubernetes / Helm |
+
+---
 
 ## Development
 
-### Setup
 ```bash
-make install
-# or: uv sync
+make install      # Install dependencies
+make test         # Run test suite
+make lint         # Type checking (mypy)
+make fmt          # Format code (black)
+make proto        # Generate gRPC stubs
+make dev          # Run all services locally
 ```
 
-### Run tests
-```bash
-make test
-# or: uv run pytest
-```
+---
 
-### Local infrastructure (Postgres + Redis)
-```bash
-make infra
-```
+## License
 
-### Run services locally
-```bash
-make dev              # All services
-make dev-proxy        # proxysvc only
-make dev-motor        # motorsvc only
-make dev-cortex       # cortexsvc only
-```
+[MIT](LICENSE)
 
-### Full containerized deployment
-```bash
-make docker
-# or: docker compose up --build
-```
+---
 
-### Generate proto stubs
-```bash
-make proto
-# or: cd proto && buf generate
-```
-
-### Linting and formatting
-```bash
-make lint             # mypy type checking
-make fmt              # black formatting
-```
-
-### Database reset
-```bash
-make db-reset
-```
-
-## Coding Conventions
-
-### Logging
-- Always use lowercase for log messages
-- Do not capitalize the first letter of log statements
-```python
-# Good
-logger.info("starting motor service on port 50051")
-logger.error("failed to connect to redis")
-
-# Bad
-logger.info("Starting motor service on port 50051")
-logger.error("Failed to connect to Redis")
-```
-
-### Comments
-- Avoid unnecessary comments; code should be self-explanatory
-- When comments are needed, use lowercase (no capitalization)
-- Do not state the obvious
-```python
-# Good
-# handles edge case when pool has no active arms
-if not active_arms:
-    return default_arm
-
-# Bad
-# This function selects an arm
-def select_arm():
-    ...
-```
-
-### Imports
-- Import each module on a separate line for clarity
-- Group imports: standard library, third-party, local
-- Use absolute imports for local modules
-```python
-# Good
-from qbrixcore.protoc.stochastic.ts import BetaTSProtocol
-from qbrixcore.protoc.stochastic.ucb import UCB1TunedProtocol
-from qbrixcore.agent import Agent
-
-# Bad
-from qbrixcore.protoc.stochastic.ts import BetaTSProtocol, GaussianTSProtocol
-from qbrixcore.protoc.stochastic.ucb import UCB1TunedProtocol, KLUCBProtocol
-```
-
-### Type Hints
-- Always use type hints for function signatures
-- Use `from __future__ import annotations` for forward references
-
-### Async Code
-- Prefer async/await for I/O operations
-- Use `asyncio.gather` for concurrent operations
-- Never block the event loop with synchronous calls
-
-## Dependency Management
-
-### Package Manager
-- Always use `uv` for dependency management (not pip)
-- The project uses uv workspace mode with multiple packages
-
-### Adding Dependencies
-```bash
-# Add to root workspace
-uv add <package>
-
-# Add to specific package
-uv add <package> --package <package-name>
-
-# Add dev dependency
-uv add --dev <package>
-
-# Example: add redis to motorsvc
-uv add redis --package motorsvc
-```
-
-### Removing Dependencies
-```bash
-uv remove <package>
-uv remove <package> --package <package-name>
-```
-
-### Syncing Environment
-```bash
-# Sync all workspace packages
-uv sync
-
-# Update lockfile
-uv lock
-```
-
-### Version Constraints
-- Pin major versions for stability: `package>=1.0,<2.0`
-- Use exact versions only when necessary for reproducibility
-
-## Request Flow
-
-1. **Create Pool**: `proxysvc` → Postgres
-2. **Create Experiment**: `proxysvc` → Postgres → sync to Redis
-3. **Select**: Client → `proxysvc` (feature gates) → `motorsvc` (gRPC) → Redis (cached params) → response
-4. **Feedback**: Client → `proxysvc` → Redis Streams → `cortexsvc` (batch train) → Redis (updated params)
-
-## Environment Variables
-
-### proxysvc
-- `PROXY_GRPC_HOST`, `PROXY_GRPC_PORT`
-- `PROXY_POSTGRES_HOST`, `PROXY_POSTGRES_PORT`, `PROXY_POSTGRES_USER`, `PROXY_POSTGRES_PASSWORD`, `PROXY_POSTGRES_DATABASE`
-- `PROXY_REDIS_HOST`, `PROXY_REDIS_PORT`
-- `PROXY_MOTOR_HOST`, `PROXY_MOTOR_PORT`
-
-### motorsvc
-- `MOTOR_GRPC_HOST`, `MOTOR_GRPC_PORT`
-- `MOTOR_REDIS_HOST`, `MOTOR_REDIS_PORT`
-- `MOTOR_PARAM_CACHE_TTL`, `MOTOR_AGENT_CACHE_TTL`
-
-### cortexsvc
-- `CORTEX_GRPC_HOST`, `CORTEX_GRPC_PORT`
-- `CORTEX_REDIS_HOST`, `CORTEX_REDIS_PORT`
-- `CORTEX_CONSUMER_NAME`, `CORTEX_BATCH_SIZE`
+<p align="center">
+  Built for decisions that matter.
+</p>
