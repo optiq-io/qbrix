@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+import time
 import uuid
 from collections import deque
 from dataclasses import dataclass
@@ -71,6 +72,7 @@ class SingleExperimentUser(User):
             "user_tier": random.choice(["free", "premium", "enterprise"]),
         }
 
+        start_time = time.perf_counter()
         try:
             result: SelectResult = self.client.select(
                 experiment_id=self.experiment_id,
@@ -78,11 +80,12 @@ class SingleExperimentUser(User):
                 context_vector=context_vector,
                 context_metadata=context_metadata,
             )
+            response_time_ms = (time.perf_counter() - start_time) * 1000
 
             events.request.fire(
                 request_type="http",
                 name="Select",
-                response_time=0,  # locust handles timing
+                response_time=response_time_ms,
                 response_length=0,
                 exception=None,
                 context={},
@@ -101,10 +104,11 @@ class SingleExperimentUser(User):
                 gevent.spawn_later(delay_ms / 1000.0, self._send_feedback, pending)
 
         except Exception as e:
+            response_time_ms = (time.perf_counter() - start_time) * 1000
             events.request.fire(
                 request_type="http",
                 name="Select",
-                response_time=0,
+                response_time=response_time_ms,
                 response_length=0,
                 exception=e,
                 context={},
@@ -116,21 +120,24 @@ class SingleExperimentUser(User):
         if not self.client:
             return
 
+        start_time = time.perf_counter()
         try:
             self.client.health_check()
+            response_time_ms = (time.perf_counter() - start_time) * 1000
             events.request.fire(
                 request_type="http",
                 name="Health",
-                response_time=0,
+                response_time=response_time_ms,
                 response_length=0,
                 exception=None,
                 context={},
             )
         except Exception as e:
+            response_time_ms = (time.perf_counter() - start_time) * 1000
             events.request.fire(
                 request_type="http",
                 name="Health",
-                response_time=0,
+                response_time=response_time_ms,
                 response_length=0,
                 exception=e,
                 context={},
@@ -144,24 +151,27 @@ class SingleExperimentUser(User):
         # determine reward based on probability
         reward = 1.0 if random.random() < settings.reward_success_probability else 0.0
 
+        start_time = time.perf_counter()
         try:
             self.client.feedback(
                 request_id=pending.request_id,
                 reward=reward,
             )
+            response_time_ms = (time.perf_counter() - start_time) * 1000
             events.request.fire(
                 request_type="http",
                 name="Feedback",
-                response_time=0,
+                response_time=response_time_ms,
                 response_length=0,
                 exception=None,
                 context={},
             )
         except Exception as e:
+            response_time_ms = (time.perf_counter() - start_time) * 1000
             events.request.fire(
                 request_type="http",
                 name="Feedback",
-                response_time=0,
+                response_time=response_time_ms,
                 response_length=0,
                 exception=e,
                 context={},
