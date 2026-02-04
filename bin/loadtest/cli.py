@@ -103,8 +103,8 @@ def run(
         # run multi-experiment scenario
         make loadtest-multi
 
-        # connect to remote proxy
-        uv run python -m tests.loadtest.cli -h proxy.example.com -p 8080 --web
+        # connect to remote proxy (run from bin/)
+        uv run python -m loadtest.cli -h proxy.example.com -p 8080 --web
     """
     import os
 
@@ -119,9 +119,9 @@ def run(
 
     # select scenario file
     if scenario == "single":
-        locust_args.extend(["-f", "tests/loadtest/scenarios/single_experiment.py"])
+        locust_args.extend(["-f", "loadtest/scenarios/single_experiment.py"])
     else:
-        locust_args.extend(["-f", "tests/loadtest/scenarios/multi_experiment.py"])
+        locust_args.extend(["-f", "loadtest/scenarios/multi_experiment.py"])
 
     if web:
         locust_args.extend(["--web-host", web_host, "--web-port", str(web_port)])

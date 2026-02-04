@@ -4,7 +4,6 @@ import random
 import uuid
 from collections import deque
 from dataclasses import dataclass
-from threading import Lock
 from typing import ClassVar
 
 import gevent
@@ -13,9 +12,9 @@ from locust import between
 from locust import events
 from locust import task
 
-from tests.loadtest.client import ProxyClient
-from tests.loadtest.client import SelectResult
-from tests.loadtest.config import settings
+from bin.loadtest.client import ProxyClient
+from bin.loadtest.client import SelectResult
+from bin.loadtest.config import settings
 
 
 @dataclass
@@ -23,79 +22,45 @@ class PendingFeedback:
     request_id: str
 
 
-@dataclass
-class ExperimentInfo:
-    experiment_id: str
-    pool_id: str
-    user_count: int = 0
-
-
-class MultiExperimentUser(User):
+class SingleExperimentUser(User):
     """
-    simulates users distributed across multiple experiments.
+    simulates users interacting with a single experiment/pool.
 
     behavior:
-    - multiple experiments are created at test start
-    - each user is assigned to one experiment (round-robin with max cap)
-    - users interact only with their assigned experiment
-    - same realistic async feedback behavior as single experiment
+    - users make select requests continuously
+    - feedback is sent asynchronously with realistic delay
+    - not all selections result in feedback (configurable probability)
+    - rewards are probabilistic (success/failure)
 
-    this simulates real-world multi-tenant scenarios where:
-    - different user segments have different experiments
-    - experiments have user capacity limits
-    - system handles concurrent load across experiments
+    this simulates real-world behavior where:
+    - selection is synchronous (user sees the arm immediately)
+    - conversion/feedback happens later (user interacts, then converts or not)
     """
 
     wait_time = between(0.1, 0.5)
 
-    # shared state across all users
-    experiments: ClassVar[list[ExperimentInfo]] = []
+    # shared state across all users (set during test init)
+    experiment_id: ClassVar[str | None] = None
+    pool_id: ClassVar[str | None] = None
     _setup_done: ClassVar[bool] = False
-    _assignment_lock: ClassVar[Lock] = Lock()
-    _user_counter: ClassVar[int] = 0
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.client: ProxyClient | None = None
-        self.assigned_experiment: ExperimentInfo | None = None
         self.pending_feedbacks: deque[PendingFeedback] = deque(maxlen=100)
 
     def on_start(self) -> None:
         self.client = ProxyClient()
         self.client.connect()
-        self._assign_experiment()
 
     def on_stop(self) -> None:
         if self.client:
             self.client.close()
-        self._release_experiment()
-
-    def _assign_experiment(self) -> None:
-        """assign this user to an experiment using round-robin."""
-        with MultiExperimentUser._assignment_lock:
-            if not MultiExperimentUser.experiments:
-                return
-
-            # round-robin assignment for even distribution
-            idx = MultiExperimentUser._user_counter % len(MultiExperimentUser.experiments)
-            MultiExperimentUser._user_counter += 1
-
-            exp = MultiExperimentUser.experiments[idx]
-            exp.user_count += 1
-            self.assigned_experiment = exp
-
-    def _release_experiment(self) -> None:
-        """release user slot from assigned experiment."""
-        if self.assigned_experiment:
-            with MultiExperimentUser._assignment_lock:
-                self.assigned_experiment.user_count = max(
-                    0, self.assigned_experiment.user_count - 1
-                )
 
     @task(10)
     def select_arm(self) -> None:
-        """make a selection request on assigned experiment."""
-        if not self.assigned_experiment or not self.client:
+        """make a selection request and potentially queue feedback."""
+        if not self.experiment_id or not self.client:
             return
 
         context_id = str(uuid.uuid4())
@@ -108,7 +73,7 @@ class MultiExperimentUser(User):
 
         try:
             result: SelectResult = self.client.select(
-                experiment_id=self.assigned_experiment.experiment_id,
+                experiment_id=self.experiment_id,
                 context_id=context_id,
                 context_vector=context_vector,
                 context_metadata=context_metadata,
@@ -117,17 +82,18 @@ class MultiExperimentUser(User):
             events.request.fire(
                 request_type="http",
                 name="Select",
-                response_time=0,
+                response_time=0,  # locust handles timing
                 response_length=0,
                 exception=None,
                 context={},
             )
 
-            # probabilistically queue feedback
+            # probabilistically queue feedback for later
             if random.random() < settings.feedback_probability:
                 pending = PendingFeedback(request_id=result.request_id)
                 self.pending_feedbacks.append(pending)
 
+                # schedule async feedback with delay
                 delay_ms = random.randint(
                     settings.feedback_delay_min_ms,
                     settings.feedback_delay_max_ms,
@@ -171,10 +137,11 @@ class MultiExperimentUser(User):
             )
 
     def _send_feedback(self, pending: PendingFeedback) -> None:
-        """send feedback asynchronously."""
+        """send feedback asynchronously (called via gevent)."""
         if not self.client or not self.client.is_connected:
             return
 
+        # determine reward based on probability
         reward = 1.0 if random.random() < settings.reward_success_probability else 0.0
 
         try:
@@ -203,37 +170,32 @@ class MultiExperimentUser(User):
 
 @events.test_start.add_listener
 def on_test_start(environment, **kwargs):  # noqa
-    """setup multiple experiments before test starts."""
-    if MultiExperimentUser._setup_done:  # noqa
+    """setup shared experiment before test starts."""
+    if SingleExperimentUser._setup_done:  # noqa
         return
 
     client = ProxyClient()
     client.connect()
 
     try:
-        for i in range(settings.num_experiments):
-            # create pool
-            pool_id = client.create_pool(
-                name=f"{settings.default_pool_name}-multi-{i}-{uuid.uuid4().hex[:8]}",
-                num_arms=settings.default_num_arms,
-            )
+        # create pool
+        pool_id = client.create_pool(
+            name=f"{settings.default_pool_name}-{uuid.uuid4().hex[:8]}",
+            num_arms=settings.default_num_arms,
+        )
+        SingleExperimentUser.pool_id = pool_id
 
-            # create experiment
-            experiment_id = client.create_experiment(
-                name=f"{settings.default_experiment_name}-multi-{i}-{uuid.uuid4().hex[:8]}",
-                pool_id=pool_id,
-                policy=settings.default_policy,
-            )
+        # create experiment
+        experiment_id = client.create_experiment(
+            name=f"{settings.default_experiment_name}-{uuid.uuid4().hex[:8]}",
+            pool_id=pool_id,
+            policy=settings.default_policy,
+        )
+        SingleExperimentUser.experiment_id = experiment_id
+        SingleExperimentUser._setup_done = True
 
-            MultiExperimentUser.experiments.append(
-                ExperimentInfo(experiment_id=experiment_id, pool_id=pool_id)
-            )
-
-            print(
-                f"created experiment {i + 1}/{settings.num_experiments}: {experiment_id}"
-            )
-
-        MultiExperimentUser._setup_done = True
+        print(f"created pool: {pool_id}")
+        print(f"created experiment: {experiment_id}")
 
     finally:
         client.close()
@@ -241,28 +203,27 @@ def on_test_start(environment, **kwargs):  # noqa
 
 @events.test_stop.add_listener
 def on_test_stop(environment, **kwargs):  # noqa
-    """cleanup all experiments after test ends."""
-    if not MultiExperimentUser._setup_done:  # noqa
+    """cleanup experiment after test ends."""
+    if not SingleExperimentUser._setup_done:  # noqa
         return
 
     client = ProxyClient()
     client.connect()
 
     try:
-        for exp in MultiExperimentUser.experiments:
-            try:
-                client.delete_experiment(exp.experiment_id)
-                print(f"deleted experiment: {exp.experiment_id}")
-            except Exception as e:
-                print(f"failed to delete experiment {exp.experiment_id}: {e}")
+        if SingleExperimentUser.experiment_id:
+            client.delete_experiment(SingleExperimentUser.experiment_id)
+            print(f"deleted experiment: {SingleExperimentUser.experiment_id}")
 
-            try:
-                client.delete_pool(exp.pool_id)
-                print(f"deleted pool: {exp.pool_id}")
-            except Exception as e:
-                print(f"failed to delete pool {exp.pool_id}: {e}")
+        if SingleExperimentUser.pool_id:
+            client.delete_pool(SingleExperimentUser.pool_id)
+            print(f"deleted pool: {SingleExperimentUser.pool_id}")
+
+    except Exception as e:
+        print(f"cleanup error: {e}")
 
     finally:
         client.close()
-        MultiExperimentUser._setup_done = False
-        MultiExperimentUser.experiments.clear()
+        SingleExperimentUser._setup_done = False
+        SingleExperimentUser.experiment_id = None
+        SingleExperimentUser.pool_id = None

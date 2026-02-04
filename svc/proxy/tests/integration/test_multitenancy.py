@@ -3,7 +3,7 @@
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from qbrixstore.postgres.models import Tenant, Pool, Experiment
+from qbrixstore.postgres.models import Tenant
 from qbrixstore.redis.client import RedisClient
 from qbrixstore.redis.streams import FeedbackEvent
 

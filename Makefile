@@ -205,13 +205,13 @@ clean:
 # ============================================================================
 
 loadtest:
-	uv run python -m tests.loadtest.cli -s single -u 10 -r 2 -t 60s
+	cd bin/ && uv run python -m loadtest.cli -s single -u 10 -r 2 -t 60s
 
 loadtest-web:
-	uv run python -m tests.loadtest.cli -s single --web
+	cd bin/ && uv run python -m loadtest.cli -s single --web
 
 loadtest-multi:
-	uv run python -m tests.loadtest.cli -s multi -u 50 -r 5 -t 60s --num-experiments 5
+	cd bin/ && uv run python -m loadtest.cli -s multi -u 50 -r 5 -t 60s --num-experiments 5
 
 loadtest-multi-web:
-	uv run python -m tests.loadtest.cli -s multi --web --num-experiments 5
+	cd bin/ && uv run python -m loadtest.cli -s multi --web --num-experiments 5
