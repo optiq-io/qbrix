@@ -276,8 +276,6 @@ Qbrix supports **multi-tenant deployments** with complete data isolation:
 - **Automatic tenant creation** — New tenant created on user registration
 - **Isolated data** — Separate pools, experiments, and parameters per tenant
 
-See [`TENANTIDENTIFICATION.md`](TENANTIDENTIFICATION.md) for implementation details.
-
 ---
 
 ## Documentation
@@ -285,7 +283,6 @@ See [`TENANTIDENTIFICATION.md`](TENANTIDENTIFICATION.md) for implementation deta
 | Document | Description |
 |----------|-------------|
 | [`CLAUDE.md`](CLAUDE.md) | Developer guide & coding conventions |
-| [`TENANTIDENTIFICATION.md`](TENANTIDENTIFICATION.md) | Multi-tenancy architecture |
 | [`helm/README.md`](helm/README.md) | Kubernetes deployment guide |
 
 ---
