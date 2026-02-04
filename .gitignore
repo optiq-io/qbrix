@@ -18,3 +18,11 @@ wheels/
 # Claude
 .claude/settings.local.json
 /lib/core/.coverage
+
+# Infra
+terraform/
+*.tfstate*
+*.tfvarsi\
+
+# TMP
+tmp/
