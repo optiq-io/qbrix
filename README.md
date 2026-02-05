@@ -1,16 +1,10 @@
 <p align="center">
-  <img src="./asset/logo-bb.png" alt="Project Logo" width="600">
+  <img src="./asset/logo-bb.png" alt="Qbrix" width="100%">
 </p>
 
-
 <p align="center">
-  <h1 align="center">Qbrix</h1>
-  <p align="center">
-    <strong>Distributed Multi-Armed Bandit Optimization Platform</strong>
-  </p>
-  <p align="center">
-    Real-time decisions. Continuous learning. Infinite scale.
-  </p>
+  <strong>Distributed Multi-Armed Bandit Optimization Platform</strong><br>
+  <sub>Real-time decisions. Continuous learning. Infinite scale.</sub>
 </p>
 
 <p align="center">
