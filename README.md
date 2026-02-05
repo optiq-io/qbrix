@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./asset/logo.png" alt="Project Logo" width="600">
+  <img src="./asset/logo-bb.png" alt="Project Logo" width="600">
 </p>
 
 
@@ -282,7 +282,7 @@ Qbrix supports **multi-tenant deployments** with complete data isolation:
 
 | Document | Description |
 |----------|-------------|
-| [`CLAUDE.md`](CLAUDE.md) | Developer guide & coding conventions |
+| [`CLAUDE.md`](CLAUDE.md) | Developer guide & coding conventions | 
 | [`helm/README.md`](helm/README.md) | Kubernetes deployment guide |
 
 ---
