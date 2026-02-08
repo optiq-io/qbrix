@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./asset/qbrix-logo-bb.png" alt="Qbrix" width="100%">
+  <img src="./asset/logo/bb_logo.svg" alt="Qbrix" width="100%">
 </p>
 
 <p align="center">
