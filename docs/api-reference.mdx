@@ -1,0 +1,426 @@
+---
+title: API Reference
+description: HTTP API reference for the qbrix developer endpoints — pools, experiments, selection, feedback, gates, and policies.
+order: 8
+---
+
+# API reference
+
+**Base URL**: `https://cloud.qbrix.io`
+
+This reference covers the endpoints you call from your application to run adaptive optimization: pools, experiments, selection and feedback, feature gates, and policies. Account, workspace, and billing management live in the [console](https://cloud.qbrix.io), not the API.
+
+<Callout type="tip">
+Prefer a typed client? Use an official SDK instead of raw HTTP — see the [Python SDK](/docs/python-sdk) and [JavaScript / TypeScript SDK](/docs/javascript-sdk).
+
+The curl examples below assume these environment variables:
+
+```bash
+export QBRIX_URL="https://cloud.qbrix.io"
+export QBRIX_API_KEY="your-api-key"
+```
+</Callout>
+
+## Authentication
+
+All requests authenticate with an API key. Create and manage keys under **Settings → API Keys** in the console, then pass the key in the `X-API-Key` header:
+
+```bash
+curl $QBRIX_URL/api/v1/pools \
+  -H "X-API-Key: $QBRIX_API_KEY"
+```
+
+Keys inherit the role of the workspace member that created them, which determines the operations they can perform. Keep keys secret and rotate them from the console if one is exposed.
+
+## Pools
+
+<Endpoint method="POST" path="/api/v1/pools" description="Create a new pool with arms" />
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+pool = client.pool.create(
+    name="my-pool",
+    arms=[
+        {"name": "variant-a"},
+        {"name": "variant-b"},
+        {"name": "variant-c"},
+    ],
+)
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl -X POST $QBRIX_URL/api/v1/pools \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-pool",
+    "arms": [
+      {"name": "variant-a"},
+      {"name": "variant-b"},
+      {"name": "variant-c"}
+    ]
+  }'
+```
+</CodeTab>
+</CodeTabs>
+
+<Endpoint method="GET" path="/api/v1/pools" description="List all pools (paginated)" />
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+page = client.pool.list(limit=100, offset=0)
+for pool in page.items:
+    print(pool.name)
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl $QBRIX_URL/api/v1/pools \
+  -H "X-API-Key: $QBRIX_API_KEY"
+```
+</CodeTab>
+</CodeTabs>
+
+<Endpoint method="GET" path="/api/v1/pools/{id}" description="Get pool by ID" />
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+pool = client.pool.get("<pool-id>")
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl $QBRIX_URL/api/v1/pools/<pool-id> \
+  -H "X-API-Key: $QBRIX_API_KEY"
+```
+</CodeTab>
+</CodeTabs>
+
+<Endpoint method="PATCH" path="/api/v1/pools/{id}" description="Update pool" />
+<Endpoint method="DELETE" path="/api/v1/pools/{id}" description="Delete pool" />
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+client.pool.delete("<pool-id>")
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl -X DELETE $QBRIX_URL/api/v1/pools/<pool-id> \
+  -H "X-API-Key: $QBRIX_API_KEY"
+```
+</CodeTab>
+</CodeTabs>
+
+<Endpoint method="GET" path="/api/v1/pools/{id}/experiments" description="List experiments for pool" />
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+experiments = client.pool.list_experiments("<pool-id>")
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl $QBRIX_URL/api/v1/pools/<pool-id>/experiments \
+  -H "X-API-Key: $QBRIX_API_KEY"
+```
+</CodeTab>
+</CodeTabs>
+
+## Experiments
+
+<Endpoint method="POST" path="/api/v1/experiments" description="Create a new experiment" />
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+experiment = client.experiment.create(
+    name="hero-test",
+    pool_id="<pool-id>",
+    policy="BetaTSPolicy",
+)
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl -X POST $QBRIX_URL/api/v1/experiments \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "hero-test",
+    "pool_id": "<pool-id>",
+    "policy": "BetaTSPolicy"
+  }'
+```
+</CodeTab>
+</CodeTabs>
+
+<Endpoint method="GET" path="/api/v1/experiments" description="List experiments (paginated, filterable)" />
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+page = client.experiment.list(limit=100, offset=0)
+for exp in page.items:
+    print(f"{exp.name} ({exp.policy})")
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl $QBRIX_URL/api/v1/experiments \
+  -H "X-API-Key: $QBRIX_API_KEY"
+```
+</CodeTab>
+</CodeTabs>
+
+<Endpoint method="GET" path="/api/v1/experiments/{id}" description="Get experiment by ID" />
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+experiment = client.experiment.get("<experiment-id>")
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl $QBRIX_URL/api/v1/experiments/<experiment-id> \
+  -H "X-API-Key: $QBRIX_API_KEY"
+```
+</CodeTab>
+</CodeTabs>
+
+<Endpoint method="PATCH" path="/api/v1/experiments/{id}" description="Update experiment" />
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+experiment = client.experiment.update(
+    "<experiment-id>",
+    enabled=False,
+)
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl -X PATCH $QBRIX_URL/api/v1/experiments/<experiment-id> \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": false}'
+```
+</CodeTab>
+</CodeTabs>
+
+<Endpoint method="POST" path="/api/v1/experiments/{id}/reset" description="Reset learned params to configured policy_params" />
+
+Resets the experiment's learned parameters back to its configured `policy_params`. Requires the `experiment:write` scope. The experiment must be paused first — a running experiment returns `409`.
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+experiment = client.experiment.reset("<experiment-id>")
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl -X POST $QBRIX_URL/api/v1/experiments/<experiment-id>/reset \
+  -H "X-API-Key: $QBRIX_API_KEY"
+```
+</CodeTab>
+</CodeTabs>
+
+<Endpoint method="DELETE" path="/api/v1/experiments/{id}" description="Delete experiment" />
+
+## Agent (selection & feedback)
+
+<Endpoint method="POST" path="/api/v1/agent/select" description="Select an arm" />
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+result = client.agent.select(
+    experiment_id="<experiment-id>",
+    context={"id": "user-123"},
+)
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl -X POST $QBRIX_URL/api/v1/agent/select \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "experiment_id": "<experiment-id>",
+    "context": {"id": "user-123"}
+  }'
+```
+</CodeTab>
+</CodeTabs>
+
+For contextual policies, include the properties the experiment's schema declares:
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+from qbrix import Context
+
+result = client.agent.select(
+    experiment_id="<experiment-id>",
+    context=Context(
+        id="user-123",
+        properties={"device": "mobile", "cart_value": 62.5},
+        metadata={"country": "US"},
+    ),
+)
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl -X POST $QBRIX_URL/api/v1/agent/select \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "experiment_id": "<experiment-id>",
+    "context": {
+      "id": "user-123",
+      "properties": {"device": "mobile", "cart_value": 62.5},
+      "metadata": {"country": "US"}
+    }
+  }'
+```
+</CodeTab>
+</CodeTabs>
+
+<Endpoint method="POST" path="/api/v1/agent/feedback" description="Submit reward feedback" />
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+client.agent.feedback(
+    request_id="<request-id>",
+    reward=1.0,
+)
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl -X POST $QBRIX_URL/api/v1/agent/feedback \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "request_id": "<request-id>",
+    "reward": 1.0
+  }'
+```
+</CodeTab>
+</CodeTabs>
+
+<Callout type="info">
+Both SDKs support a per-call `timeout` and a `fallback` arm on `select()` so a call fails open instead of hanging or raising when qbrix is unreachable — this is client-side behavior, not a request parameter these endpoints accept. See [Handling outages](/docs/handling-outages).
+</Callout>
+
+## Feature gates
+
+<Endpoint method="POST" path="/api/v1/gates/{experiment_id}" description="Create a feature gate" />
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+gate = client.gate.create(
+    experiment_id="<experiment-id>",
+    enabled=True,
+    rollout_percentage=50.0,
+)
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl -X POST $QBRIX_URL/api/v1/gates/<experiment-id> \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "enabled": true,
+    "rollout_percentage": 50,
+    "rules": []
+  }'
+```
+</CodeTab>
+</CodeTabs>
+
+<Endpoint method="GET" path="/api/v1/gates/{experiment_id}" description="Get feature gate config" />
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+gate = client.gate.get("<experiment-id>")
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl $QBRIX_URL/api/v1/gates/<experiment-id> \
+  -H "X-API-Key: $QBRIX_API_KEY"
+```
+</CodeTab>
+</CodeTabs>
+
+<Endpoint method="PATCH" path="/api/v1/gates/{experiment_id}" description="Update part of a feature gate" />
+
+Writes the fields present in the body and leaves the rest of the gate as stored. An explicit `null` clears a field, and `rules` replaces the whole list — omit it to keep the stored rules, send `[]` to remove them.
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+gate = client.gate.update(
+    experiment_id="<experiment-id>",
+    rollout_percentage=50.0,
+)
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl -X PATCH $QBRIX_URL/api/v1/gates/<experiment-id> \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"rollout_percentage": 50}'
+```
+</CodeTab>
+</CodeTabs>
+
+<Endpoint method="PUT" path="/api/v1/gates/{experiment_id}" description="Replace a feature gate" />
+
+Replaces the whole configuration: any field absent from the body is reset to its default. Use `PATCH` unless you mean to rewrite the gate wholesale.
+
+<CodeTabs>
+<CodeTab label="bash">
+```bash
+curl -X PUT $QBRIX_URL/api/v1/gates/<experiment-id> \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "enabled": true,
+    "rollout_percentage": 100,
+    "rules": [
+      {
+        "key": "country",
+        "operator": "in",
+        "value": ["US", "GB", "DE"],
+        "arm_id": "<arm-id>"
+      }
+    ]
+  }'
+```
+</CodeTab>
+</CodeTabs>
+
+<Endpoint method="DELETE" path="/api/v1/gates/{experiment_id}" description="Delete feature gate" />
+
+## Policies
+
+<Endpoint method="GET" path="/api/v1/policies" description="List all available policies" />
+
+Returns all policies with their configurable parameters. See the [Policies](/docs/policies) page for detailed guidance.

@@ -1,0 +1,139 @@
+---
+title: Feature Gates
+description: Gradual rollouts, targeting rules, scheduling, and default arms for your experiments.
+order: 2
+---
+
+# Feature gates
+
+A **feature gate** sits in front of an experiment and decides *who* enters the experiment and *what* they see when they don't. Gates give you the safety rails you'd expect from a production rollout system — percentage rollouts, targeting rules, schedules, and a default arm for everyone outside the experiment.
+
+Every experiment can have **at most one** gate. Without a gate, every selection request goes straight to the policy.
+
+## What a gate controls
+
+| Control | Description |
+|---------|-------------|
+| **Rollout %** | Fraction of traffic routed to the policy. The remainder gets the default arm. Hashed by the context id you send, so the same id always lands in the same bucket. Use a stable per-visitor id (user id, device id, session id) — generating a fresh id per request defeats stickiness. |
+| **Default arm** | The arm served when a request is excluded by the gate (rollout, schedule, or unmatched rules). |
+| **Targeting rules** | Match on context metadata fields (`country`, `device`, `plan_tier`, etc.) and route matching traffic to a specific arm or to the policy. |
+| **Schedule** | Start/end dates and active hours of day. Outside the window, the gate serves the default arm. |
+| **Enabled flag** | Master switch — flipping it off bypasses the policy entirely. |
+
+## Create an experiment with a gate
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+from qbrix import Qbrix
+
+client = Qbrix()
+
+experiment = client.experiment.create(
+    name="checkout-banner",
+    pool_id=pool.id,
+    policy="auto",
+    policy_params={"reward_type": "binary"},
+    feature_gate={
+        "enabled": True,
+        "rollout_percentage": 25.0,
+        "default_arm_id": pool.arms[0].id,
+        "rules": [
+            {
+                "key": "country",
+                "operator": "in",
+                "value": ["US", "GB", "DE"],
+                "arm_id": pool.arms[1].id,
+            },
+        ],
+    },
+)
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl -X POST $QBRIX_URL/api/v1/experiments \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "checkout-banner",
+    "pool_id": "<pool-id>",
+    "policy": "auto",
+    "policy_params": {"reward_type": "binary"},
+    "feature_gate": {
+      "enabled": true,
+      "rollout_percentage": 25.0,
+      "default_arm_id": "<default-arm-id>",
+      "rules": [
+        {
+          "key": "country",
+          "operator": "in",
+          "value": ["US", "GB", "DE"],
+          "arm_id": "<variant-a-arm-id>"
+        }
+      ]
+    }
+  }'
+```
+</CodeTab>
+</CodeTabs>
+
+## How selection resolves
+
+When a `select` request hits a gated experiment, qbrix walks the gate in this order:
+
+1. **Enabled?** If the gate is off, return the default arm.
+2. **Schedule check.** If outside the configured window, return the default arm.
+3. **Rule match.** Iterate rules in order. The first matching rule with an `arm_id` wins (returns that arm directly). A rule without `arm_id` opts the request *into* the policy.
+4. **Rollout hash.** Hash the context id and bucket into `[0, rollout_percentage)`. In-bucket requests get the policy's selection; out-of-bucket get the default arm.
+
+The response includes an `is_default: true` flag so your client can distinguish policy picks from gate fall-throughs.
+
+## Targeting operators
+
+Rules read context fields from `Context.metadata`, so make sure your `select()` calls include the keys your rules reference. If the key is absent from the metadata, the rule simply doesn't match.
+
+| Operator | Aliases | Example |
+|----------|---------|---------|
+| `equals` | `==`, `eq` | `{"key": "plan", "operator": "eq", "value": "pro"}` |
+| `not_equals` | `!=`, `ne` | `{"key": "plan", "operator": "ne", "value": "free"}` |
+| `greater_than` | `>`, `gt` | `{"key": "tenure_days", "operator": "gt", "value": 30}` |
+| `less_than` | `<`, `lt` | `{"key": "cart_value", "operator": "lt", "value": 50}` |
+| `greater_or_equal` | `>=`, `gte` | `{"key": "tenure_days", "operator": "gte", "value": 30}` |
+| `less_or_equal` | `<=`, `lte` | `{"key": "age", "operator": "lte", "value": 65}` |
+| `contains` | — | `{"key": "user_agent", "operator": "contains", "value": "Mobile"}` |
+| `not_contains` | — | `{"key": "email", "operator": "not_contains", "value": "@test."}` |
+| `in` | — | `{"key": "country", "operator": "in", "value": ["US", "CA"]}` |
+| `not_in` | — | `{"key": "country", "operator": "not_in", "value": ["CN"]}` |
+
+`contains` asks whether the rule value appears **inside** the context value. `in` is the reverse — whether the context value appears inside the rule's list.
+
+## Rollout is deterministic, not random
+
+Rollout inclusion is a hash of the request ID, not a coin flip. The same request ID always lands on the same side of the same rollout percentage, so a given user's experience is stable across requests — and reproducible when you're debugging one.
+
+Ramping the percentage up only ever *adds* traffic. Users already inside the rollout stay inside it.
+
+## When a gate fails
+
+If a gate can't be evaluated — malformed config, missing metadata, an unexpected error — it falls through to normal policy selection rather than failing the request. A gate misconfiguration degrades your targeting; it never takes down the endpoint.
+
+## Common patterns
+
+**Canary launch.** Start at `rollout_percentage=5`, watch insights, ramp to 25 → 50 → 100.
+
+**Holdout group.** Set the default arm to `control` and rollout to 90% — 10% of traffic always sees the control regardless of what the policy learns.
+
+**Geography-scoped experiments.** Use a single `country in [...]` rule with `arm_id` unset, so only matching traffic enters the policy; everyone else gets the default arm.
+
+**Scheduled flash test.** Set `start_date` / `end_date` and `active_hours_start` / `active_hours_end` to constrain the experiment to a marketing window.
+
+<Callout type="info">
+Gates can be created and updated independently of the experiment via `/api/v1/gates`. `PATCH` writes only the fields you send and leaves the rest of the gate alone; `PUT` replaces the whole configuration. See the [API reference](/docs/api-reference) for the full schema.
+</Callout>
+
+## Next steps
+
+- [Auto policy](/docs/auto-policy) — let qbrix pick the algorithm
+- [Pools & experiments](/docs/pools-and-experiments) — the data model behind every gate
+- [Console experiments](/docs/console-experiments) — manage gates from the UI

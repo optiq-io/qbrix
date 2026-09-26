@@ -1,0 +1,118 @@
+{{- if .Values.infrastructure.redis.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-redis
+  labels:
+    {{- include "qbrix.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6379
+      targetPort: 6379
+      protocol: TCP
+      name: redis
+  selector:
+    app.kubernetes.io/name: {{ include "qbrix.name" . }}-redis
+    app.kubernetes.io/instance: {{ .Release.Name }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-redis
+  labels:
+    {{- include "qbrix.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  serviceName: {{ .Release.Name }}-redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "qbrix.name" . }}-redis
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "qbrix.name" . }}-redis
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: redis
+    spec:
+      {{- include "qbrix.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: redis
+          image: "{{ .Values.infrastructure.redis.image.repository }}:{{ .Values.infrastructure.redis.image.tag }}"
+          imagePullPolicy: {{ .Values.infrastructure.redis.image.pullPolicy }}
+          ports:
+            - containerPort: 6379
+              name: redis
+          args:
+            - --maxmemory
+            - {{ .Values.infrastructure.redis.maxmemory | quote }}
+            - --maxmemory-policy
+            - {{ .Values.infrastructure.redis.maxmemoryPolicy | quote }}
+            {{- if or .Values.global.redis.password .Values.global.redis.existingSecret }}
+            - --requirepass
+            - $(REDIS_PASSWORD)
+            {{- end }}
+          {{- if or .Values.global.redis.password .Values.global.redis.existingSecret }}
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "qbrix.redisSecretName" . }}
+                  key: password
+          {{- end }}
+          resources:
+            {{- toYaml .Values.infrastructure.redis.resources | nindent 12 }}
+          livenessProbe:
+            exec:
+              command:
+                - redis-cli
+                {{- if or .Values.global.redis.password .Values.global.redis.existingSecret }}
+                - -a
+                - $(REDIS_PASSWORD)
+                {{- end }}
+                - ping
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - redis-cli
+                {{- if or .Values.global.redis.password .Values.global.redis.existingSecret }}
+                - -a
+                - $(REDIS_PASSWORD)
+                {{- end }}
+                - ping
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  {{- if .Values.infrastructure.redis.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if or .Values.infrastructure.redis.persistence.storageClass .Values.global.storageClass }}
+        storageClassName: {{ .Values.infrastructure.redis.persistence.storageClass | default .Values.global.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.infrastructure.redis.persistence.size }}
+  {{- else }}
+      volumes:
+        - name: data
+          emptyDir: {}
+  {{- end }}
+{{- else if not .Values.global.redis.host }}
+{{- fail "global.redis.host is required when infrastructure.redis is disabled" }}
+{{- end }}

@@ -1,0 +1,48 @@
+[project]
+name = "qbrixruntime"
+version = "0.1.0"  # x-release-please-version
+description = "process lifecycle and grpc serving skeleton shared by qbrix services"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "grpcio>=1.76.0",
+    "grpcio-health-checking>=1.76.0",
+    "grpcio-reflection>=1.76.0",
+    "pydantic-settings>=2.12.0",
+    "qbrixlog",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "pre-commit>=4.0.1",
+    "black>=24.0.0",
+    "pytest-mock>=3.14.1",
+]
+
+[tool.uv.sources]
+qbrixlog = { path = "../log", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = [
+    "--import-mode=importlib",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=qbrixruntime",
+    "--cov-report=term-missing",
+]
+markers = [
+    "unit: Unit tests",
+]
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"

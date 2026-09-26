@@ -1,0 +1,61 @@
+[project]
+name = "metersvc"
+version = "0.1.0"  # x-release-please-version
+description = "Qbrix Meter Service - EE selection usage -> Stripe billing meter"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.3.1",
+    "grpcio>=1.76.0",
+    "grpcio-health-checking>=1.76.0",
+    "grpcio-reflection>=1.76.0",
+
+    "pydantic>=2.12.3",
+    "pydantic-settings>=2.12.0",
+    "cachebox>=5.2.1",
+    "stripe>=14.0.0",
+    "qbrixstore",
+    "qbrixlog",
+    "qbrixruntime",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+    "pytest-cov>=6.0.0",
+    "pre-commit>=4.0.1",
+    "black>=26.1.0",
+    "pytest-mock>=3.14.1",
+    "pytest-asyncio>=0.24.0",
+    "fakeredis>=2.26.0",
+]
+
+[tool.uv.sources]
+qbrixstore = { path = "../../../lib/store", editable = true }
+qbrixlog = { path = "../../../lib/log", editable = true }
+qbrixruntime = { path = "../../../lib/runtime", editable = true }
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--cov=metersvc",
+    "--cov-report=term-missing",
+]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Slow running tests",
+]
+
+[project.scripts]
+server = "metersvc.cli:run"
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"

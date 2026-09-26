@@ -1,0 +1,52 @@
+name: Bug report
+description: Something in qbrix doesn't work as it should.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The smallest sequence of requests, clicks or commands that shows it.
+      placeholder: |
+        1. docker compose up -d
+        2. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How you run qbrix
+      options:
+        - docker compose (docker-compose.yml)
+        - helm chart
+        - from source (make dev / make docker)
+        - other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The image tag or commit, e.g. 0.1.0 or sha-4acde09.
+    validations:
+      required: true
+  - type: dropdown
+    id: analytics
+    attributes:
+      label: Analytics enabled
+      options:
+        - "no"
+        - "yes"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant service logs (`docker compose logs proxy`, etc.). Remove secrets and tokens first.
+      render: text

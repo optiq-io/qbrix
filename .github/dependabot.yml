@@ -1,0 +1,88 @@
+version: 2
+
+# minor and patch updates only. a major bump (a postgres data format, a node
+# runtime, a breaking library api) is a deliberate change with its own ticket,
+# not a weekly pr. python stays on 3.10 until its upgrade lands; semver calls
+# 3.10 -> 3.14 a minor, so it is ignored by name.
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    ignore:
+      - dependency-name: '*'
+        update-types: [version-update:semver-major]
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: docker
+    directories:
+      - /svc/*
+      - /ee/svc/meter
+      - /web/apps/console
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+    ignore:
+      - dependency-name: '*'
+        update-types: [version-update:semver-major]
+      - dependency-name: python
+        versions: ['>=3.11']
+    groups:
+      base-images:
+        patterns: ['*']
+
+  # the chart pins the same postgres, redis and clickhouse images, and
+  # bin/check-chart fails until it follows a bump here
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+    ignore:
+      - dependency-name: '*'
+        update-types: [version-update:semver-major]
+      # year.month versions: a "minor" is a feature release of the analytics
+      # store, so only its digest moves here
+      - dependency-name: clickhouse/clickhouse-server
+        update-types: [version-update:semver-minor]
+    groups:
+      compose-images:
+        patterns: ['*']
+
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+    ignore:
+      - dependency-name: '*'
+        update-types: [version-update:semver-major]
+      # 1.82.1 on needs protobuf 7, and the generated stubs pin protobuf < 7
+      - dependency-name: grpcio-reflection
+        versions: ['>=1.82.1']
+      - dependency-name: grpcio-health-checking
+        versions: ['>=1.82.1']
+    groups:
+      python:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+    ignore:
+      - dependency-name: '*'
+        update-types: [version-update:semver-major]
+    groups:
+      web:
+        update-types: [minor, patch]

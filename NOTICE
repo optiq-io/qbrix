@@ -1,0 +1,8 @@
+qbrix
+Copyright (c) 2026 Optiq B.V.
+
+This product includes software developed at Optiq B.V. (https://qbrix.io).
+
+The content under the paths listed in bin/ee-paths.txt is not licensed under
+the Apache License, Version 2.0; it is licensed under the qbrix Enterprise
+License in ee/LICENSE.

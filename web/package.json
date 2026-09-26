@@ -1,0 +1,28 @@
+{
+  "name": "qbrix-web",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.15.9",
+  "scripts": {
+    "dev:console": "pnpm --filter @qbrix/console dev",
+    "build:console": "pnpm --filter @qbrix/console build",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "type-check": "pnpm -r type-check",
+    "check-docs": "node scripts/check-docs.mjs"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "sharp"
+    ],
+    "overrides": {
+      "next>postcss": "^8.5.18"
+    }
+  },
+  "devDependencies": {
+    "@mdx-js/mdx": "^3",
+    "github-slugger": "^2",
+    "gray-matter": "^4.0.3",
+    "remark-gfm": "^4.0.1"
+  }
+}

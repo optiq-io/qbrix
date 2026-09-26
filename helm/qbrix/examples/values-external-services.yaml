@@ -1,0 +1,47 @@
+# managed postgres, redis and (with analytics) clickhouse instead of the
+# in-cluster ones. layer it on top of values-selfhost.yaml:
+#
+#   helm install qbrix oci://ghcr.io/optiq-io/charts/qbrix \
+#     -f values-selfhost.yaml -f values-external-services.yaml
+#
+# create the secrets first, e.g.
+#   kubectl create secret generic qbrix-postgres \
+#     --from-literal=username=qbrix --from-literal=password=...
+#   kubectl create secret generic qbrix-redis --from-literal=password=...
+#   kubectl create secret generic qbrix-jwt --from-literal=jwt-secret=$(openssl rand -hex 32)
+#   kubectl create secret generic qbrix-token --from-literal=token-secret=$(openssl rand -hex 32)
+#
+# supplying every secret also makes the release renderable by tools that never
+# talk to the cluster (helm template, argocd), which cannot keep generated ones.
+
+global:
+  postgres:
+    host: "qbrix.xxxxxxxx.eu-central-1.rds.amazonaws.com"
+    port: 5432
+    database: "qbrix"
+    existingSecret: "qbrix-postgres"
+  redis:
+    host: "qbrix.xxxxxx.cache.amazonaws.com"
+    port: 6379
+    existingSecret: "qbrix-redis"
+  # clickhouse:
+  #   host: "clickhouse.example.com"
+  #   port: 8123
+  #   user: "qbrix"
+  #   database: "qbrix"
+  #   existingSecret: "qbrix-clickhouse"
+
+infrastructure:
+  postgres:
+    enabled: false
+  redis:
+    enabled: false
+  clickhouse:
+    enabled: false
+
+proxy:
+  config:
+    jwt:
+      existingSecret: "qbrix-jwt"
+    token:
+      existingSecret: "qbrix-token"

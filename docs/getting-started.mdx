@@ -1,0 +1,327 @@
+---
+title: Quickstart
+description: Create your first experiment and start optimizing in minutes.
+order: 1
+---
+
+# Quickstart
+
+Get from zero to a working experiment in under 5 minutes. By the end of this guide you'll have a pool, an experiment running `auto` mode, and a feedback loop sending real rewards.
+
+## Prerequisites
+
+- A qbrix account — [sign up at cloud.qbrix.io](https://cloud.qbrix.io/register)
+- One of: the [Python SDK](https://pypi.org/project/qbrix/), the [JavaScript / TypeScript SDK](https://www.npmjs.com/package/@optiqio/qbrix), `curl`, or any HTTP client
+
+<Steps>
+
+## Install the SDK
+
+<CodeTabs>
+<CodeTab label="python">
+```bash
+pip install "qbrix[http]"
+```
+</CodeTab>
+<CodeTab label="typescript">
+```bash
+npm install @optiqio/qbrix
+```
+</CodeTab>
+</CodeTabs>
+
+The **Python SDK** (Python 3.10+) wraps every qbrix HTTP endpoint into a typed client — pools, experiments, selection, and feedback.
+
+The **JavaScript / TypeScript SDK** (`@optiqio/qbrix`, Node 18+) is a tiny, isomorphic client focused on the runtime hot path: `select` and `feedback`. Create pools and experiments with the Python SDK, `curl`, or the [console](https://cloud.qbrix.io) — then use the JS SDK to run selection and report rewards. See the [JavaScript / TypeScript SDK guide](/docs/javascript-sdk) for the full reference.
+
+## Create an API key
+
+1. Log in to [cloud.qbrix.io](https://cloud.qbrix.io)
+2. Go to **Settings → API Keys**
+3. Click **Create API Key** and copy the key
+
+Set your environment variables:
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+import qbrix
+
+client = qbrix.Qbrix(
+    api_key="your-api-key",
+    base_url="https://cloud.qbrix.io",
+)
+```
+</CodeTab>
+<CodeTab label="typescript">
+```typescript
+import { QbrixClient } from "@optiqio/qbrix";
+
+const qbrix = new QbrixClient({
+  apiKey: "your-api-key",
+  baseUrl: "https://cloud.qbrix.io",
+});
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+export QBRIX_URL="https://cloud.qbrix.io"
+export QBRIX_API_KEY="your-api-key"
+```
+</CodeTab>
+</CodeTabs>
+
+<Callout type="warning">
+Your API key (`optiq_…`) is a secret — the SDK sends it as an `X-API-Key` header, so it travels wherever the client runs. Keep it server-side (a route handler, edge function, or backend) and never bundle it into browser code. Have the browser call your endpoint, not qbrix directly.
+</Callout>
+
+## Create a pool
+
+A pool is a collection of arms (variants). Let's create one with 3 homepage hero images:
+
+<Callout type="info">
+The JavaScript / TypeScript SDK covers **selection and feedback** only. Create pools and experiments with the Python SDK, `curl`, or the [console](https://cloud.qbrix.io) — then use the JS SDK at runtime to `select` and send `feedback`.
+</Callout>
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+pool = client.pool.create(
+    name="homepage-heroes",
+    arms=[
+        {"name": "minimal-dark", "metadata": {"image": "hero-1.png"}},
+        {"name": "gradient-bold", "metadata": {"image": "hero-2.png"}},
+        {"name": "illustration", "metadata": {"image": "hero-3.png"}},
+    ],
+)
+
+print(pool.id)
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl -s -X POST $QBRIX_URL/api/v1/pools \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "homepage-heroes",
+    "arms": [
+      {"name": "minimal-dark", "metadata": {"image": "hero-1.png"}},
+      {"name": "gradient-bold", "metadata": {"image": "hero-2.png"}},
+      {"name": "illustration", "metadata": {"image": "hero-3.png"}}
+    ]
+  }' | jq .
+```
+</CodeTab>
+</CodeTabs>
+
+## Create an experiment
+
+Link the pool to a policy. The default `"auto"` policy runs a **portfolio of learners** — qbrix launches several in parallel and adaptively routes traffic toward the best performer, so you don't have to pick one upfront:
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+experiment = client.experiment.create(
+    name="hero-optimization",
+    pool_id=pool.id,
+    policy="auto",
+    policy_params={"reward_type": "binary"},
+)
+
+print(experiment.id)
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl -s -X POST $QBRIX_URL/api/v1/experiments \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "hero-optimization",
+    "pool_id": "'"$POOL_ID"'",
+    "policy": "auto",
+    "policy_params": {"reward_type": "binary"}
+  }' | jq .
+```
+</CodeTab>
+</CodeTabs>
+
+<Callout type="info">
+Prefer a specific algorithm? Pass a concrete policy name like `"BetaTSPolicy"` or `"LinTSPolicy"` — see [Policies](/docs/policies) for the full list.
+</Callout>
+
+## Select an arm
+
+Ask qbrix to select the best arm for a request:
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+result = client.agent.select(
+    experiment_id=experiment.id,
+    context={"id": "user-001"},
+)
+
+print(f"Selected: {result.arm.name}")
+print(f"Request ID: {result.request_id}")
+```
+</CodeTab>
+<CodeTab label="typescript">
+```typescript
+const { arm, requestId } = await qbrix.select(experiment.id, {
+  id: "user-001",
+});
+
+console.log(`Selected: ${arm.name}`);
+console.log(`Request ID: ${requestId}`);
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl -s -X POST $QBRIX_URL/api/v1/agent/select \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "experiment_id": "'"$EXP_ID"'",
+    "context": {"id": "user-001"}
+  }' | jq .
+```
+</CodeTab>
+</CodeTabs>
+
+The response includes the selected arm and a `request_id` to link feedback:
+
+```json
+{
+  "request_id": "req-abc123",
+  "arm": {"id": "...", "name": "gradient-bold", "index": 1},
+  "is_default": false
+}
+```
+
+## Send feedback
+
+After observing the outcome (e.g., user clicked), send a reward signal:
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+client.agent.feedback(
+    request_id=result.request_id,
+    reward=1.0,
+)
+```
+</CodeTab>
+<CodeTab label="typescript">
+```typescript
+await qbrix.feedback(requestId, 1.0);
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl -s -X POST $QBRIX_URL/api/v1/agent/feedback \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "request_id": "req-abc123",
+    "reward": 1.0
+  }'
+```
+</CodeTab>
+</CodeTabs>
+
+<Callout type="info">
+Feedback is processed asynchronously. Policy parameters update within seconds depending on batch settings.
+</Callout>
+
+</Steps>
+
+## Verify the loop
+
+Run a few more select → feedback cycles. You'll see the policy begin to favor higher-reward arms:
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+import random
+
+for i in range(20):
+    # select
+    result = client.agent.select(
+        experiment_id=experiment.id,
+        context={"id": f"user-{i}"},
+    )
+
+    # simulate reward: arm index 1 has 70% click rate, others 30%
+    if result.arm.index == 1:
+        reward = 1.0 if random.random() < 0.7 else 0.0
+    else:
+        reward = 1.0 if random.random() < 0.3 else 0.0
+
+    # feedback
+    client.agent.feedback(
+        request_id=result.request_id,
+        reward=reward,
+    )
+
+    print(f"round {i+1}: arm={result.arm.name} reward={reward}")
+```
+</CodeTab>
+<CodeTab label="typescript">
+```typescript
+for (let i = 0; i < 20; i++) {
+  // select
+  const { arm, requestId } = await qbrix.select(experiment.id, {
+    id: `user-${i}`,
+  });
+
+  // simulate reward: arm index 1 has 70% click rate, others 30%
+  const rate = arm.index === 1 ? 0.7 : 0.3;
+  const reward = Math.random() < rate ? 1.0 : 0.0;
+
+  // feedback
+  await qbrix.feedback(requestId, reward);
+
+  console.log(`round ${i + 1}: arm=${arm.name} reward=${reward}`);
+}
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+for i in $(seq 1 20); do
+  # select
+  RESP=$(curl -s -X POST $QBRIX_URL/api/v1/agent/select \
+    -H "X-API-Key: $QBRIX_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"experiment_id": "'"$EXP_ID"'", "context": {"id": "user-'"$i"'"}}')
+
+  ARM=$(echo $RESP | jq -r .arm.index)
+  REQ_ID=$(echo $RESP | jq -r .request_id)
+
+  # simulate reward: arm 1 has 70% click rate, others 30%
+  REWARD=$( [ "$ARM" -eq 1 ] && echo "1.0" || echo "0.0" )
+  [ $(( RANDOM % 10 )) -lt 3 ] && REWARD=$( [ "$REWARD" = "1.0" ] && echo "0.0" || echo "1.0" )
+
+  # feedback
+  curl -s -X POST $QBRIX_URL/api/v1/agent/feedback \
+    -H "X-API-Key: $QBRIX_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"request_id": "'"$REQ_ID"'", "reward": '"$REWARD"'}'
+
+  echo "round $i: arm=$ARM reward=$REWARD"
+done
+```
+</CodeTab>
+</CodeTabs>
+
+## View results
+
+Open your experiment in the [qbrix console](https://cloud.qbrix.io) to see selection distributions and reward metrics.
+
+## What's next
+
+- [Pools & experiments](/docs/pools-and-experiments) — understand the data model
+- [Feedback & rewards](/docs/feedback-and-rewards) — how the learning loop works
+- [API reference](/docs/api-reference) — explore all HTTP endpoints
+- [Policies](/docs/policies) — choose the right algorithm for your use case

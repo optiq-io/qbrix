@@ -1,0 +1,60 @@
+# macOS
+.DS_Store
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+#build/
+.pdm-build/
+dist/
+wheels/
+*.egg-info
+.coverage
+.cov
+
+# Virtual environments
+.venv
+.proto-venv
+.idea
+
+# Environment files
+.env
+.env.local
+
+# Claude and agent tooling: personal, never shared
+.claude.json
+.claude/CLAUDE.md
+.claude/settings.json
+.claude/settings.local.json
+.claude/skills/stripe-checkout-test/
+**/.claude/agent-memory/
+.codegraph/
+/lib/core/.coverage
+
+# Infra
+terraform/
+*.tfstate*
+*.tfvars
+
+# TMP
+.tmp/
+*tmp/
+
+# Design files
+.pencil/
+
+# Internal
+.internal/
+
+# arxiv
+.arxiv
+
+# packaged helm subcharts — build artifacts that shadow the source chart dirs
+helm/qbrix/charts/*.tgz
+
+# internal notes and strategy docs; kept out by rule, not by habit
+*-PREP.md
+.notes.md
+.kimi-*
+todo.md
+coverage.xml

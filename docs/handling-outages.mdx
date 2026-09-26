@@ -1,0 +1,119 @@
+---
+title: Handling outages
+description: How select() and feedback() behave when qbrix is slow or unreachable — timeouts, fail-open fallback, and what happens to feedback in that window.
+order: 12
+---
+
+# Handling outages
+
+`select()` sits on your request path. If qbrix is slow or unreachable, your app should not hang waiting to find out — and it should have somewhere to land. Both SDKs share one design for this, so the behavior below is identical whether you're on Python or JavaScript/TypeScript.
+
+<Callout type="info">
+This is SDK-side behavior, not a server API. `fallback` and the resulting `is_fallback` / `isFallback` flag never leave your process — the proxy has no knowledge of them.
+</Callout>
+
+## The defaults changed
+
+Both SDKs used to default to a 30-second timeout with automatic retries on top — a worst case measured in tens of seconds on a hot-path call. The client-wide defaults are now:
+
+| | Timeout | Retries |
+|---|---|---|
+| Python (`QbrixConfig`) | `5.0s` | `0` |
+| JavaScript (`QbrixClient`) | `5000ms` | `0` |
+
+5 seconds is still too slow for most request paths — it's a client-wide ceiling, not a per-call recommendation. Give `select()` its own tight budget:
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+result = qbrix.agent.select(
+    experiment_id=exp.id,
+    context={"id": "user-1"},
+    timeout=0.3,
+    max_retries=0,
+)
+```
+</CodeTab>
+<CodeTab label="typescript">
+```ts
+const result = await qbrix.select(
+  "homepage-cta",
+  { id: userId },
+  { timeout: 300, maxRetries: 0 },
+);
+```
+</CodeTab>
+</CodeTabs>
+
+`timeout` and `max_retries` / `maxRetries` are overridable per call on every resource method in both SDKs, not just `select()` — set a tighter budget on the hot path and leave the client-wide default alone for everything else.
+
+## Fail open with `fallback`
+
+Declare an arm once and get it back — locally, with no network round trip — whenever `select()` can't reach qbrix:
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+result = qbrix.agent.select(
+    experiment_id=exp.id,
+    context={"id": "user-1"},
+    timeout=0.3,
+    fallback={"id": pool.arms[0].id, "name": pool.arms[0].name, "index": pool.arms[0].index},
+)
+if result.is_fallback:
+    # proxy was unreachable/unhealthy — arm was resolved locally, no learning signal
+    ...
+qbrix.agent.feedback(result.request_id, reward=1.0)  # no-op when request_id is None
+```
+</CodeTab>
+<CodeTab label="typescript">
+```ts
+const result = await qbrix.select(
+  "homepage-cta",
+  { id: userId },
+  { timeout: 300, fallback: { id: "arm_control", name: "control", index: 0 } },
+);
+
+if (result.isFallback) {
+  // never reached the proxy — arm is your declared fallback, not a gate decision
+}
+
+console.log(`showing: ${result.arm.name}`);
+
+// safe even for a fallback result: requestId is null, so this is a no-op
+await qbrix.feedback(result.requestId, 1.0);
+```
+</CodeTab>
+</CodeTabs>
+
+With `fallback` set, `select()` always resolves — it never rejects for an availability failure. Leave `fallback` unset and you get the old opt-in-strict behavior: a timeout, connection error, or 5xx still throws.
+
+This mirrors what the backend already does for a paused experiment: it resolves to the gate's default arm rather than leaving the caller with nothing. `fallback` is the SDK's equivalent for the case where the backend can't be reached at all — the last line of defense sits in your process, not just in ours.
+
+### Only availability failures fall back
+
+`fallback` only kicks in for errors that mean *qbrix is unreachable or unhealthy right now* — a timeout, connection failure, `429`, or `5xx`. A `4xx` (bad `experiment_id`, an auth failure, a malformed context) is a real bug in the call itself and still raises, even with `fallback` set. Hiding a caller error behind a fabricated selection would be worse than the outage this feature protects against — it would mean an integrator ships a broken `experiment_id` and never finds out, because `select()` quietly returns a plausible-looking arm forever.
+
+### `is_fallback` vs `is_default`
+
+Both SDKs already had `is_default` / `isDefault` — `true` when a feature gate committed a real, server-side default-arm decision (a paused experiment, an unmatched rollout). `is_fallback` / `isFallback` is a different thing: it's `true` only when `select()` never reached the proxy at all and resolved your declared `fallback` locally instead. Keep them distinguishable in your own telemetry — one is a real decision qbrix made, the other is qbrix not being there.
+
+## `feedback()` is a no-op without a token
+
+A fallback selection has no server-minted `request_id` — there's nothing on the backend to feed a reward against. Both SDKs already handled this for the pre-existing paused-experiment case (`request_id: None` / `requestId: null`), and `fallback` reuses the same path: `feedback()` returns immediately, without a network call, whenever `request_id` / `requestId` is falsy.
+
+This is the piece that actually closes the corruption risk — it's not enough for `select()` to fail open; `feedback()` also has to know not to send a reward for a decision qbrix never made. Calling `feedback(result.request_id, reward)` unconditionally, without checking `is_fallback` first, is the correct and safe pattern in both SDKs.
+
+## Should you set a fallback?
+
+If `select()` can throw, something downstream has to catch it — a try/catch that shows a default variant, an error boundary, a page that degrades. `fallback` moves that handling into the SDK so every call site gets it for free, instead of every call site needing its own try/catch to get the same outcome.
+
+Pick a fallback that's safe to serve to everyone with no context: your existing control experience, not last week's winning arm — the SDK has no way to know if that's still true when it can't reach qbrix to ask.
+
+Reach for opt-in strictness (leaving `fallback` unset) on a path where a swallowed outage is worse than a thrown exception — a batch job you'd rather retry than silently mis-decide, for example.
+
+## See also
+
+- [Python SDK](/docs/python-sdk) — full configuration reference
+- [JavaScript / TypeScript SDK](/docs/javascript-sdk) — full configuration reference
+- [Feedback & rewards](/docs/feedback-and-rewards) — the general `request_id` / reward contract

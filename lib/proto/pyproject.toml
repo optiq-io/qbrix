@@ -1,0 +1,20 @@
+[project]
+name = "qbrixproto"
+version = "0.1.0"  # x-release-please-version
+description = "gRPC protocol definitions for qbrix services"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "grpcio>=1.60.0",
+    "protobuf>=6.31.1,<7.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+    "grpcio-tools>=1.60.0,<1.71.0",
+]
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"

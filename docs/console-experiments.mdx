@@ -1,0 +1,60 @@
+---
+title: Console — Experiments
+description: Create, monitor, and manage experiments from the qbrix console.
+order: 20
+---
+
+# Experiments in the Console
+
+The **Experiments** page in the console is the primary surface for the day-to-day work of running experiments. From here you can create new experiments, monitor active ones, drill into per-arm performance, and tweak feature gates without touching the API.
+
+<ConsoleExperiments />
+
+## The list view
+
+The experiments table shows every experiment in your workspace:
+
+- **Experiment** — the name you gave it, over its pool and arm count.
+- **Leader** — the arm currently receiving the largest share of traffic.
+- **Reward** — the leader's observed reward rate.
+- **Feedback** — how many outcomes have been reported.
+- **Allocation** — the share of traffic each arm is receiving, leader first.
+
+The last four are analytics columns. With Enterprise features disabled the list shows **Experiment**, **Policy**, **Gate** and **State** instead, none of which need analytics.
+
+Use the filter tabs (`All` / `Active` / `Paused`) to narrow the list.
+
+## Creating an experiment
+
+Click **New experiment** in the top right. The dialog walks you through four steps:
+
+1. **Basics** — Name and pool selection.
+2. **Reward Type** — Binary, Bounded, or Continuous. This determines which policies are eligible. This step also carries the **context** toggle: turn it on and a schema builder appears, where you name each property, pick its type (categorical, numeric or boolean), and see the derived context width update as you go. See [Contexts](/docs/contexts).
+3. **Policy** — `auto` is the default recommendation. The advanced picker lets you pick a specific algorithm. Turning context on narrows the list to contextual policies.
+4. **Feature Gate** *(optional)* — Rollout %, default arm, targeting rules, and schedule.
+
+<Callout type="tip">
+For most use cases, sticking with the default `auto` policy is the right call — qbrix will figure out which algorithm works best on your data. See the [Auto policy](/docs/auto-policy) page for details.
+</Callout>
+
+## The detail view
+
+Clicking an experiment opens its detail page, which is tabbed:
+
+- **Overview** — live arm-selection share and per-arm reward stats.
+- **Arms** — pulls, average reward, and the belief the policy holds for each arm.
+- **Policy** — the current parameter state (Beta priors, weight vectors, etc.). For an experiment created with a context schema, this tab also shows the declared properties, what each contributes to the width, and the reserved baseline slot. The schema is fixed at creation, so it is a readout rather than a form.
+- **Gate** — rollout, rules, schedule, and a toggle to enable/disable.
+- **Insights** — analytics over the experiment's history.
+- **Activity** — every selection, reward and configuration change on this experiment, newest first. The same feed as the [Event Log](/docs/console-event-log), scoped to one experiment: filter by stream, expand a row for its payload, and read the actor on each configuration change. Requires the Scale plan.
+
+## Editing & disabling
+
+- **Pause** an experiment from its detail page; the badge switches from `Running` to `Paused`. Selections fall through to the gate's default arm (or error out if no gate is configured).
+- **Update the gate** at any time — rollout %, rules, and schedule are editable without touching the experiment itself.
+- **Delete** an experiment from the detail view's overflow menu. This is permanent; selection requests for the deleted ID will 404.
+
+## Next steps
+
+- [Console Event Log](/docs/console-event-log) — see every selection and feedback event in real time
+- [Feature gates](/docs/feature-gates) — the gate model in depth

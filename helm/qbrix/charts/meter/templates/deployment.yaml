@@ -1,0 +1,124 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "meter.fullname" . }}
+  labels:
+    {{- include "meter.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  # single instance -> Recreate ensures the old consumer stops before the new
+  # one starts (no two instances sharing the metering group at once).
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "meter.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "meter.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "meter.serviceAccountName" . }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: {{ include "meter.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.config.grpc.port }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "meter.fullname" . }}
+          env:
+            # consumer name from pod name for unique consumer identity
+            - name: METER_CONSUMER_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            # postgres credentials from secret
+            - name: METER_POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meter.postgresSecretName" . }}
+                  key: username
+            - name: METER_POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meter.postgresSecretName" . }}
+                  key: password
+            # redis password from secret (if configured)
+            {{- if or .Values.global.redis.password .Values.global.redis.existingSecret }}
+            - name: METER_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meter.redisSecretName" . }}
+                  key: password
+            {{- end }}
+            # stripe secret key (if ee enabled and configured)
+            {{- if and .Values.global.ee.enabled .Values.config.stripe.existingSecret }}
+            - name: METER_STRIPE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.config.stripe.existingSecret }}
+                  key: {{ .Values.config.stripe.existingSecretKey }}
+            {{- end }}
+            {{- if .Values.global.sentry.enabled }}
+            # optional: observability config must never block startup
+            - name: SENTRY_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meter.sentrySecretName" . }}
+                  key: meter-dsn
+                  optional: true
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- with .Values.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.extraVolumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

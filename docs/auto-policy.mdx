@@ -1,0 +1,110 @@
+---
+title: Auto Policy
+description: The portfolio that picks and tunes the right policy for you.
+order: 3
+---
+
+# Auto policy
+
+The `auto` policy is qbrix's recommended default. Instead of asking you to choose between Thompson Sampling, UCB, EXP3, LinTS, etc., it runs a **portfolio of learners in parallel** and uses a meta-level controller to adaptively route traffic toward whichever learner is performing best on your real data.
+
+## Why use it
+
+Picking the right policy is a research problem in disguise — the "best" choice depends on reward stationarity, arm count, context dimension, and assumptions you don't always know upfront. The auto policy turns that decision into a runtime experiment:
+
+- **Zero-choice operation.** Pass `policy="auto"` and a reward type. Qbrix builds the portfolio.
+- **Adaptive.** Learners that perform well get more traffic; learners that under-perform fade out.
+- **Robust to drift.** If your reward distribution shifts and a different learner becomes optimal, the meta-controller catches up.
+- **Easy escape hatch.** You can always switch to a concrete policy later.
+
+## How it works
+
+When you create an experiment with `policy="auto"`, qbrix actually creates **N+1 experiments**:
+
+```
+parent meta experiment   →  MetaBanditPolicy (EXP3 at the meta level)
+  ├─ learner_0           →  BetaTSPolicy
+  ├─ learner_1           →  UCB1TunedPolicy
+  ├─ learner_2           →  EpsilonPolicy
+  └─ ...
+```
+
+Every `select` call walks two layers:
+
+1. **Meta layer** — EXP3 picks one learner based on its current weight.
+2. **Learner layer** — that learner picks an arm using its own algorithm.
+
+Feedback is credited to **both** layers. The learner updates its internal parameters, and the meta-controller updates the EXP3 weight for the learner that produced the selection.
+
+The portfolio is **scoped automatically** to your reward type and context settings — for binary rewards without context, you'll get stochastic learners; for binary rewards with a declared `context_schema`, you'll get LinTS, LogisticTS, GLMUCB, etc.
+
+## Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `reward_type` | string | — | `binary`, `bounded`, or `continuous`. Scopes the learner portfolio. |
+| `context_schema` | list | — | Declared context properties. Adds contextual learners and derives the width. See [Contexts](/docs/contexts). |
+| `use_context` | bool | `false` | Adds contextual learners without a schema, for the pre-encoded `vector` path. Implied by `context_schema`. |
+| `dim` | int | — | Context width, required with `use_context` and forbidden with `context_schema`. |
+
+## Examples
+
+<CodeTabs>
+<CodeTab label="binary, no context">
+```python
+client.experiment.create(
+    name="checkout-banner",
+    pool_id=pool.id,
+    policy="auto",
+    policy_params={"reward_type": "binary"},
+)
+```
+</CodeTab>
+<CodeTab label="contextual, binary">
+```python
+CONTEXT_SCHEMA = [
+    {"type": "categorical", "name": "device", "values": ["mobile", "desktop"]},
+    {"type": "numeric", "name": "cart_value", "min": 0, "max": 500},
+    {"type": "boolean", "name": "returning"},
+]
+
+client.experiment.create(
+    name="personalized-hero",
+    pool_id=pool.id,
+    policy="auto",
+    policy_params={
+        "reward_type": "binary",
+        "context_schema": CONTEXT_SCHEMA,
+    },
+)
+```
+</CodeTab>
+<CodeTab label="continuous reward">
+```python
+client.experiment.create(
+    name="revenue-test",
+    pool_id=pool.id,
+    policy="auto",
+    policy_params={"reward_type": "continuous"},
+)
+```
+</CodeTab>
+</CodeTabs>
+
+## When NOT to use auto
+
+- **You need full control over a single algorithm** for reproducibility, audit, or research purposes.
+- **You're squeezing every bit of regret** — the meta layer adds a small constant amount of exploration overhead vs. running the single best algorithm in hindsight.
+- **You have very few requests.** With < a few thousand selections per experiment, the meta-controller may not have enough signal to confidently shift weights.
+
+For all other cases, `auto` is the recommended starting point. You can always switch to a concrete policy later by creating a new experiment.
+
+## Inspecting the portfolio
+
+When you create an auto experiment in the [console](/docs/console-experiments), you'll see the parent meta experiment in your experiment list. Open it to view the learner experiments, their individual reward histories, and the current EXP3 weight assigned to each.
+
+## Next steps
+
+- [Policies](/docs/policies) — the full algorithm catalog
+- [Feedback & rewards](/docs/feedback-and-rewards) — how reward signals propagate through the meta layer
+- [Console experiments](/docs/console-experiments) — run and monitor auto experiments in the console

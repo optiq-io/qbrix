@@ -1,0 +1,151 @@
+# qbrix helm chart. the defaults are a self-contained install: in-cluster
+# postgres and redis, generated secrets, no analytics, no cloud edition.
+# see examples/ for an ingress setup and for external managed services.
+
+global:
+  # container registry prefix; images resolve to <registry>/qbrix/<service>
+  imageRegistry: "ghcr.io/optiq-io"
+  imagePullSecrets: []
+  storageClass: ""
+
+  # multi-tenancy configuration
+  multitenancy:
+    enabled: true
+    defaultTenant:
+      name: "Default"
+      slug: "default"
+
+  # an empty host is the in-cluster service this release deploys
+  # (infrastructure.*.enabled); set one to use a managed service instead
+  postgres:
+    host: ""
+    port: 5432
+    database: "qbrix"
+    # existingSecret must have keys: username, password. with neither it nor
+    # password set, a password is generated on install and kept across upgrades
+    # (and uninstalls, since the volume outlives the release). tools that only
+    # render (helm template, argocd) cannot read it back, so set one there.
+    existingSecret: ""
+    username: "qbrix"
+    password: ""
+
+  redis:
+    host: ""
+    port: 6379
+    db: 0
+    # use existingSecret in production (must have key: password)
+    existingSecret: ""
+    password: ""
+
+  clickhouse:
+    host: ""
+    port: 8123
+    user: "default"
+    database: "qbrix"
+    # use existingSecret in production (must have key: password)
+    existingSecret: ""
+    password: ""
+
+  logging:
+    format: "json"
+    level: "WARNING"
+
+  # error tracking. one sentry project per deployable, so the dsn is per-service.
+  sentry:
+    enabled: false
+    environment: ""
+    # use existingSecret in production (must have keys: proxy-dsn, motor-dsn,
+    # cortex-dsn, trace-dsn, meter-dsn)
+    existingSecret: ""
+    dsn:
+      proxy: ""
+      motor: ""
+      cortex: ""
+      trace: ""
+      meter: ""
+
+  # cloud edition: plan tiers, quotas and billing (propagated to subcharts)
+  ee:
+    enabled: false
+
+  # insights and the event log; needs trace and clickhouse deployed
+  analytics:
+    enabled: false
+
+# subcharts
+proxy:
+  enabled: true
+motor:
+  enabled: true
+cortex:
+  enabled: true
+console:
+  enabled: true
+
+trace:
+  enabled: false
+
+# cloud edition subchart toggles
+ee:
+  meter:
+    enabled: false
+
+# in-cluster infrastructure. disable and point global.* at managed services
+# for anything beyond a single-node install (examples/values-external-services.yaml)
+infrastructure:
+  postgres:
+    enabled: true
+    image:
+      repository: postgres
+      tag: "16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea"
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "1Gi"
+        cpu: "500m"
+    persistence:
+      enabled: true
+      size: "10Gi"
+      storageClass: ""
+
+  redis:
+    enabled: true
+    image:
+      repository: redis
+      tag: "7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499"
+      pullPolicy: IfNotPresent
+    # memory management
+    maxmemory: "384mb"
+    maxmemoryPolicy: "allkeys-lru"
+    resources:
+      requests:
+        memory: "128Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+        cpu: "250m"
+    persistence:
+      enabled: true
+      size: "5Gi"
+      storageClass: ""
+
+  clickhouse:
+    enabled: false
+    image:
+      repository: clickhouse/clickhouse-server
+      tag: "24.1@sha256:44caeed7c81f7934c28a8ffa3a422a4ca96cf3bccc486d21311e5133ce88d49f"
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "200m"
+      limits:
+        memory: "2Gi"
+        cpu: "1000m"
+    persistence:
+      enabled: true
+      size: "20Gi"
+      storageClass: ""

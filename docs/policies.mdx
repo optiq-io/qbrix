@@ -1,0 +1,414 @@
+---
+title: Policies
+description: Every policy qbrix offers plus auto mode — when to use them, and configuration reference.
+order: 9
+---
+
+# Policies
+
+<Callout type="info" title="What is a policy?">
+A **policy** is the algorithm qbrix uses to decide which variant to serve — and how it learns from each outcome. Most teams never pick one by hand: **auto** mode selects and tunes the right policy for you. This page is the reference for when you want to choose or configure one yourself.
+</Callout>
+
+qbrix offers policies organized into three categories: **stochastic**, **contextual**, and **adversarial**. Each takes a different approach to balancing what it already knows against what it still needs to learn. If you don't want to pick one yourself, **auto** mode does it for you.
+
+## Auto mode
+
+The `auto` policy is the recommended default. Instead of committing to a single algorithm, qbrix launches a **portfolio of learners** in parallel and uses a meta-level EXP3 controller to adaptively route traffic toward whichever learner is performing best on your actual data. The portfolio is scoped automatically to your reward type and context settings.
+
+Under the hood:
+
+- A **parent meta experiment** runs `MetaBanditPolicy` (EXP3 at the meta level).
+- Several **learner experiments** run concrete policies from the appropriate category (e.g. `BetaTSPolicy`, `UCB1TunedPolicy`, `EpsilonPolicy` for binary rewards; `LinTSPolicy`, `LogisticTSPolicy`, `GLMUCBPolicy` for contextual settings).
+- Every `select` call is first routed by the meta controller to one of the learners, which then picks an arm. Feedback is credited to both levels.
+- As rewards come in, EXP3 shifts meta-level weight toward the learners that convert best — so the portfolio *self-tunes* to your environment.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `reward_type` | string | — | `binary`, `bounded`, or `continuous`. Scopes the learner portfolio. |
+| `context_schema` | list | — | Declared context properties. Adds contextual learners (LinTS, LogisticTS, GLMUCB) and derives the width. |
+| `use_context` | bool | `false` | Adds contextual learners without a schema, for the pre-encoded `vector` path. Implied by `context_schema`. |
+| `dim` | int | — | Context width, required with `use_context` and forbidden with `context_schema`. |
+
+- **Best for**: Most production use cases. When you don't know which algorithm is right, or when reward structure may shift over time.
+- **Pros**: Zero-choice operation; robust across regimes; learners that underperform automatically get less traffic.
+- **Cons**: Slightly more infrastructure (M+1 experiments per parent); meta-level exploration adds a small amount of regret vs. the single best algorithm in hindsight.
+
+### Example: auto policy
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+from qbrix import Qbrix
+
+client = Qbrix()
+
+# binary reward, no context — qbrix picks a stochastic portfolio
+experiment = client.experiment.create(
+    name="checkout-banner",
+    pool_id=pool.id,
+    policy="auto",
+    policy_params={"reward_type": "binary"},
+)
+
+# contextual auto — adds LinTS / LogisticTS / GLMUCB to the portfolio
+CONTEXT_SCHEMA = [
+    {"type": "categorical", "name": "device", "values": ["mobile", "desktop"]},
+    {"type": "numeric", "name": "cart_value", "min": 0, "max": 500},
+    {"type": "boolean", "name": "returning"},
+]
+
+personalized = client.experiment.create(
+    name="personalized-hero",
+    pool_id=pool.id,
+    policy="auto",
+    policy_params={
+        "reward_type": "binary",
+        "context_schema": CONTEXT_SCHEMA,
+    },
+)
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl -X POST $QBRIX_URL/api/v1/experiments \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "checkout-banner",
+    "pool_id": "<pool-id>",
+    "policy": "auto",
+    "policy_params": {"reward_type": "binary"}
+  }'
+```
+</CodeTab>
+</CodeTabs>
+
+<Callout type="info">
+You can always override `auto` with a specific policy name if you want full control. The concrete policies are documented below, and the flowchart can help you choose.
+</Callout>
+
+## Choosing a policy
+
+Prefer to pick a concrete algorithm yourself? Answer a few questions to find the right one:
+
+<PolicyFlowchart />
+
+## Stochastic policies
+
+These assume rewards are drawn from a stationary distribution. Best for standard A/B testing and optimization scenarios.
+
+### BetaTSPolicy
+
+**Thompson Sampling with Beta priors.** The recommended default for binary rewards.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `alpha_prior` | float | 1.0 | Beta prior alpha (successes) |
+| `beta_prior` | float | 1.0 | Beta prior beta (failures) |
+
+- **Reward type**: Binary or Bounded
+- **Best for**: Click-through optimization, conversion rate testing
+- **Pros**: Naturally balances exploration/exploitation, fast convergence
+- **Cons**: Assumes a stationary reward distribution
+
+### DiscountedTSPolicy
+
+**Discounted Thompson Sampling for non-stationary environments.** Geometrically decays old observations by `gamma` on each update. Effective memory window ≈ `1 / (1 - gamma)`.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `alpha_prior` | float | 1.0 | Beta prior alpha (successes) |
+| `beta_prior` | float | 1.0 | Beta prior beta (failures) |
+| `gamma` | float | — | Discount factor, required (0 < gamma < 1) |
+
+- **Reward type**: Binary or Bounded
+- **Best for**: Environments where reward distributions shift over time (seasonal trends, changing user behaviour)
+- **Pros**: Adapts to distribution shifts without resetting; tunable memory window via gamma
+- **Cons**: Requires choosing gamma; too-low gamma forgets useful history, too-high gamma is slow to adapt
+
+### GaussianTSPolicy
+
+**Thompson Sampling with Gaussian priors.** For continuous reward values.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `prior_mean` | float | 0.0 | Prior mean |
+| `prior_precision` | float | 1.0 | Prior precision (inverse variance) of the mean |
+| `noise_precision` | float | 1.0 | Precision of the observation noise |
+
+- **Reward type**: Continuous (any float)
+- **Best for**: Revenue optimization, time-on-page, engagement scores
+- **Pros**: Handles continuous rewards, principled Bayesian updates
+- **Cons**: Assumes Gaussian reward distribution
+
+### DirichletTSPolicy
+
+**Dirichlet-Categorical Thompson Sampling.** For discrete, multi-outcome rewards. Each arm keeps a Dirichlet posterior over `k` outcome categories; rewards are integer category indices in `[0, k-1]`.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `k` | int | — | Number of discrete outcome categories, required (k > 1) |
+| `concentration_prior` | float | 1.0 | Symmetric Dirichlet prior concentration per category |
+
+- **Reward type**: Bounded
+- **Best for**: Graded outcomes — star ratings, low/medium/high — rather than a single scalar
+- **Pros**: Models the full outcome distribution, not just the mean
+- **Cons**: Requires discretizing rewards into `k` categories upfront
+
+### UCB1TunedPolicy
+
+**Upper Confidence Bound with tuned variance.** Deterministic, no randomness in selection.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `alpha` | float | 2.0 | Exploration parameter — scales the confidence bound |
+
+- **Reward type**: Bounded
+- **Best for**: When you want deterministic, reproducible selections
+- **Pros**: Strong theoretical guarantees, no randomness
+- **Cons**: Can over-explore in practice
+
+### KLUCBPolicy
+
+**KL-divergence based Upper Confidence Bound.** Optimal for Bernoulli rewards.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `c` | float | 0.0 | Exploration constant |
+| `tolerance` | float | 1e-6 | Convergence tolerance for the KL bound solver |
+| `max_iterations` | int | 50 | Max bisection iterations for the KL bound solver |
+
+- **Reward type**: Binary or Bounded
+- **Best for**: Binary rewards when you want minimax-optimal regret
+- **Pros**: Asymptotically optimal for Bernoulli rewards
+- **Cons**: More computationally expensive than BetaTS
+
+### KLUCBPlusPolicy
+
+**KL-UCB+ variant.** Uses `log(t / N_a)` instead of `log(t)` in the exploration bonus, which can improve empirical performance over KL-UCB.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `c` | float | 0.0 | Exploration constant |
+| `tolerance` | float | 1e-6 | Convergence tolerance for the KL bound solver |
+| `max_iterations` | int | 50 | Max bisection iterations for the KL bound solver |
+
+- **Reward type**: Binary or Bounded
+- **Best for**: Binary or bounded rewards where KL-UCB fits but you want the tighter anytime bonus
+- **Pros**: Often better empirical regret than KL-UCB
+- **Cons**: Same per-step solver cost as KL-UCB
+
+### EpsilonPolicy
+
+**Epsilon-greedy.** The simplest policy. Explores with probability epsilon, exploits otherwise.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `eps` | float | — | Exploration rate, required (0 ≤ eps ≤ 1); e.g. 0.1 for 10% exploration |
+| `gamma` | float | — | Decay applied to eps each update, required (0 ≤ gamma ≤ 1; 0 = no decay) |
+
+- **Reward type**: Any
+- **Best for**: Baselines, simple scenarios, when you want explicit control over exploration rate
+- **Pros**: Dead simple, easy to reason about
+- **Cons**: Wastes exploration budget on known-bad arms
+
+### MOSSPolicy
+
+**Minimax Optimal Strategy in the Stochastic case.** Requires knowing the time horizon in advance.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `horizon` | int | — | Total number of rounds, required (positive integer) |
+
+- **Reward type**: Bounded
+- **Best for**: Fixed-duration campaigns where the total rounds are known
+- **Pros**: Minimax-optimal regret bound
+- **Cons**: Requires specifying horizon upfront
+
+### MOSSAnyTimePolicy
+
+**Anytime variant of MOSS.** No need to specify the horizon.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| — | — | — | No configurable parameters |
+
+- **Reward type**: Bounded
+- **Best for**: Open-ended optimization without a known end date
+- **Pros**: No horizon needed, near-optimal regret
+- **Cons**: Slightly worse constant than MOSS with known horizon
+
+### RandomPolicy
+
+**Uniform random arm selection. No learning.** Used as an A/B testing baseline, holdout control, or warm-start data collection phase.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| — | — | — | No configurable parameters |
+
+- **Reward type**: Binary, Bounded, or Continuous
+- **Best for**: Establishing a baseline, pure random holdout groups, collecting initial data before switching to a learning policy
+- **Pros**: Zero bias, trivial to reason about, compatible with all reward types
+- **Cons**: No learning — use only as a short-term baseline or control group
+
+## Contextual policies
+
+These personalize selections from per-request context. You declare a [context schema](/docs/contexts) on the experiment and send named `properties` with each select request; qbrix encodes them. `dim` is derived from the schema — supply it directly only if you are sending a pre-encoded `vector`.
+
+### LinUCBPolicy
+
+**Linear Upper Confidence Bound.** Models reward as a linear function of context features.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `dim` | int | — | Context width. Derived from `context_schema`; supply it only for a pre-encoded `vector` |
+| `alpha` | float | 1.5 | Exploration parameter |
+
+- **Reward type**: Binary, Bounded, or Continuous
+- **Best for**: Personalized recommendations with user features
+- **Pros**: Deterministic, strong theoretical guarantees
+- **Cons**: Assumes linear reward model
+
+### LinTSPolicy
+
+**Linear Thompson Sampling.** Bayesian approach to contextual bandits.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `dim` | int | — | Context width. Derived from `context_schema`; supply it only for a pre-encoded `vector` |
+| `v` | float | 1.0 | Posterior sampling scale — higher means more exploration |
+
+- **Reward type**: Binary, Bounded, or Continuous
+- **Best for**: Personalized recommendations when you want randomized exploration
+- **Pros**: Better empirical performance than LinUCB in many settings
+- **Cons**: Assumes linear reward model, more computation per selection
+
+### LogisticTSPolicy
+
+**Laplace-approximated Logistic Thompson Sampling.** Maintains per-arm weight vectors and a diagonal Hessian approximation. At selection time, samples from the posterior N(w, diag(1/h)) and scores each arm via the logistic function.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `dim` | int | — | Context width. Derived from `context_schema`; supply it only for a pre-encoded `vector` |
+| `lambda_` | float | 1.0 | L2 regularization strength |
+| `lr` | float | 0.1 | Learning rate for weight updates |
+
+- **Reward type**: Binary (0 or 1)
+- **Best for**: Ads, recommendations, personalization — any binary outcome with contextual features
+- **Pros**: Most widely deployed contextual policy for binary rewards; principled Bayesian exploration via posterior sampling
+- **Cons**: Diagonal Hessian is an approximation; may under-explore when posterior is poorly calibrated early on
+
+### GLMUCBPolicy
+
+**GLM-UCB (Logistic UCB).** Fits a logistic regression model per arm and selects using an upper confidence bound based on the logistic mean plus a scaled confidence width from the inverse Hessian.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `dim` | int | — | Context width. Derived from `context_schema`; supply it only for a pre-encoded `vector` |
+| `alpha` | float | 1.5 | Exploration coefficient for UCB term |
+| `lambda_` | float | 1.0 | L2 regularization strength |
+| `lr` | float | 0.1 | Learning rate for weight updates |
+
+- **Reward type**: Binary (0 or 1)
+- **Best for**: Binary rewards where deterministic, auditable selections are preferred over randomized sampling
+- **Pros**: Deterministic and easy to monitor; strong theoretical regret bounds for logistic models
+- **Cons**: Can over-explore when alpha is too large; tuning alpha requires care in production
+
+## Adversarial policies
+
+These make no assumptions about how rewards are generated. Use when rewards may be non-stationary or adversarially chosen.
+
+### EXP3Policy
+
+**Exponential-weight algorithm for Exploration and Exploitation.** Uses multiplicative weight updates.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `gamma` | float | 0.1 | Exploration mixing parameter (0-1) |
+
+- **Reward type**: Any (bounded)
+- **Best for**: Non-stationary environments, game-theoretic settings
+- **Pros**: Works against any reward sequence
+- **Cons**: Higher regret than stochastic methods when rewards are actually stationary
+
+### EXP3IXPolicy
+
+**EXP3 with Implicit Exploration (Neu, 2015).** Uses `reward / (p + gamma)` instead of `reward / p` for importance-weighted updates, eliminating the numerical instability of standard EXP3 when selection probabilities are small.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `gamma` | float | 0.1 | Implicit exploration parameter |
+| `eta` | float | 0.1 | Learning rate for weight updates |
+
+- **Reward type**: Binary or Bounded
+- **Best for**: Adversarial or non-stationary settings where standard EXP3 shows numerical instability; production environments with many arms
+- **Pros**: Same worst-case regret guarantees as EXP3 but numerically stable; no reward clipping needed
+- **Cons**: Two hyperparameters to tune instead of one; marginal overhead vs. EXP3
+
+### FPLPolicy
+
+**Follow the Perturbed Leader.** Adds random perturbations to cumulative rewards.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `eta` | float | 5.0 | Perturbation scale |
+
+- **Reward type**: Any (bounded)
+- **Best for**: Adversarial settings when you want a perturbation-based approach
+- **Pros**: Simple implementation, competitive with EXP3
+- **Cons**: Requires tuning eta for best performance
+
+## Example: creating an experiment with policy params
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+from qbrix import Qbrix
+
+client = Qbrix()
+
+CONTEXT_SCHEMA = [
+    {"type": "categorical", "name": "device", "values": ["mobile", "desktop"]},
+    {"type": "numeric", "name": "cart_value", "min": 0, "max": 500},
+    {"type": "boolean", "name": "returning"},
+]
+
+experiment = client.experiment.create(
+    name="personalized-pricing",
+    pool_id="<pool-id>",
+    policy="LinTSPolicy",
+    policy_params={"v": 0.5, "context_schema": CONTEXT_SCHEMA},
+)
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl -X POST $QBRIX_URL/api/v1/experiments \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "personalized-pricing",
+    "pool_id": "<pool-id>",
+    "policy": "LinTSPolicy",
+    "policy_params": {
+      "v": 0.5,
+      "context_schema": [
+        {"type": "categorical", "name": "device", "values": ["mobile", "desktop"]},
+        {"type": "numeric", "name": "cart_value", "min": 0, "max": 500},
+        {"type": "boolean", "name": "returning"}
+      ]
+    }
+  }'
+```
+</CodeTab>
+</CodeTabs>
+
+## Listing available policies
+
+```bash
+curl $QBRIX_URL/api/v1/policies \
+  -H "X-API-Key: $QBRIX_API_KEY" | jq .
+```
+
+Returns all policies with their configurable parameters and defaults.

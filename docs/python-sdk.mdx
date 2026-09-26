@@ -1,0 +1,178 @@
+---
+title: Python SDK
+description: Typed sync and async Python client for pool, experiment, and agent management.
+order: 10
+---
+
+# Python SDK
+
+Typed sync and async clients for pool/experiment/gate management and the agent select/feedback loop.
+
+## Installation
+
+```bash
+pip install "qbrix[http]"
+```
+
+Requires Python 3.10+.
+
+## Module-level usage
+
+Set your credentials as environment variables and call resources directly — no client instantiation needed:
+
+```bash
+export QBRIX_API_KEY="optiq_xxx"
+export QBRIX_BASE_URL="https://cloud.qbrix.io"
+```
+
+```python
+import qbrix
+
+pool = qbrix.pool.create(
+    name="homepage-buttons",
+    arms=[{"name": "blue"}, {"name": "green"}, {"name": "red"}],
+)
+
+exp = qbrix.experiment.create(
+    name="button-color-test",
+    pool_id=pool.id,
+    policy="BetaTSPolicy",
+)
+
+result = qbrix.agent.select(
+    experiment_id=exp.id,
+    context={"id": "user-123", "metadata": {"country": "US"}},
+)
+
+qbrix.agent.feedback(request_id=result.request_id, reward=1.0)
+```
+
+## Explicit client
+
+For full control over configuration or lifecycle, instantiate the client directly:
+
+```python
+from qbrix import Qbrix
+
+with Qbrix(api_key="optiq_xxx", base_url="https://cloud.qbrix.io") as client:
+    pool = client.pool.create(
+        name="homepage-buttons",
+        arms=[{"name": "blue"}, {"name": "green"}, {"name": "red"}],
+    )
+    result = client.agent.select(
+        experiment_id="exp-uuid",
+        context={"id": "user-123"},
+    )
+    client.agent.feedback(request_id=result.request_id, reward=1.0)
+```
+
+## Async
+
+```python
+from qbrix import AsyncQbrix
+
+async with AsyncQbrix(api_key="optiq_xxx") as client:
+    result = await client.agent.select(
+        experiment_id="exp-uuid",
+        context={"id": "user-456"},
+    )
+    await client.agent.feedback(request_id=result.request_id, reward=1.0)
+```
+
+## Configuration
+
+Constructor kwargs take priority over environment variables, which take priority over defaults.
+
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `QBRIX_API_KEY` | `None` | API key |
+| `QBRIX_BASE_URL` | `http://localhost:8080` | Proxy service URL |
+| `QBRIX_TIMEOUT` | `5.0` | Request timeout (seconds) |
+| `QBRIX_MAX_RETRIES` | `0` | Retry count on 429/5xx |
+
+`timeout` and `max_retries` can also be overridden per call on every resource method — useful for a hot-path call like `agent.select()` that needs a tighter budget than the rest of the client:
+
+```python
+result = qbrix.agent.select(
+    experiment_id=exp.id,
+    context={"id": "user-1"},
+    timeout=0.3,
+    max_retries=0,
+)
+```
+
+## Feature gates
+
+Attach a feature gate to control rollout before the policy kicks in:
+
+```python
+import qbrix
+
+qbrix.gate.create(
+    experiment_id=exp.id,
+    enabled=True,
+    rollout_percentage=80.0,
+    default_arm_id=pool.arms[0].id,
+    rules=[
+        {"key": "plan", "operator": "==", "value": "enterprise", "arm_id": pool.arms[1].id},
+    ],
+)
+
+result = qbrix.agent.select(
+    experiment_id=exp.id,
+    context={"id": "user-789", "metadata": {"plan": "enterprise"}},
+)
+print(result.is_default)  # True — gate matched
+```
+
+`gate.update` writes only the arguments you pass, so widening a rollout leaves the default arm, the rules and the schedule as they are:
+
+```python
+qbrix.gate.update(exp.id, rollout_percentage=100.0)
+```
+
+Pass `None` to clear a field (`default_arm_id=None`) and `rules=[]` to remove every rule — omitting an argument and passing `None` mean different things.
+
+## Handling outages
+
+`agent.select()` sits on your request path — give it a tight per-call `timeout` and a `fallback` arm so it always resolves instead of hanging or raising when qbrix is unreachable:
+
+```python
+result = qbrix.agent.select(
+    experiment_id=exp.id,
+    context={"id": "user-1"},
+    timeout=0.3,
+    fallback={"id": pool.arms[0].id, "name": pool.arms[0].name, "index": pool.arms[0].index},
+)
+if result.is_fallback:
+    # proxy was unreachable/unhealthy — arm was resolved locally, no learning signal
+    ...
+qbrix.agent.feedback(result.request_id, reward=1.0)  # no-op when request_id is None
+```
+
+`fallback` only kicks in for availability failures (timeout, connection error, 429, 5xx) — a 4xx caller error still raises even with `fallback` set. See [Handling outages](/docs/handling-outages) for the full contract, including `is_fallback` vs `is_default` and why `feedback()` is always safe to call unconditionally.
+
+## Error handling
+
+```python
+import qbrix
+from qbrix import NotFoundError, RateLimitedError
+
+try:
+    exp = qbrix.experiment.get("nonexistent-id")
+except NotFoundError as e:
+    print(f"Not found: {e.detail}")
+except RateLimitedError as e:
+    print(f"Retry after {e.retry_after}s")
+```
+
+## Resources
+
+| Resource | Methods |
+|----------|---------|
+| `pool` | `create`, `get`, `list`, `update`, `delete`, `list_experiments`, `iter_all` |
+| `experiment` | `create`, `get`, `list`, `update`, `reset`, `delete`, `iter_all` |
+| `gate` | `create`, `get`, `update`, `delete` |
+| `agent` | `select`, `feedback` |
+
+Async clients (`AsyncQbrix`) expose the same methods, with `aiter_all` in place of `iter_all`.

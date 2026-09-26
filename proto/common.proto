@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package qbrix.common;
+
+import "google/protobuf/struct.proto";
+
+message Context {
+  string id = 1;
+  // pre-encoded feature vector. escape hatch for callers holding their own
+  // embeddings; prefer `properties` and let qbrix own the encoding.
+  repeated float vector = 2;
+  map<string, string> metadata = 3;
+  // named request properties, encoded server-side against the experiment's
+  // declared context schema. Struct rather than a string map so a number
+  // stays a number.
+  google.protobuf.Struct properties = 4;
+}
+
+// Arm representation
+message Arm {
+  string id = 1;
+  string name = 2;
+  int32 index = 3;
+  bool is_active = 4;
+  map<string, string> metadata = 5;
+}
+
+// Pool of arms
+message Pool {
+  string id = 1;
+  string name = 2;
+  repeated Arm arms = 3;
+  string created_at = 4;  // ISO 8601
+  string updated_at = 5;  // ISO 8601
+}
+
+// Experiment configuration
+message Experiment {
+  string id = 1;
+  string name = 2;
+  string pool_id = 3;
+  string policy = 4;  // e.g., "thompson_sampling", "ucb", "epsilon_greedy"
+  map<string, string> policy_params = 5;  // deprecated: use policy_params_json
+  bool enabled = 6;
+  string created_at = 7;  // ISO 8601
+  string updated_at = 8;  // ISO 8601
+  google.protobuf.Struct policy_params_json = 9;  // full-fidelity policy params
+}
+
+// Health check
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  enum ServingStatus {
+    UNKNOWN = 0;
+    SERVING = 1;
+    NOT_SERVING = 2;
+  }
+  ServingStatus status = 1;
+}

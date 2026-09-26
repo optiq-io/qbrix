@@ -1,0 +1,79 @@
+[project]
+name = "proxysvc"
+version = "0.1.0"  # x-release-please-version
+description = ""
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "cachebox>=5.2.1",
+    "click>=8.3.1",
+    "grpcio>=1.76.0",
+    "grpcio-reflection>=1.76.0",
+    "pydantic[email]>=2.12.3",
+    "pydantic-settings>=2.12.0",
+    "qbrixstore[clickhouse]",
+    "qbrixproto",
+    "qbrixlog",
+    "qbrixruntime",
+    "qbrixcore",
+    "fastapi>=0.128.0",
+    "uvicorn>=0.40.0",
+    "python-jose>=3.5.0",
+    "bcrypt>=5.0.0",
+]
+
+[project.optional-dependencies]
+ee = ["stripe>=11.0.0"]
+resend = ["resend>=2.30.1"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+    "pytest-cov>=6.0.0",
+    "pre-commit>=4.0.1",
+    "black>=26.1.0",
+    "pytest-mock>=3.14.1",
+]
+
+[tool.uv.sources]
+qbrixstore = { path = "../../lib/store", editable = true }
+qbrixproto = { path = "../../lib/proto", editable = true }
+qbrixlog = { path = "../../lib/log", editable = true }
+qbrixruntime = { path = "../../lib/runtime", editable = true }
+qbrixcore = { path = "../../lib/core", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = [
+    "--import-mode=importlib",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=proxysvc",
+    "--cov-report=term-missing",
+]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Slow running tests",
+]
+
+[tool.coverage.report]
+omit = [
+    "src/proxysvc/cli.py",
+    "*/__init__.py",
+    "src/proxysvc/http/app.py",
+    "src/proxysvc/server.py",
+    "src/proxysvc/grpc/auth/server.py"
+]
+
+[project.scripts]
+proxysvc = "proxysvc.cli:cli"
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"

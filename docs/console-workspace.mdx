@@ -1,0 +1,84 @@
+---
+title: Console — Workspace & API Keys
+description: Manage members, roles, API keys, and billing for your qbrix workspace.
+order: 23
+---
+
+# Workspace & API keys
+
+Workspace settings live under **Settings** in the console. This is where you invite teammates, manage their roles, rotate API keys, and configure billing.
+
+## API keys
+
+Every server-side integration with qbrix uses an API key. Keys are scoped to a workspace and start with the `optiq_` prefix.
+
+### Creating a key
+
+1. **Settings → API keys → Create API key**
+2. Give it a recognizable name (e.g. `prod-checkout-service`).
+3. Copy the generated key immediately — qbrix only shows it once.
+
+API keys inherit the role of the user that created them. Use a **viewer** key for read-only integrations and a **member** key for services that need to write feedback or create experiments.
+
+### Rotating a key
+
+Pick **Rotate key** from the key's overflow menu to generate a fresh secret. The old secret stops working immediately, so coordinate the rotation with your deployment.
+
+### Revoking a key
+
+Pick **Revoke key** from the same menu. Revocation takes effect immediately and there is no undo.
+
+## Members & invites
+
+The **Workspace** tab lists every member, their role, and the date they joined.
+
+### Inviting a teammate
+
+1. Click **Invite Member**.
+2. Enter the email and choose a role.
+3. The invitee gets an email with a one-time link that expires in 72 hours.
+
+Pending invites show up in the same table with a `Pending` status. You can revoke them at any time. A workspace can send 25 invites a day, and revoking an invite doesn't give one back.
+
+### Roles
+
+| Role | What they can do |
+|------|------------------|
+| **admin** | Everything: experiments, gates, members, billing, API keys |
+| **member** | Experiments, pools, gates, agents, insights — but not workspace or billing |
+| **viewer** | Read-only across all resources |
+
+Roles are enforced server-side by RBAC scopes — the console just hides controls the user can't use. See the [API reference](/docs/api-reference) for the full scope list.
+
+## Plan & billing
+
+<Badge variant="ee">Enterprise</Badge>
+
+The **Billing** tab (admin-only) shows your current plan, usage against limits, and the next invoice date.
+
+| Tier | Included selections / mo | API Keys | Seats | Active Experiments |
+|------|--------------------------|----------|-------|--------------------|
+| free | 100,000 | 2 | 3 | 3 |
+| starter | 1,000,000 | Unlimited | Unlimited | Unlimited |
+| growth | 10,000,000 | Unlimited | Unlimited | Unlimited |
+| scale | 50,000,000 | Unlimited | Unlimited | Unlimited |
+| enterprise | Custom | Unlimited | Unlimited | Unlimited |
+
+Plans meter on selection volume; usage beyond the monthly allowance is billed as overage. Request rate isn't tiered — a flat abuse guard protects the selection endpoints (`/agent/select` and `/agent/feedback`); management endpoints are not rate-limited.
+
+### Upgrading
+
+Click **Upgrade Plan** to launch the Stripe checkout flow. Plans take effect immediately on a successful payment.
+
+### Invoices
+
+All invoices are downloadable as PDF from the **Invoices** subsection. Failed payments trigger an in-app banner and an email to the workspace admin.
+
+## Profile
+
+The **Profile** tab lets each user update their display name, email, and password. Email changes require re-verification.
+
+## Next steps
+
+- [Console experiments](/docs/console-experiments) — get back to your experiments
+- [SDKs](/docs/sdks) — wire up your new API key

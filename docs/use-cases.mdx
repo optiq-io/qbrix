@@ -1,0 +1,63 @@
+---
+title: Use cases
+description: Six worked recipes — the modelling decisions, the runnable code, and the mistakes that cost a rebuild.
+order: 40
+---
+
+# Use cases
+
+Every qbrix integration comes down to three decisions: **what is an arm**, **what is the reward**, and **what does the model get to know about the request**. Get those right and the code is two calls. Get them wrong and no algorithm saves you.
+
+Each recipe below works one scenario end to end — the modelling decisions first, then setup, the request path, closing the feedback loop, and the specific mistake that scenario invites.
+
+<Callout type="info">
+Every code block in these recipes comes from a runnable script in the [Python SDK](https://github.com/optiq-io/qbrix-python/tree/main/examples) or [TypeScript SDK](https://github.com/optiq-io/qbrix-js/tree/main/examples) repository. If a signature changes, a script breaks — which is the point.
+</Callout>
+
+<FeatureGrid>
+
+<FeatureCard href="/docs/checkout-conversion" title="Checkout & CTA conversion" description="The canonical loop: three checkout variants, a binary reward, and the name-to-behaviour map every integration needs. Start here.">
+<Badge>binary</Badge>
+<Badge>no context</Badge>
+</FeatureCard>
+
+<FeatureCard href="/docs/recommendations-and-ranking" title="Recommendations & ranking" description="An arm is a ranking strategy, not a product. Why a pool of three beats a pool of ten thousand.">
+<Badge>binary</Badge>
+<Badge>optional context</Badge>
+</FeatureCard>
+
+<FeatureCard href="/docs/personalization-by-segment" title="Personalization by segment" description="A different answer per segment, learned from named properties — and the difference between properties and metadata.">
+<Badge>binary</Badge>
+<Badge>contextual</Badge>
+</FeatureCard>
+
+<FeatureCard href="/docs/pricing-and-discounts" title="Pricing & discounts" description="Continuous rewards, why the reward must be revenue rather than conversion, and what you have to disclose.">
+<Badge>continuous</Badge>
+<Badge>contextual</Badge>
+</FeatureCard>
+
+<FeatureCard href="/docs/llm-routing" title="LLM model & prompt routing" description="Route each request to the model or prompt that handles it best, on a reward you define across quality and cost.">
+<Badge>bounded</Badge>
+<Badge>delayed feedback</Badge>
+</FeatureCard>
+
+<FeatureCard href="/docs/feature-rollouts" title="Feature rollouts" description="Gates, rollout percentages, control as an arm — and an honest account of when a plain flag is the better tool.">
+<Badge>binary</Badge>
+<Badge>gated</Badge>
+</FeatureCard>
+
+</FeatureGrid>
+
+## Before you pick one
+
+**Check your volume first.** A two-arm experiment at a 3% baseline, detecting a 10% relative lift, needs roughly 50,000 selections per arm before the result means anything — so about 100,000–150,000 selections for a realistic two- or three-variant test. Adaptive allocation reaches a good decision faster than a fixed split does, but not by an order of magnitude.
+
+If the surface you have in mind makes a few thousand decisions a month, no configuration of qbrix will converge on it. Pick a higher-traffic surface, or widen the one you have.
+
+**Decide your variant set now.** A pool's arms are fixed when the pool is created. There is no endpoint to add a fourth variant to a running experiment, and this is deliberate — a mid-flight arm addition invalidates everything the learner has concluded. If you might want a fourth, create it now and leave it.
+
+## What every recipe assumes
+
+- An API key from **Settings → API Keys** in the [console](https://cloud.qbrix.io), kept server-side.
+- One of the [SDKs](/docs/sdks), or any HTTP client.
+- That you have read the [Quickstart](/docs/getting-started) — the recipes do not re-explain `select` and `feedback`.

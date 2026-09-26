@@ -1,0 +1,40 @@
+---
+title: Introduction
+description: What is qbrix, key concepts, and how the platform works.
+order: 1
+---
+
+# Introduction
+
+qbrix is an adaptive optimization engine delivered as a cloud service. You give it a set of variants and a way to score outcomes; it serves the best-performing variant on every request and keeps getting better from what happens next.
+
+It runs selection and learning on separate paths, so deciding is fast no matter how much feedback you send. See [How qbrix works](/docs/architecture) for the timings that follow from that.
+
+## Key concepts
+
+| Concept | Description |
+|---------|-------------|
+| **Pool** | A named collection of arms (variants). For example, a pool of homepage hero images. |
+| **Arm** | A single variant within a pool. Each arm has an index, a name, and optional metadata. |
+| **Experiment** | Links a pool to a policy (algorithm). Defines how arms are selected and trained. |
+| **Policy** | The algorithm qbrix uses to decide which variant to serve — and how it learns from each outcome. Available across stochastic, contextual, and adversarial categories, plus an `auto` mode that runs a portfolio of learners and adaptively routes traffic to the best performer. |
+| **Feature Gate** | Controls experiment traffic with rollout percentages, scheduling, and targeting rules. |
+| **Feedback** | A reward signal sent after selection. It's what the policy learns from. |
+| **Context** | Optional request-level information (user features, metadata) used by contextual policies. |
+
+## How you'll use it
+
+1. **Sign up** at [cloud.qbrix.io](https://cloud.qbrix.io/register) and create an API key
+2. **Create a pool** with arms via the API or console
+3. **Create an experiment** linking the pool to a policy
+4. **Integrate** select and feedback calls in your application
+5. **Monitor and optimize** from the console dashboard
+
+## What's next
+
+- [Quickstart](/docs/getting-started) — create your first experiment in minutes
+- [How qbrix works](/docs/architecture) — the two paths, the timings, and the guarantees
+- [Pools & experiments](/docs/pools-and-experiments) — data model and lifecycle
+- [Feedback & rewards](/docs/feedback-and-rewards) — the learning loop
+- [Policies](/docs/policies) — the algorithms behind every decision, and how to choose one
+- [API reference](/docs/api-reference) — full HTTP endpoint documentation

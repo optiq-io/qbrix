@@ -1,0 +1,128 @@
+# console values
+# EE web application - horizontally scalable
+
+replicaCount: 2
+
+image:
+  repository: qbrix/console
+  pullPolicy: IfNotPresent
+  tag: ""  # defaults to chart appVersion
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# service configuration
+service:
+  type: ClusterIP
+  port: 3000
+  annotations: {}
+
+# ingress for console
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: cloud.qbrix.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+    # - secretName: cloud-qbrix-tls
+    #   hosts:
+    #     - cloud.qbrix.local
+
+# horizontal pod autoscaler
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# pod disruption budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "100m"
+  limits:
+    memory: "512Mi"
+    cpu: "500m"
+
+# liveness and readiness probes
+livenessProbe:
+  httpGet:
+    path: /internal/health
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /internal/health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# node selection
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# pod annotations and labels
+podAnnotations: {}
+podLabels: {}
+
+# security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false  # next.js needs writable .next/cache
+  capabilities:
+    drop:
+      - ALL
+
+# service account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# application config
+config:
+  port: 3000
+  hostname: "0.0.0.0"
+  # Stripe billing (EE only)
+  # priceIdPro stays until the console app moves to the 5-tier model; it still
+  # reads STRIPE_PRICE_ID_PRO.
+  stripe:
+    priceIdStarter: ""
+    priceIdGrowth: ""
+    priceIdScale: ""
+    priceIdPro: ""
+    priceIdEnterprise: ""
+
+# extra environment variables
+extraEnv: []
+  # - name: EXTRA_VAR
+  #   value: "value"
+
+# extra volumes and mounts
+extraVolumes: []
+extraVolumeMounts: []

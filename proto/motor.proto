@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package qbrix.motor;
+
+import "common.proto";
+
+service MotorService {
+  // Select an arm for the given experiment and context
+  rpc Select(SelectRequest) returns (SelectResponse);
+
+  // Health check
+  rpc Health(qbrix.common.HealthCheckRequest) returns (qbrix.common.HealthCheckResponse);
+}
+
+message SelectRequest {
+  string tenant_id = 1;
+  string experiment_id = 2;
+  qbrix.common.Context context = 3;
+}
+
+message SelectResponse {
+  qbrix.common.Arm arm = 1;
+  string learner_experiment_id = 2;
+  int32 learner_index = 3;
+  // policy that actually produced the selection (learner's policy for meta-bandit)
+  string policy = 4;
+}

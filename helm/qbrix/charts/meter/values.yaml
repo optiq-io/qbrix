@@ -1,0 +1,140 @@
+# meter service values
+# ee selection usage -> stripe billing meter - SINGLE INSTANCE BY DESIGN
+#
+# architecture decision: meter runs as a single instance
+#
+# why single instance?
+# - all replicas would share the `metering` consumer group, so redis would split
+#   a bucket's selections across them; each replica would emit a partial sum
+#   under the same `tenant:bucket` idempotency identifier, and stripe would dedup
+#   the partials -> silent undercount.
+# - a single consumer sees the whole bucket and emits one correct sum.
+#
+# if meter becomes a bottleneck: vertical scaling, or shard the idempotency
+# identifier by consumer (see TODO in service.py) — not horizontal replicas.
+
+# single instance - this is intentional, not a limitation
+replicaCount: 1
+
+image:
+  repository: qbrix/meter
+  pullPolicy: IfNotPresent
+  tag: ""  # defaults to chart appVersion
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# service configuration
+service:
+  type: ClusterIP
+  port: 50054
+  annotations: {}
+
+# autoscaling disabled - single instance by design
+autoscaling:
+  enabled: false
+
+# no PDB - single instance with Recreate strategy ensures clean handoff
+podDisruptionBudget:
+  enabled: false
+
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "100m"
+  limits:
+    memory: "1Gi"
+    cpu: "1000m"
+
+# grpc health check probes
+livenessProbe:
+  grpc:
+    port: 50054
+  initialDelaySeconds: 15
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  grpc:
+    port: 50054
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# shutdown. no prestop delay: meter takes no client traffic, its grpc
+# server answers health checks only. the grace period has to outlast the
+# grpc drain plus the worker drain; meter acks only after stripe accepts a
+# bucket, so anything not drained replays safely on restart.
+terminationGracePeriodSeconds: 60
+
+# node selection
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# pod annotations and labels
+podAnnotations: {}
+podLabels: {}
+
+# security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# service account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# environment-specific config
+config:
+  logLevel: "INFO"
+
+  # grpc settings
+  grpc:
+    host: "0.0.0.0"
+    port: 50054
+
+  # drain budget handed to the grpc server and to each stream worker
+  # on shutdown. terminationGracePeriodSeconds below must cover the
+  # grpc drain plus the worker drain, plus any prestop delay.
+  shutdownGraceSec: 20
+
+  # stream name, consumer group and the group's start position are fixed
+  # topology, declared in qbrixstore.stream.topology (the metering group starts
+  # at "$" to skip unbillable backlog on first deploy). consumer name
+  # is derived from the pod name.
+
+  # aggregation / emit settings
+  bucket:
+    seconds: 60
+    closeGraceSeconds: 30
+    emitIntervalSeconds: 5.0
+
+  # stripe billing meter
+  stripe:
+    # the meter event_name (not the meter id)
+    meterEventName: "selections"
+    # k8s secret carrying the stripe secret key
+    existingSecret: ""
+    existingSecretKey: "stripe-secret-key"
+
+# extra environment variables
+extraEnv: []
+
+# extra volumes and mounts
+extraVolumes: []
+extraVolumeMounts: []

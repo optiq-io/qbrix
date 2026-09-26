@@ -1,0 +1,439 @@
+name: Build and Push
+
+# the private ecr images the cloud deploys from, and the public ghcr images and
+# chart self-hosters install. both publish from one run of the test suite.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+env:
+  AWS_REGION: eu-central-1
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.eu-central-1.amazonaws.com
+
+jobs:
+  # Decide which service images actually need to build based on changed paths.
+  # The python services bundle the shared libs (lib/, proto/, lockfiles) so a
+  # change there fans out to all of them; service-only changes build just one.
+  detect:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      build_matrix: ${{ steps.set.outputs.build_matrix }}
+      publish_matrix: ${{ steps.set.outputs.publish_matrix }}
+      retag_list: ${{ steps.set.outputs.retag_list }}
+      has_builds: ${{ steps.set.outputs.has_builds }}
+      has_publishes: ${{ steps.set.outputs.has_publishes }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Filter changed paths
+        id: filter
+        if: github.ref_type != 'tag'
+        uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
+        with:
+          filters: |
+            python_shared: &python_shared
+              - 'lib/**'
+              - 'proto/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+            proxy:
+              - 'svc/proxy/**'
+              - *python_shared
+            motor:
+              - 'svc/motor/**'
+              - *python_shared
+            cortex:
+              - 'svc/cortex/**'
+              - *python_shared
+            trace:
+              - 'svc/trace/**'
+              - *python_shared
+            meter:
+              - 'ee/svc/meter/**'
+              - *python_shared
+            console:
+              - 'web/apps/console/**'
+              - 'web/packages/**'
+              - 'web/pnpm-lock.yaml'
+
+      - name: Compute build matrix and retag list
+        id: set
+        env:
+          # empty on tag pushes (filter is skipped); handled as "build all" below
+          CHANGED: ${{ steps.filter.outputs.changes }}
+          # a client dsn ships in the js bundle, so it is a variable rather than
+          # a secret. unset means the console builds with sentry disabled.
+          CONSOLE_SENTRY_DSN: ${{ vars.CONSOLE_SENTRY_DSN }}
+        run: |
+          set -euo pipefail
+
+          all='["proxy","motor","cortex","trace","meter","console"]'
+
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            # release tags build and push everything
+            build=$(echo "$all" | jq -c '.')
+          else
+            # drop the python_shared helper filter; it is not a service
+            build=$(echo "${CHANGED:-[]}" | jq -c '[.[] | select(. != "python_shared")]')
+          fi
+
+          # services that did not build get their current image retagged to the
+          # new sha so the single-sha helm deploy stays valid (push only)
+          retag=$(jq -nc --argjson all "$all" --argjson build "$build" '$all - $build')
+
+          dockerfile() {
+            case "$1" in
+              proxy)   echo "./svc/proxy/Dockerfile" ;;
+              motor)   echo "./svc/motor/Dockerfile" ;;
+              cortex)  echo "./svc/cortex/Dockerfile" ;;
+              trace)   echo "./svc/trace/Dockerfile" ;;
+              meter)   echo "./ee/svc/meter/Dockerfile" ;;
+              console) echo "./web/apps/console/Dockerfile" ;;
+            esac
+          }
+          context() { [ "$1" = "console" ] && echo "./web" || echo "."; }
+          # NEXT_PUBLIC_* is inlined at build time, so the console's sentry
+          # identity is fixed here. the release matches the image tag the python
+          # services report, so one sentry release spans all six projects.
+          build_args() {
+            if [ "$1" = "console" ]; then
+              printf '%s\n%s\n%s' \
+                "NEXT_PUBLIC_SENTRY_DSN=${CONSOLE_SENTRY_DSN:-}" \
+                "NEXT_PUBLIC_SENTRY_ENVIRONMENT=production" \
+                "NEXT_PUBLIC_SENTRY_RELEASE=sha-${GITHUB_SHA::7}"
+            else
+              echo ""
+            fi
+          }
+
+          include="[]"
+          publish="[]"
+          for svc in $(echo "$build" | jq -r '.[]'); do
+            include=$(echo "$include" | jq -c \
+              --arg s "$svc" \
+              --arg df "$(dockerfile "$svc")" \
+              --arg ctx "$(context "$svc")" \
+              --arg ba "$(build_args "$svc")" \
+              '. + [{service:$s, dockerfile:$df, context:$ctx, build_args:$ba}]')
+            # meter is the cloud's alone. the public console gets no build args:
+            # it calls same-origin /api and ships without a sentry dsn
+            if [ "$svc" != "meter" ]; then
+              publish=$(echo "$publish" | jq -c \
+                --arg s "$svc" \
+                --arg df "$(dockerfile "$svc")" \
+                --arg ctx "$(context "$svc")" \
+                '. + [{service:$s, dockerfile:$df, context:$ctx}]')
+            fi
+          done
+
+          has_builds=$([ "$include" = "[]" ] && echo false || echo true)
+          has_publishes=$([ "$publish" = "[]" ] && echo false || echo true)
+
+          {
+            echo "build_matrix={\"include\":$include}"
+            echo "publish_matrix={\"include\":$publish}"
+            echo "retag_list=$retag"
+            echo "has_builds=$has_builds"
+            echo "has_publishes=$has_publishes"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "build: $build"
+          echo "retag: $retag"
+
+  # Run the python suite before anything is pushed. Only on push events
+  # (main / v* tags) — PRs are gated by ci.yml, which runs the same reusable
+  # suite as the required check, so we avoid running tests twice per event.
+  test:
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/_test.yml
+
+  # Build changed services. On PR: build to verify only (no push). On push to
+  # main / tags: build and push to ECR.
+  build:
+    needs: [detect, test]
+    # always() so the build-to-verify path still runs on PRs (test is skipped
+    # there); on push, a failed test skips the build and blocks the ECR push.
+    if: >
+      always() &&
+      needs.detect.outputs.has_builds == 'true' &&
+      needs.detect.result == 'success' &&
+      (needs.test.result == 'success' || needs.test.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.detect.outputs.build_matrix) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Configure AWS credentials
+        if: github.event_name == 'push'
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActionsECRPushRole
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        if: github.event_name == 'push'
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+
+      - name: Extract metadata
+        id: meta
+        if: github.event_name == 'push'
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: ${{ env.ECR_REGISTRY }}/qbrix/${{ matrix.service }}
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Build ${{ matrix.service }} (verify only)
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5.4.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: false
+          load: true
+          tags: qbrix/${{ matrix.service }}:pr
+          build-args: ${{ matrix.build_args }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # fails on a fixable critical or high finding. unfixable ones are left to
+      # the weekly scan, since no change in the pr could clear them.
+      - name: Scan ${{ matrix.service }}
+        if: github.event_name == 'pull_request'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: qbrix/${{ matrix.service }}:pr
+          version: v0.74.0
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Build and push ${{ matrix.service }}
+        if: github.event_name == 'push'
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5.4.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          provenance: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: ${{ matrix.build_args }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # For services that did not build, copy their current `main` image to the new
+  # sha tag. This is a registry-side manifest copy (no rebuild, no pull) so that
+  # every service has an image at the deploy sha and the single-sha helm upgrade
+  # in qbrix-iac keeps working unchanged.
+  retag:
+    needs: [detect, test, build]
+    # test must have passed: on a failed test build is skipped (not failed), so
+    # without this guard retag would still publish sha tags for unchanged services.
+    if: always() && github.event_name == 'push' && needs.test.result == 'success' && needs.detect.outputs.retag_list != '[]' && needs.build.result != 'failure' && needs.build.result != 'cancelled'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActionsECRPushRole
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+
+      - name: Retag unchanged services to new sha
+        env:
+          RETAG_LIST: ${{ needs.detect.outputs.retag_list }}
+        run: |
+          set -euo pipefail
+          sha="sha-${GITHUB_SHA::7}"
+          for svc in $(echo "$RETAG_LIST" | jq -r '.[]'); do
+            repo="${ECR_REGISTRY}/qbrix/${svc}"
+            if docker buildx imagetools inspect "${repo}:main" >/dev/null 2>&1; then
+              echo "retagging ${svc}: main -> ${sha}"
+              docker buildx imagetools create -t "${repo}:${sha}" "${repo}:main"
+            else
+              echo "::warning::no main tag for ${svc}; image will be missing at ${sha}"
+            fi
+          done
+
+  # Public multi-arch images on ghcr for the services that changed: `:edge` from
+  # main, the version (and :latest for a final release) from a v* tag, which
+  # builds everything. Gated on the same test run as the ecr push.
+  publish:
+    name: publish (${{ matrix.service }})
+    needs: [detect, test]
+    if: >
+      always() &&
+      github.event_name == 'push' &&
+      needs.test.result == 'success' &&
+      needs.detect.outputs.has_publishes == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.detect.outputs.publish_matrix) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/qbrix/${{ matrix.service }}
+          tags: |
+            type=edge,branch=main
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          labels: |
+            org.opencontainers.image.title=qbrix-${{ matrix.service }}
+
+      - id: push
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=release-${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=release-${{ matrix.service }}
+
+      # what `gh attestation verify` checks. github only issues attestations
+      # for private repositories on enterprise plans, so this starts with the
+      # public repository.
+      - name: Attest ${{ matrix.service }}
+        if: github.event.repository.visibility == 'public'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/qbrix/${{ matrix.service }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+  chart:
+    needs: publish
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+
+      # release-please bumps every chart in the release commit, and each
+      # subchart's image tag defaults to its appVersion, so a chart that
+      # disagrees with the tag would install another release's images
+      - name: Check the chart versions match the tag
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          export VERSION="${VERSION#v}"
+          status=0
+          for chart in helm/qbrix/Chart.yaml helm/qbrix/charts/*/Chart.yaml; do
+            found=$(yq '.version + " " + .appVersion' "$chart")
+            if [ "$found" != "$VERSION $VERSION" ]; then
+              echo "::error file=$chart::version/appVersion are '$found', the tag is $VERSION"
+              status=1
+            fi
+          done
+          exit $status
+
+      - name: Lint and package
+        run: |
+          helm lint helm/qbrix
+          helm package helm/qbrix --destination dist
+
+      - name: Push
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io --username "${{ github.actor }}" --password-stdin
+          helm push dist/qbrix-*.tgz "oci://ghcr.io/${{ github.repository_owner }}/charts"
+
+  # Always-run aggregation job. Mark this as the required status check in branch
+  # protection so skipped matrix jobs don't wedge the rules.
+  gate:
+    if: always()
+    needs: [detect, test, build, retag, publish, chart]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        run: |
+          echo "detect:  ${{ needs.detect.result }}"
+          echo "test:    ${{ needs.test.result }}"
+          echo "build:   ${{ needs.build.result }}"
+          echo "retag:   ${{ needs.retag.result }}"
+          echo "publish: ${{ needs.publish.result }}"
+          echo "chart:   ${{ needs.chart.result }}"
+
+          # detect must succeed; test/build/retag may be skipped (nothing to do).
+          # test is skipped on PRs (ci.yml owns that); on push it must not fail,
+          # otherwise build is skipped and nothing should have been pushed.
+          [ "${{ needs.detect.result }}" = "success" ] || exit 1
+          case "${{ needs.test.result }}" in failure|cancelled) exit 1 ;; esac
+          case "${{ needs.build.result }}" in failure|cancelled) exit 1 ;; esac
+          case "${{ needs.retag.result }}" in failure|cancelled) exit 1 ;; esac
+          case "${{ needs.publish.result }}" in failure|cancelled) exit 1 ;; esac
+          case "${{ needs.chart.result }}" in failure|cancelled) exit 1 ;; esac
+          echo "ok"
+
+      - name: Build summary
+        if: github.event_name == 'push'
+        env:
+          BUILD_MATRIX: ${{ needs.detect.outputs.build_matrix }}
+          RETAG_LIST: ${{ needs.detect.outputs.retag_list }}
+        run: |
+          sha="sha-${GITHUB_SHA::7}"
+          {
+            echo "## Docker Images Build Summary"
+            echo ""
+            echo "Deploy tag: \`${sha}\`"
+            echo ""
+            echo "| Service | Action |"
+            echo "|---------|--------|"
+            for svc in $(echo "$BUILD_MATRIX" | jq -r '.include[].service'); do
+              echo "| $svc | :hammer: built & pushed |"
+            done
+            for svc in $(echo "$RETAG_LIST" | jq -r '.[]'); do
+              echo "| $svc | :recycle: retagged from main |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"

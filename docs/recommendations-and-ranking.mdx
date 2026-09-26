@@ -1,0 +1,188 @@
+---
+title: Recommendations & ranking
+description: Let qbrix choose which ranking strategy serves each request — the arm is the ranker, not the item, and that distinction is the whole recipe.
+order: 42
+---
+
+# Recommendations & ranking
+
+You have three ways to order a result set: classic keyword relevance, a semantic embedding search, and a hybrid that reranks the first with the second. Each wins on different queries. Offline evaluation gave you a tie, and picking one globally means being wrong for a large slice of your traffic.
+
+This is a good fit for adaptive optimization — but only if you model it the way this page does. The mistake that sinks most first attempts is modelling the *items* as arms.
+
+## Where this fits
+
+Search and recommendation surfaces are the highest-frequency decisions most products make: every query, every feed load, every "related items" strip. That volume is what makes the learning fast.
+
+**The reward is usually a click**, and it arrives within seconds — no delayed-feedback machinery needed.
+
+**The volume floor is easy to clear here.** A search box doing 100,000 queries a month gives you a trustworthy read on three rankers well inside a month. If your search sees a few hundred queries a day, use the ranker your offline evaluation liked and come back when the surface is busier.
+
+## The one modelling decision that matters
+
+<Callout type="warning">
+**An arm is a ranking strategy, not a product.** The instinct is to make each item an arm and let qbrix learn which products people click. Do not do this.
+
+A pool of ten thousand arms spreads your traffic so thin that no arm ever accumulates enough observations to be distinguishable from another — and a pool's arms are fixed at creation, so your catalogue would be frozen on day one. The arm is the thing that *chooses* the items. Your catalogue stays where it is, changing as often as you like.
+</Callout>
+
+With that settled, the rest follows:
+
+| Decision | This recipe |
+|---|---|
+| **Arm** | One ranking strategy. Three of them. |
+| **Reward** | `1.0` if the searcher clicked a result, `0.0` if they abandoned. |
+| **Reward type** | `binary` |
+| **Context** | A stable searcher id. Optionally a declared schema describing the query. |
+
+## Set up the experiment
+
+<Steps>
+
+## Create the pool
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+import qbrix
+
+client = qbrix.Qbrix()
+
+pool = client.pool.create(
+    name="search-ranking",
+    arms=[
+        {"name": "keyword", "metadata": {"engine": "bm25"}},
+        {"name": "semantic", "metadata": {"engine": "embedding-knn"}},
+        {"name": "hybrid", "metadata": {"engine": "bm25+rerank"}},
+    ],
+)
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl -s -X POST $QBRIX_URL/api/v1/pools \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "search-ranking",
+    "arms": [
+      {"name": "keyword", "metadata": {"engine": "bm25"}},
+      {"name": "semantic", "metadata": {"engine": "embedding-knn"}},
+      {"name": "hybrid", "metadata": {"engine": "bm25+rerank"}}
+    ]
+  }' | jq .
+```
+</CodeTab>
+</CodeTabs>
+
+Pool names are unique within a workspace, so pick something you will not want again.
+
+## Create the experiment
+
+```python
+experiment = client.experiment.create(
+    name="search-ranking-q3",
+    pool_id=pool.id,
+    policy="auto",
+    policy_params={"reward_type": "binary"},
+)
+```
+
+`auto` runs a portfolio of learners and routes traffic toward whichever performs best on your data, which is the right default when you have no strong prior about how stable click behaviour is. If you already know your traffic mix is steady, `"BetaTSPolicy"` is the classical single-learner choice for click rewards — see [Policies](/docs/policies).
+
+</Steps>
+
+## Route the query
+
+The map from arm name to ranker lives in your code. The selection response returns `{id, name, index}` and nothing else — it is the hot path, so it stays small.
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+RANKERS = {
+    "keyword": rank_bm25,
+    "semantic": rank_semantic,
+    "hybrid": rank_hybrid,
+}
+
+result = client.agent.select(
+    experiment_id=EXPERIMENT_ID,
+    context={"id": searcher_id},
+)
+
+ranker = RANKERS.get(result.arm.name, rank_bm25)
+results = ranker(query)
+```
+</CodeTab>
+<CodeTab label="typescript">
+```typescript
+const { arm, requestId } = await qbrix.select(EXPERIMENT_ID, { id: searcherId });
+
+const ranker = RANKERS[arm.name] ?? rankBm25;
+const results = await ranker(query);
+```
+</CodeTab>
+</CodeTabs>
+
+An unknown arm name falls back to your safest ranker rather than throwing. Search should degrade to "adequate results", never to an error page.
+
+Keep `context.id` stable for a searcher — a user id, or a session id for anonymous traffic. It is what a [gate](/docs/feature-gates) buckets on, so someone inside a partial rollout stays inside it across queries rather than seeing the ranking flip between page loads.
+
+### If you want per-query personalization
+
+Declare a `context_schema` on the experiment and send named `properties`. Query length, whether it looks like a product code, how many filters are applied, time of day — anything you can name that plausibly predicts which ranker wins. See [Contexts](/docs/contexts) for how to declare one, and note that once an experiment has a schema, a property name it does not declare is a `400`.
+
+Start without it. A global answer across three rankers is a useful result on its own, and it converges on far less data.
+
+## Close the loop
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+# the searcher clicked result #3
+client.agent.feedback(request_id=result.request_id, reward=1.0)
+```
+</CodeTab>
+<CodeTab label="typescript">
+```typescript
+await qbrix.feedback(requestId, 1.0);
+```
+</CodeTab>
+</CodeTabs>
+
+Three things decide whether this recipe works, and all three are about the reward.
+
+**Send the zeros.** A search that produced no click is the signal that the ranking was bad. If you only report clicks, every ranker looks perfect and the learner has nothing to separate them.
+
+**Pick one definition of success and keep it.** Any click, a click in the top three, a click that led to a purchase — all defensible, but a reward that means "any click" on Monday and "converted click" on Tuesday is two experiments blended into one. If you want the stricter metric, start a new experiment.
+
+**Decide your abandonment window up front.** A searcher who clicks nothing never triggers anything, so something has to close the loop for them: a timer, the next query, session end. Whatever you choose, apply it uniformly — if slow-loading rankers get more time to earn a click, you have measured patience rather than relevance.
+
+`request_id` is `null` when the experiment is paused, so guard before storing it:
+
+```python
+if result.request_id is not None:
+    session["qbrix_request_id"] = result.request_id
+```
+
+## What you should see
+
+The learner separates the rankers on click rate, and the strongest one takes a growing share of queries while the others keep enough traffic to stay measured.
+
+<BurstTestNote />
+
+## Four things to get right
+
+**Watch for position bias.** People click the first result partly because it is first. That is fine here — every ranker is judged on the same layout, so the bias applies equally. It stops being fine the moment you change the layout mid-experiment, which makes every earlier observation incomparable.
+
+**One experiment per surface.** Search results and the "related items" strip are different decisions with different traffic and different winners. Give each its own pool and experiment; a single experiment spanning both learns an average that is right for neither.
+
+**Fix the strategy set at the start.** Arms are decided when the pool is created. If a fourth ranker is even a possibility, include it now — a mediocre arm costs almost nothing, because the learner stops showing it.
+
+**Set policy parameters at creation.** They are read when the learner initializes, so `policy_params` edits on a running experiment take effect after a reset rather than immediately.
+
+## Next
+
+- [Personalization by segment](/docs/personalization-by-segment) — adding context, and what changes when you do
+- [Contexts](/docs/contexts) — declaring a context schema
+- [Feedback & rewards](/docs/feedback-and-rewards) — reward types in depth

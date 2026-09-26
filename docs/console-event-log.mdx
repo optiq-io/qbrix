@@ -1,0 +1,56 @@
+---
+title: Console — Event Log
+description: Live audit, selection, and feedback event stream for your workspace.
+order: 21
+---
+
+# Event Log
+
+<Badge variant="ee">Enterprise</Badge>
+
+The **Event Log** under **Developers → Event Log** in the console gives you a queryable view of every event qbrix has processed.
+
+<ConsoleEventLog />
+
+## Three event types
+
+Qbrix publishes three independent streams. The Event Log lets you filter by type:
+
+| Type | Source | Contents |
+|------|--------|----------|
+| **Selection** | Every `select()` call | request_id, experiment_id, chosen arm_id, context, `is_default` flag |
+| **Feedback** | Every `feedback()` call | request_id, reward, arm_index, context |
+| **Audit** | Control-plane writes | who created/updated/deleted what (experiments, pools, gates, API keys, members) |
+
+Use the category chips to flip between them, or pick **all** to see them interleaved.
+
+## Filtering
+
+The filter bar supports:
+
+- **Category** — `all`, `feedback`, `selection` or `audit`.
+- **Experiment** — narrow to a single experiment.
+- **Time range** — `15m`, `1h`, `6h` or `24h`.
+
+Each row expands to show the full event payload, and a selection row expands to its paired feedback.
+
+## Common use cases
+
+**Debugging a missing reward.** Filter to `selection` for one experiment and expand a row: it shows the paired feedback, or that none arrived. A selection with no feedback usually points to a client-side bug or a misrouted webhook.
+
+**Auditing a config change.** Filter to `audit` to see when an admin disabled an experiment or rotated an API key. The actor is in each row's payload. For a single experiment, its own **Activity** tab is the better surface — it drops the experiment column and gives the actor one of its own. Audit events name the fields that changed, not their values.
+
+**Spot-checking selections.** Filter to `selection` plus a single experiment to confirm that traffic is actually being distributed across arms (and that the gate isn't accidentally serving 100% default).
+
+## Retention
+
+Events are retained for **90 days**, uniformly across every event type and every plan tier. Events older than the retention window are evicted and are no longer queryable from the console.
+
+<Callout type="info">
+The Event Log requires the Scale plan or above. See [Plans & limits](/docs/plans-and-limits).
+</Callout>
+
+## Next steps
+
+- [Console experiments](/docs/console-experiments) — the day-to-day surface for running experiments, including the per-experiment Activity tab
+- [Feedback & rewards](/docs/feedback-and-rewards) — what generates the events you're reading

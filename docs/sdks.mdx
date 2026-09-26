@@ -1,0 +1,38 @@
+---
+title: SDKs
+description: Official client libraries for the qbrix platform.
+order: 9
+---
+
+# SDKs
+
+Official client libraries for integrating qbrix into your applications.
+
+| Language | Package | Status | Registry |
+|----------|---------|--------|----------|
+| Python | [`qbrix`](https://pypi.org/project/qbrix/) | Available | PyPI |
+| JavaScript / TypeScript | [`@optiqio/qbrix`](https://www.npmjs.com/package/@optiqio/qbrix) | Available | npm |
+
+---
+
+## Python SDK
+
+The Python SDK provides typed sync and async clients for pool, experiment, and feature gate management alongside the agent select/feedback loop. It targets Python 3.10+ and ships with full type annotations.
+
+[Read the Python SDK docs →](/docs/python-sdk)
+
+---
+
+## JavaScript / TypeScript SDK
+
+The JavaScript SDK is a tiny, isomorphic client focused on the select/feedback hot path. It runs on Node 18+, edge runtimes, Deno, Bun, and the browser with zero runtime dependencies and bundled TypeScript types.
+
+[Read the JavaScript / TypeScript SDK docs →](/docs/javascript-sdk)
+
+---
+
+## Handling outages
+
+`select()` sits on your request path. Both SDKs default to a sub-second-appropriate timeout with no automatic retries, and both support a caller-declared `fallback` arm so a call can fail open instead of hanging or raising when qbrix is unreachable.
+
+[Read Handling outages →](/docs/handling-outages)

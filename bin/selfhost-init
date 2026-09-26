@@ -1,0 +1,76 @@
+#!/bin/sh
+# writes .env for the self-host quickstart (docker-compose.yml) with generated secrets.
+#
+#   bin/selfhost-init [--analytics] [--port N] [--force]
+
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+env_file="$root/.env"
+template="$root/.env.example"
+
+analytics=false
+port=8000
+force=false
+
+usage() {
+    echo "usage: bin/selfhost-init [--analytics] [--port N] [--force]" >&2
+    exit 2
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --analytics) analytics=true ;;
+        --port) [ $# -ge 2 ] || usage; port=$2; shift ;;
+        --force) force=true ;;
+        -h|--help) usage ;;
+        *) echo "unknown option: $1" >&2; usage ;;
+    esac
+    shift
+done
+
+case "$port" in
+    ''|*[!0-9]*) echo "--port must be a number" >&2; exit 2 ;;
+esac
+
+if [ -e "$env_file" ] && [ "$force" != true ]; then
+    echo ".env already exists; rerun with --force to replace it (this rotates every secret)" >&2
+    exit 1
+fi
+
+secret() {
+    if command -v openssl >/dev/null 2>&1; then
+        openssl rand -hex 32
+    else
+        od -An -N32 -tx1 /dev/urandom | tr -d ' \n'
+    fi
+}
+
+tmp=$(mktemp "$root/.env.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
+
+sed \
+    -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(secret)|" \
+    -e "s|^JWT_SECRET_KEY=.*|JWT_SECRET_KEY=$(secret)|" \
+    -e "s|^TOKEN_SECRET=.*|TOKEN_SECRET=$(secret)|" \
+    -e "s|^QBRIX_PORT=.*|QBRIX_PORT=$port|" \
+    -e "s|^CONSOLE_URL=.*|CONSOLE_URL=http://localhost:$port|" \
+    "$template" > "$tmp"
+
+if [ "$analytics" = true ]; then
+    sed \
+        -e "s|^# COMPOSE_PROFILES=analytics|COMPOSE_PROFILES=analytics|" \
+        -e "s|^# ANALYTICS_ENABLED=true|ANALYTICS_ENABLED=true|" \
+        "$tmp" > "$tmp.next"
+    mv "$tmp.next" "$tmp"
+fi
+
+chmod 600 "$tmp"
+mv "$tmp" "$env_file"
+trap - EXIT
+
+echo "wrote $env_file"
+echo
+echo "  docker compose up -d"
+echo
+echo "then open http://localhost:$port and register: the first account becomes the workspace admin."

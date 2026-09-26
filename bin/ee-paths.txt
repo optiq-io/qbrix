@@ -1,0 +1,12 @@
+# every path holding cloud-edition (EE-licensed) code. one list, two readers:
+# the root LICENSE names it as the boundary, and the `oss` CI job deletes every
+# path here before running the suite — so core that reaches into the plugin
+# fails on a push rather than at a self-hoster's first install.
+#
+# blank lines and # comments are ignored; paths are relative to the repo root.
+
+ee/
+svc/proxy/src/proxysvc/ee/
+svc/proxy/tests/ee/
+web/apps/console/src/ee/
+web/apps/console/src/app/(ee)/

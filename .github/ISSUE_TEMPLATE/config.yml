@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/optiq-io/qbrix/security/advisories/new
+    about: Please report security issues privately, never in a public issue.
+  - name: Managed hosting
+    url: mailto:info@optiqio.com
+    about: For qbrix run and supported by us rather than self-hosted.

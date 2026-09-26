@@ -1,0 +1,261 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["pyyaml"]
+# ///
+#
+# lints and renders helm/qbrix under a release name other than `qbrix`, then
+# checks that the render is wired to itself:
+#
+#   - every bare *_HOST names a Service in the same render. a dotted value is an
+#     external address or a bind address and is left alone.
+#   - every secret / configmap a pod references exists in the render, with the
+#     key it asks for, unless the scenario supplies it as an existingSecret.
+#
+# it also checks that the chart's in-cluster postgres, redis and clickhouse are
+# the exact images compose pins. dependabot keeps compose current but cannot
+# read the chart's values, so a compose bump fails here until the chart follows.
+#
+# a render that only works as `qbrix` is the failure this exists for, so the
+# release name is deliberately not the default.
+#
+#   bin/check-chart
+
+from __future__ import annotations
+
+import subprocess
+import sys
+from dataclasses import dataclass
+from dataclasses import field
+from pathlib import Path
+
+import yaml
+
+ROOT = Path(__file__).resolve().parent.parent
+CHART = ROOT / "helm" / "qbrix"
+EXAMPLES = CHART / "examples"
+COMPOSE_FILES = [ROOT / "docker-compose.yml", ROOT / "docker-compose.dev.yml"]
+RELEASE = "staging"
+
+ANALYTICS_AND_CLOUD = [
+    "global.analytics.enabled=true",
+    "trace.enabled=true",
+    "infrastructure.clickhouse.enabled=true",
+    "global.ee.enabled=true",
+    "ee.meter.enabled=true",
+    "global.sentry.enabled=true",
+    "global.redis.password=redis",
+    "global.clickhouse.password=clickhouse",
+]
+
+
+@dataclass
+class Scenario:
+    name: str
+    values: list[Path] = field(default_factory=list)
+    sets: list[str] = field(default_factory=list)
+    existing: set[str] = field(default_factory=set)
+    expect_config: dict[str, str] = field(default_factory=dict)
+    expect_error: str | None = None
+
+
+SCENARIOS = [
+    Scenario("defaults"),
+    Scenario("selfhost", values=[EXAMPLES / "values-selfhost.yaml"]),
+    Scenario(
+        "selfhost, analytics and cloud",
+        values=[EXAMPLES / "values-selfhost.yaml"],
+        sets=ANALYTICS_AND_CLOUD,
+    ),
+    Scenario(
+        "external services",
+        values=[
+            EXAMPLES / "values-selfhost.yaml",
+            EXAMPLES / "values-external-services.yaml",
+        ],
+        existing={"qbrix-postgres", "qbrix-redis", "qbrix-jwt", "qbrix-token"},
+        expect_config={
+            "PROXY_POSTGRES_HOST": "qbrix.xxxxxxxx.eu-central-1.rds.amazonaws.com",
+            "PROXY_REDIS_HOST": "qbrix.xxxxxx.cache.amazonaws.com",
+        },
+    ),
+    Scenario(
+        "explicit host next to in-cluster infra",
+        sets=["global.postgres.host=db.example.com"],
+        expect_config={
+            "PROXY_POSTGRES_HOST": "db.example.com",
+            "PROXY_REDIS_HOST": f"{RELEASE}-redis",
+        },
+    ),
+    Scenario(
+        "no postgres host and no in-cluster postgres",
+        sets=["infrastructure.postgres.enabled=false", "global.postgres.password=x"],
+        expect_error="global.postgres.host is required",
+    ),
+    Scenario(
+        "analytics without clickhouse",
+        sets=["global.analytics.enabled=true"],
+        expect_error="global.clickhouse.host is required",
+    ),
+]
+
+
+def helm(command: str, scenario: Scenario) -> subprocess.CompletedProcess[str]:
+    args = ["helm", command]
+    if command == "template":
+        args.append(RELEASE)
+    args.append(str(CHART))
+    for path in scenario.values:
+        args += ["-f", str(path)]
+    for assignment in scenario.sets:
+        args += ["--set", assignment]
+    return subprocess.run(args, capture_output=True, text=True)
+
+
+def walk(node):
+    yield node
+    if isinstance(node, dict):
+        for value in node.values():
+            yield from walk(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from walk(value)
+
+
+def references(doc: dict):
+    """(kind, name, key or None, optional) for every secret/configmap a doc reads"""
+    for node in walk(doc):
+        if not isinstance(node, dict):
+            continue
+        for field_name, kind in (
+            ("secretKeyRef", "Secret"),
+            ("configMapKeyRef", "ConfigMap"),
+        ):
+            ref = node.get(field_name)
+            if isinstance(ref, dict):
+                yield kind, ref["name"], ref["key"], ref.get("optional", False)
+        for field_name, kind in (
+            ("secretRef", "Secret"),
+            ("configMapRef", "ConfigMap"),
+        ):
+            ref = node.get(field_name)
+            if isinstance(ref, dict):
+                yield kind, ref["name"], None, ref.get("optional", False)
+        if isinstance(node.get("secret"), dict) and "secretName" in node["secret"]:
+            yield "Secret", node["secret"]["secretName"], None, node["secret"].get(
+                "optional", False
+            )
+        if isinstance(node.get("configMap"), dict) and "name" in node["configMap"]:
+            yield "ConfigMap", node["configMap"]["name"], None, node["configMap"].get(
+                "optional", False
+            )
+
+
+def hosts(doc: dict):
+    """(where, name, value) for every *_HOST a doc sets"""
+    kind, name = doc["kind"], doc["metadata"]["name"]
+    if kind == "ConfigMap":
+        for key, value in (doc.get("data") or {}).items():
+            if key.endswith("_HOST"):
+                yield f"{kind}/{name}", key, str(value)
+        return
+    for node in walk(doc):
+        if (
+            isinstance(node, dict)
+            and str(node.get("name", "")).endswith("_HOST")
+            and "value" in node
+        ):
+            yield f"{kind}/{name}", node["name"], str(node["value"])
+
+
+def check(scenario: Scenario, manifest: str) -> list[str]:
+    docs = [doc for doc in yaml.safe_load_all(manifest) if doc]
+    objects = {(doc["kind"], doc["metadata"]["name"]): doc for doc in docs}
+    services = {name for kind, name in objects if kind == "Service"}
+    problems = []
+
+    config = {}
+    for doc in docs:
+        for where, key, value in hosts(doc):
+            config.setdefault(key, value)
+            if "." not in value and value not in services:
+                problems.append(
+                    f"{where}: {key}={value} names no Service in the render"
+                )
+
+    for key, expected in scenario.expect_config.items():
+        if config.get(key) != expected:
+            problems.append(f"{key}={config.get(key)!r}, expected {expected!r}")
+
+    for doc in docs:
+        where = f"{doc['kind']}/{doc['metadata']['name']}"
+        for kind, name, key, optional in references(doc):
+            if optional or name in scenario.existing:
+                continue
+            target = objects.get((kind, name))
+            if target is None:
+                problems.append(
+                    f"{where}: references {kind}/{name}, which is not in the render"
+                )
+            elif key is not None and key not in {
+                **(target.get("data") or {}),
+                **(target.get("stringData") or {}),
+            }:
+                problems.append(
+                    f"{where}: references key {key!r} of {kind}/{name}, which it does not have"
+                )
+
+    return sorted(set(problems))
+
+
+def infrastructure_image_problems() -> list[str]:
+    values = yaml.safe_load((CHART / "values.yaml").read_text())
+    pinned = {
+        spec["image"]["repository"]: f"{spec['image']['repository']}:{spec['image']['tag']}"
+        for spec in values["infrastructure"].values()
+        if isinstance(spec, dict) and "image" in spec
+    }
+    problems = []
+    for path in COMPOSE_FILES:
+        for name, service in yaml.safe_load(path.read_text())["services"].items():
+            image = service.get("image", "")
+            repository = image.split(":")[0]
+            if repository in pinned and image != pinned[repository]:
+                problems.append(
+                    f"{path.name} {name}: {image}, the chart pins {pinned[repository]}"
+                )
+    return problems
+
+
+def main() -> int:
+    failed = False
+    problems = infrastructure_image_problems()
+    print(f"{'FAIL' if problems else 'ok'}  infrastructure images match compose")
+    for problem in problems:
+        print(f"      {problem}")
+    failed |= bool(problems)
+    for scenario in SCENARIOS:
+        rendered = helm("template", scenario)
+        if scenario.expect_error is not None:
+            ok = rendered.returncode != 0 and scenario.expect_error in rendered.stderr
+            problems = (
+                []
+                if ok
+                else [f"expected the render to fail with {scenario.expect_error!r}"]
+            )
+        elif rendered.returncode != 0:
+            problems = [rendered.stderr.strip()]
+        else:
+            linted = helm("lint", scenario)
+            problems = [] if linted.returncode == 0 else [linted.stdout.strip()]
+            problems += check(scenario, rendered.stdout)
+
+        print(f"{'FAIL' if problems else 'ok'}  {scenario.name}")
+        for problem in problems:
+            print(f"      {problem}")
+        failed |= bool(problems)
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

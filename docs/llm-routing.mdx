@@ -1,0 +1,312 @@
+---
+title: LLM model & prompt routing
+description: Route each request to the model or prompt that handles it best, learning from a reward you define across quality, latency and cost.
+order: 45
+---
+
+# LLM model & prompt routing
+
+You have a frontier model that is excellent and expensive, a mid-tier model that is usually fine, and a small model that is nearly free. Or you have one model and four prompt templates that nobody can agree on. Either way you are making the same decision on every request, and today you are making it with a hardcoded rule.
+
+Routing is an unusually good fit for adaptive optimization: the decision repeats constantly, the outcome is measurable, and the right answer genuinely differs by request. It is also the recipe where the modelling is hardest — the reward does not exist until you define it, and it arrives late.
+
+## Where this fits
+
+Routing suits adaptive optimization well: the decision repeats on every request, and the right answer genuinely differs from one request to the next — which is precisely the case a fixed rule handles worst.
+
+**Two things make it work.** The first is a way to score an answer after the fact — a judge model, a thumbs-up, or a downstream success signal like "the generated query ran". The second is volume: on the order of 50,000 requests per route before a difference between two routes is trustworthy. A production assistant on a support surface clears that comfortably; an internal tool doing a few hundred calls a day is better served by a fixed choice until it grows.
+
+**Get the scoring in place first.** The reward is the whole mechanism here — routing on a signal you don't have yet is the one version of this that cannot work. If today's only feedback is "nobody complained", stand up a judge before the experiment; it is a day of work and everything downstream depends on it.
+
+**Routing trades quality variance for cost**, so it pays off when more than one model clears your quality bar. If only the frontier model is acceptable for this task, there is nothing to trade — and the good news is that you will find that out from the data rather than from an argument, because the router will simply converge on the frontier model and stay there.
+
+## The modelling decisions
+
+| Decision | This recipe |
+|---|---|
+| **Arm** | One route: a model, or a prompt template, or a pairing of both. |
+| **Reward** | A score in `[0, 1]` that you construct — see below. |
+| **Reward type** | `bounded` |
+| **Context** | A declared schema describing the request shape, sent as named properties. |
+
+<Callout type="warning">
+**qbrix optimizes one number, and choosing that number is yours to make.** There is no setting that balances quality against cost for you — you decide what a cent of spend is worth against a point of quality, express it as a single score, and the router optimizes exactly that. That is more control than it sounds: the trade-off becomes one explicit constant you can review and revise, rather than a rule of thumb buried in a routing `if`.
+</Callout>
+
+### Constructing the reward
+
+Start from a quality score in `[0, 1]` — a judge rating, a rubric, a task-success boolean — then subtract a cost penalty scaled so it can move the decision without dominating it:
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+# cost of the most expensive route in the pool, used to normalize
+MAX_COST_USD = 0.03
+
+# how much quality you are willing to give up to save a full unit of cost.
+# 0.25 means: the cheapest route wins ties, but never beats a route that is
+# more than a quarter-point better on quality.
+COST_WEIGHT = 0.25
+
+
+def reward(quality: float, cost_usd: float) -> float:
+    penalty = COST_WEIGHT * min(cost_usd / MAX_COST_USD, 1.0)
+    return max(0.0, min(1.0, quality - penalty))
+```
+</CodeTab>
+<CodeTab label="typescript">
+```typescript
+const MAX_COST_USD = 0.03;
+const COST_WEIGHT = 0.25;
+
+function reward(quality: number, costUsd: number): number {
+  const penalty = COST_WEIGHT * Math.min(costUsd / MAX_COST_USD, 1);
+  return Math.max(0, Math.min(1, quality - penalty));
+}
+```
+</CodeTab>
+</CodeTabs>
+
+Two things to notice. The result is **clamped to `[0, 1]`** because `bounded` means bounded — an out-of-range reward is a modelling error, not a strong opinion. And `COST_WEIGHT` is the entire product decision, expressed as one number you can argue about in a review.
+
+If latency matters to you as much as cost, it belongs in the same expression on the same terms. Resist the urge to optimize three things separately; there is one reward.
+
+## Set up the experiment
+
+<Steps>
+
+## Create the pool
+
+One arm per route. Keep it small — three or four routes that are genuinely different beats eight that overlap.
+
+```python
+import qbrix
+
+client = qbrix.Qbrix()
+
+pool = client.pool.create(
+    name="assistant-routes",
+    arms=[
+        {"name": "frontier", "metadata": {"tier": "high", "usd_per_call": 0.030}},
+        {"name": "mid", "metadata": {"tier": "mid", "usd_per_call": 0.004}},
+        {"name": "small-cot", "metadata": {"tier": "low", "usd_per_call": 0.0006}},
+    ],
+)
+```
+
+As always the `metadata` is for you and the console — it is not returned on selection. Your code holds the map from arm name to the actual client call.
+
+## Create the experiment
+
+```python
+experiment = client.experiment.create(
+    name="assistant-routing",
+    pool_id=pool.id,
+    policy="auto",
+    policy_params={
+        "reward_type": "bounded",
+        "context_schema": REQUEST_SCHEMA,
+    },
+)
+```
+
+`reward_type: "bounded"` tells the portfolio your rewards are continuous but confined to `[0, 1]`, which is a different estimation problem from a coin flip — it scopes the portfolio to learners that model a bounded mean rather than a success probability. See [Feedback & rewards](/docs/feedback-and-rewards) for what each reward type assumes.
+
+A declared schema adds contextual learners, so the router can conclude that short factual questions go to the small model while long multi-step ones go to the frontier — instead of learning one global favourite. `use_context` and `dim` are both implied by the schema; passing `dim` yourself is an error.
+
+</Steps>
+
+## Describe the request
+
+Declare the shape once, then send named values. `properties` is what a contextual learner reads; the free-form `metadata` field is for [gate](/docs/feature-gates) rules and the model never sees it.
+
+```python
+REQUEST_SCHEMA = [
+    {"type": "numeric", "name": "prompt_chars", "min": 0, "max": 4000},
+    {"type": "boolean", "name": "has_tools"},
+    {"type": "numeric", "name": "history_turns", "min": 0, "max": 20},
+    {"type": "boolean", "name": "is_question"},
+]
+```
+
+Then read those values off the request. There is no encoding step — the normalization and clamping happen server-side against the ranges you declared.
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+def request_properties(prompt: str, has_tools: bool, history_turns: int) -> dict:
+    return {
+        "prompt_chars": len(prompt),
+        "has_tools": has_tools,
+        "history_turns": history_turns,
+        "is_question": "?" in prompt,
+    }
+```
+</CodeTab>
+<CodeTab label="typescript">
+```typescript
+function requestProperties(prompt: string, hasTools: boolean, historyTurns: number) {
+  return {
+    prompt_chars: prompt.length,
+    has_tools: hasTools,
+    history_turns: historyTurns,
+    is_question: prompt.includes("?"),
+  };
+}
+```
+</CodeTab>
+</CodeTabs>
+
+<Callout type="warning">
+**The schema is fixed for the life of the experiment.** Its derived width is baked into the learned parameters, so a fifth property means a new experiment — like arms, the shape is not something you can grow into. Changing or omitting it on an update returns `409 CONTEXT_SCHEMA_IMMUTABLE`.
+</Callout>
+
+Declare each numeric range where your traffic actually sits. A `prompt_chars` range of `0–4000` when almost every prompt is under 400 puts all the real variation in the first tenth of the scale; values above the max are clamped, not rejected, so a tight range costs you nothing.
+
+## Route on the request path
+
+<Flow caption="The key stays on your server, and so does the routing decision. The browser never learns which model answered.">
+<Step label="Browser" detail="POST /api/chat" />
+<Step label="Your handler" detail="reads the request shape" />
+<Step label="qbrix select" detail="returns a route + request_id" owned />
+<Step label="Model call" detail="whichever route won" />
+<Step label="Answer" detail="streamed back" />
+</Flow>
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+ROUTES = {
+    "frontier": lambda p: call_model("claude-opus-5", p),
+    "mid": lambda p: call_model("claude-sonnet-5", p),
+    "small-cot": lambda p: call_model("claude-haiku-4-5", p),
+}
+
+result = client.agent.select(
+    experiment_id=EXPERIMENT_ID,
+    context={
+        "id": conversation_id,
+        "properties": request_properties(prompt, has_tools, history_turns),
+    },
+)
+
+route = ROUTES.get(result.arm.name, ROUTES["mid"])
+answer, cost_usd = route(prompt)
+```
+</CodeTab>
+<CodeTab label="typescript">
+```typescript
+const { arm, requestId } = await qbrix.select(EXPERIMENT_ID, {
+  id: conversationId,
+  properties: requestProperties(prompt, hasTools, historyTurns),
+});
+
+const route = ROUTES[arm.name] ?? ROUTES.mid;
+const { answer, costUsd } = await route(prompt);
+```
+</CodeTab>
+</CodeTabs>
+
+The fallback matters more here than elsewhere. An unknown arm name should route to a safe middle option, not throw — a renamed arm should degrade your cost curve, not your availability.
+
+## Close the loop, late
+
+This is the recipe where delayed feedback is normal rather than an edge case. The quality score does not exist when you select: a judge has to run, or a user has to react, and that happens seconds to hours later. **Persist the `request_id` alongside the generation** — it is the only thing linking the outcome back to the decision.
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+generation_id = store.save(
+    conversation_id=conversation_id,
+    prompt=prompt,
+    answer=answer,
+    route=result.arm.name,
+    cost_usd=cost_usd,
+    # None when the experiment is paused — no feedback token was minted
+    qbrix_request_id=result.request_id,
+)
+```
+</CodeTab>
+<CodeTab label="typescript">
+```typescript
+await store.save({
+  conversationId,
+  prompt,
+  answer,
+  route: arm.name,
+  costUsd,
+  // undefined when the experiment is paused — no feedback token was minted
+  qbrixRequestId: requestId,
+});
+```
+</CodeTab>
+</CodeTabs>
+
+Then, whenever the score arrives:
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+# in the judge worker, or a thumbs-up handler, or a nightly batch
+row = store.get(generation_id)
+
+if row.qbrix_request_id is None:
+    return  # experiment was paused when this was served — nothing to credit
+
+quality = judge(row.prompt, row.answer)       # 0.0 – 1.0
+client.agent.feedback(
+    request_id=row.qbrix_request_id,
+    reward=reward(quality, row.cost_usd),
+)
+```
+</CodeTab>
+<CodeTab label="typescript">
+```typescript
+const row = await store.get(generationId);
+if (!row.qbrixRequestId) return;
+
+const quality = await judge(row.prompt, row.answer);
+await qbrix.feedback(row.qbrixRequestId, reward(quality, row.costUsd));
+```
+</CodeTab>
+</CodeTabs>
+
+<Callout type="info">
+Feedback that arrives an hour late is still useful — the learner credits the decision it belongs to, not the traffic flowing at the moment it lands. What hurts is feedback that never arrives, or that arrives for only some routes.
+</Callout>
+
+### Don't let the judge pick a favourite
+
+If your judge is one of the models in the pool, it will tend to rate its own outputs generously and you will learn a preference for the judge rather than for quality. Use a model that is not in the pool, or a rubric-scored rating with the route identity hidden from the judge.
+
+The same applies to thumbs-up data: if only frustrated users ever click anything, you are optimizing for the absence of frustration, which is not the same as quality. Know which one you are measuring.
+
+## What you should see
+
+Three things, on three different clocks.
+
+**Beliefs update within seconds** of each reward landing. That is the fast loop, and it is the one to watch first.
+
+**Routing follows on the parameter-refresh interval.** Selection reads cached parameters, so a shift in what the learner believes reaches the actual traffic split minutes later, not instantly.
+
+<BurstTestNote />
+
+**The per-segment split arrives last, and only with context.** This is the payoff: the router sends short questions to the small model and long tool-using ones to the frontier, without you writing that rule. It needs more data than a global preference does, because it is learning a separate answer per region of your property space. If it never happens, either the properties do not carry the signal that distinguishes hard requests, or the routes really are interchangeable for your traffic — both are useful findings.
+
+Watch your cost per request alongside quality. If cost fell and quality held, `COST_WEIGHT` is roughly right. If quality sagged, lower it and start a new experiment — the reward function is not something you can retune in flight, because every past reward was computed under the old one.
+
+## Four things to get right
+
+**Treat the reward function as part of the experiment.** Every reward the learner has seen was computed with the current weights, so changing `COST_WEIGHT` mid-flight mixes two objectives. When you want to retune it — and you probably will after the first run — start a new experiment. It is one call, and the previous run tells you which direction to move.
+
+**Version your prompts.** Editing the template behind an arm makes it a different route, while its history still describes the old one. Pin each arm to a prompt version and start a fresh experiment when one changes materially.
+
+**Set policy parameters at creation.** They are read when the learner initializes, so `policy_params` edits on a running experiment take effect after a reset rather than immediately.
+
+**Price the failure, not just the tokens.** If a weak answer costs a support ticket, the small model's true cost is higher than its API price — and `COST_WEIGHT` is where that belongs. Getting this number roughly right matters more than getting the schema perfect.
+
+## Next
+
+- [Feedback & rewards](/docs/feedback-and-rewards) — what `bounded` assumes and how it differs from `binary`
+- [Contexts](/docs/contexts) — declaring a schema in depth
+- [Checkout & CTA conversion](/docs/checkout-conversion) — the simpler non-contextual loop, if you want to prove the wiring first

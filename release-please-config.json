@@ -1,0 +1,37 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "simple",
+  "include-component-in-tag": false,
+  "bump-minor-pre-major": true,
+  "draft": true,
+  "force-tag-creation": true,
+  "packages": {
+    ".": {
+      "package-name": "qbrix",
+      "release-as": "0.1.0",
+      "extra-files": [
+        {"type": "generic", "path": "pyproject.toml"},
+        {"type": "generic", "path": "lib/core/pyproject.toml"},
+        {"type": "generic", "path": "lib/log/pyproject.toml"},
+        {"type": "generic", "path": "lib/proto/pyproject.toml"},
+        {"type": "generic", "path": "lib/runtime/pyproject.toml"},
+        {"type": "generic", "path": "lib/store/pyproject.toml"},
+        {"type": "generic", "path": "svc/cortex/pyproject.toml"},
+        {"type": "generic", "path": "svc/motor/pyproject.toml"},
+        {"type": "generic", "path": "svc/proxy/pyproject.toml"},
+        {"type": "generic", "path": "svc/trace/pyproject.toml"},
+        {"type": "generic", "path": "ee/svc/meter/pyproject.toml"},
+        {"type": "generic", "path": "helm/qbrix/Chart.yaml"},
+        {"type": "generic", "path": "helm/qbrix/charts/console/Chart.yaml"},
+        {"type": "generic", "path": "helm/qbrix/charts/cortex/Chart.yaml"},
+        {"type": "generic", "path": "helm/qbrix/charts/meter/Chart.yaml"},
+        {"type": "generic", "path": "helm/qbrix/charts/motor/Chart.yaml"},
+        {"type": "generic", "path": "helm/qbrix/charts/proxy/Chart.yaml"},
+        {"type": "generic", "path": "helm/qbrix/charts/trace/Chart.yaml"},
+        {"type": "json", "path": "web/package.json", "jsonpath": "$.version"},
+        {"type": "json", "path": "web/apps/console/package.json", "jsonpath": "$.version"},
+        {"type": "json", "path": "web/packages/ui/package.json", "jsonpath": "$.version"}
+      ]
+    }
+  }
+}

@@ -1,0 +1,9 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "test fixtures, not credentials"
+regexes = [
+  '''^optiq_testkey123$''',
+  '''^unlimited-pw-1$''',
+]

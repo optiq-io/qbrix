@@ -1,0 +1,678 @@
+@theme {
+  /* v3 tier — source of truth: .pencil/design.pen document variables
+     (board `00 · Foundations`). dark-only by decision, but names stay
+     theme-shaped so a light theme is a values change, not a rewrite.
+     rules that live here:
+       - one lime per screen (chrome): the winning variant or the primary
+         action, never both. data-viz is multi-hue (viz tokens).
+       - backdrops are flat bg + faint vertical grid + optional vignette +
+         bottom fade. no coloured glow anywhere; neutral white/black at low
+         alpha only. single sanctioned exception: billing-outcome tints. */
+  --color-bg: #08090A;
+  --color-bg-raised: #0C0D0F;
+  --color-bg-panel: #101114;
+  --color-bg-overlay: #17181C;
+  --color-bg-hover: #141519;
+  --color-bg-window: #050506;
+
+  /* border-subtle is the row divider that melts into the surface;
+     border is the panel outline; border-strong is real separation.
+     bar is inert data (unfilled allocation, chart baselines). */
+  --color-border-subtle: #17181C;
+  --color-border: #212329;
+  --color-border-strong: #31333A;
+  --color-bar: #2E3037;
+
+  --color-text-primary: #F5F6F7;
+  --color-text-secondary: #A8AEB8;
+  --color-text-dim: #7C828C;
+  --color-text-faint: #565A63;
+
+  --color-accent: #C4F82A;
+  --color-accent-dim: #C4F82A33;
+  --color-accent-soft: #C4F82A14;
+
+  --color-info: #7AA8EE;
+  --color-info-soft: #7AA8EE14;
+  --color-danger: #F87171;
+  --color-amber: #F3B23A;
+  --color-amber-soft: #F3B23A14;
+  --color-positive: #4ADE80;
+  --color-negative: #F87171;
+
+  /* the two prose measures, in the container namespace so a page framing
+     content around the article (the legal title block) gets `max-w-measure`
+     from the same number the `prose` utility below uses. NOT named
+     `--container-prose`: tailwind ships `max-w-prose` as a static 65ch
+     utility that shadows the token, silently. */
+  --container-measure: 42.5rem;
+  --container-measure-wide: 47.5rem;
+
+  /* the compat tier is gone. thirteen pre-v3 aliases lived here,
+     each remapped to the v3 value nearest it so unmigrated pages tracked the
+     new palette while the redesign landed page by page. every consumer is now
+     on the real token, so the indirection has no job left.
+
+     the deletion was safe to do mechanically because all thirteen resolved to
+     exactly their target's value — bg-surface and bg-panel were both #101114,
+     text-tertiary and text-secondary both #A8AEB8, and so on. a substitution
+     between two names for one hex cannot move a pixel, which is why this
+     shipped as one sweep rather than page by page.
+
+     do not add another alias here. a name that needs remapping is either a
+     token this file is missing or a call site that should change. */
+
+  --font-heading: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-body: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  /* type ramp base — until discrete step utilities exist, keep the
+     legibility bump from tailwind defaults. xs: 12 → 13, sm: 14 → 15. */
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.125rem;
+  --text-sm: 0.9375rem;
+  --text-sm--line-height: 1.375rem;
+
+}
+
+/* motion — three steps and two curves; nothing invents its own number.
+   reference durations as duration-[var(--motion-move)]; the easings generate
+   `ease-entrance` / `ease-exit` utilities.
+
+   `static` is load-bearing: `--motion-*` is not one of tailwind's theme
+   namespaces, and an arbitrary-value reference does not count as usage, so in a
+   plain @theme block every duration is tree-shaken out and every transition
+   silently loses its timing. the easings survive either way — `--ease-*` IS a
+   namespace — which is exactly what makes the failure hard to spot.
+
+   the curves are NOT named --ease-in / --ease-out on purpose: those are
+   tailwind's own, and overriding them would silently re-curve every existing
+   `ease-out` in both apps. */
+@theme static {
+  --motion-quick: 120ms; /* hover, selection, focus — already under the cursor */
+  --motion-move: 180ms; /* something changes position or size */
+  --motion-exit: 140ms; /* leaving is faster than arriving */
+  --motion-data: 400ms; /* the allocation bar — information, not chrome */
+  --ease-entrance: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
+  /* the quick step becomes tailwind's default, so the 21 bare
+     `transition-colors` already in the codebase adopt the vocabulary without a
+     single call-site change. */
+  --default-transition-duration: var(--motion-quick);
+}
+
+/* movement is what causes harm; fades don't. the quick step stays so hover and
+   selection still read as responsive rather than dead. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-move: 0ms;
+    --motion-exit: 0ms;
+    --motion-data: 0ms;
+  }
+}
+
+/* one page, one reveal. board `APP · Empty, loading & error states` requires the
+   loading state to reserve the exact height its content will take "so nothing
+   jumps" — this is the other half of that rule: the moment it stops being a
+   skeleton is one moment for the whole page, not one per query.
+
+   deliberately owned by the page root and by nothing else. a widget that fades
+   itself in on its own arrival is the staged fill this replaces. */
+@keyframes reveal {
+  from {
+    opacity: 0;
+  }
+}
+
+.page-reveal {
+  animation: reveal var(--motion-move) var(--ease-entrance);
+}
+
+/* data-viz series — chrome stays grey, data is genuinely multi-hue.
+   viz-1 lime is always the winner series. viz-2 sits adjacent to lime in
+   every two-series chart, so adjacency is the test if a hue is ever
+   revisited (board `Data colour · viz-2 candidates`).
+
+   never inline a viz hex: every fill, stroke and gradient stop references
+   a token — -dim (33) for gradient stops, -soft (14) for ground fills,
+   the same alpha steps as accent. in the design, swapping one hue cost
+   900 hardcoded edits because gradient stops carried inline alpha.
+
+   `static` because charts reach these through `var()` in chart-library
+   props rather than utility classes; without it tailwind emits only the
+   steps it can see referenced today and a later gradient stop resolves
+   to nothing. the whole scale ships, always. */
+@theme static {
+  --color-viz-1: #C4F82A;
+  --color-viz-1-dim: #C4F82A33;
+  --color-viz-1-soft: #C4F82A14;
+  --color-viz-2: #CF5C99;
+  --color-viz-2-dim: #CF5C9933;
+  --color-viz-2-soft: #CF5C9914;
+  --color-viz-3: #4EC9C0;
+  --color-viz-3-dim: #4EC9C033;
+  --color-viz-3-soft: #4EC9C014;
+  --color-viz-4: #F3B23A;
+  --color-viz-4-dim: #F3B23A33;
+  --color-viz-4-soft: #F3B23A14;
+  --color-viz-5: #7AA8EE;
+  --color-viz-5-dim: #7AA8EE33;
+  --color-viz-5-soft: #7AA8EE14;
+  --color-viz-6: #E8825F;
+  --color-viz-6-dim: #E8825F33;
+  --color-viz-6-soft: #E8825F14;
+}
+
+/* type ramp — board `03 · Responsive System`.
+
+   display type steps discretely per tier and must NEVER use clamp(): the
+   chapter headlines and the two-tone statement are art-directed line
+   breaks, and a continuous scale re-breaks them at widths nobody looked at.
+
+   each utility carries its whole ramp, so a step cannot be half-applied —
+   one class per role at the call site, never four. sizes in rem so browser
+   font settings are respected; tracking in em (the board's px figure over
+   that step's size) so it follows the size.
+
+   the tiers are the tailwind defaults: the board is drawn at 1440 but its
+   design tier starts at 1280, which is `xl`. do not redefine a breakpoint
+   to 1440 — nothing here needs one, and it would move every other `xl:`.
+
+   metrics only, never colour: a type utility must not fight the text
+   token chosen at the call site. */
+
+/* the ramp came down one step across the board in 2026-08: 40/54/66/82 → 36/46/
+   58/72, and the lead with it. the 82 was the board's own figure rather than
+   drift, so this is a design change, not a correction — at that size the h1
+   out-shouted the visual under it and read as a wall rather than a sentence.
+
+   deliberately applied to the utility rather than to the homepage, which would
+   have left /pricing and the four platform pages carrying the size that was
+   the complaint. one class per role; the ramp stays one system.
+
+   tracking is untouched. it is in em, so each step's px value follows the size
+   down on its own and the proportions the board set survive. */
+@utility type-hero {
+  font-size: 2.25rem;
+  line-height: 0.98;
+  letter-spacing: -0.035em;
+  font-weight: 600;
+  @media (width >= theme(--breakpoint-md)) {
+    font-size: 2.875rem;
+    letter-spacing: -0.0352em;
+  }
+  @media (width >= theme(--breakpoint-lg)) {
+    font-size: 3.625rem;
+    letter-spacing: -0.0364em;
+  }
+  @media (width >= theme(--breakpoint-xl)) {
+    font-size: 4.5rem;
+    letter-spacing: -0.0366em;
+  }
+}
+
+/* final CTA only */
+@utility type-cta {
+  font-size: 2.25rem;
+  line-height: 1;
+  letter-spacing: -0.0361em;
+  font-weight: 600;
+  @media (width >= theme(--breakpoint-md)) {
+    font-size: 3.125rem;
+    letter-spacing: -0.036em;
+  }
+  @media (width >= theme(--breakpoint-lg)) {
+    font-size: 3.875rem;
+    letter-spacing: -0.0355em;
+  }
+  @media (width >= theme(--breakpoint-xl)) {
+    font-size: 4.75rem;
+    letter-spacing: -0.0368em;
+  }
+}
+
+/* every chapter headline */
+@utility type-h2 {
+  font-size: 2rem;
+  line-height: 1;
+  letter-spacing: -0.0344em;
+  font-weight: 600;
+  @media (width >= theme(--breakpoint-md)) {
+    font-size: 2.625rem;
+    letter-spacing: -0.0357em;
+  }
+  @media (width >= theme(--breakpoint-lg)) {
+    font-size: 3.25rem;
+    letter-spacing: -0.0346em;
+  }
+  @media (width >= theme(--breakpoint-xl)) {
+    font-size: 3.875rem;
+    letter-spacing: -0.0339em;
+  }
+}
+
+/* two-tone, hand-broken above 390; stacked below it */
+@utility type-statement {
+  font-size: 1.5625rem;
+  line-height: 1.28;
+  letter-spacing: -0.036em;
+  font-weight: 600;
+  @media (width >= theme(--breakpoint-md)) {
+    font-size: 2rem;
+    letter-spacing: -0.0344em;
+  }
+  @media (width >= theme(--breakpoint-lg)) {
+    font-size: 2.375rem;
+    letter-spacing: -0.0342em;
+  }
+  @media (width >= theme(--breakpoint-xl)) {
+    font-size: 2.75rem;
+    letter-spacing: -0.0341em;
+  }
+}
+
+/* the lead paragraph is a display element, not body copy */
+/* down with the headline, 18/21/24/27 → 17/19/21/24. this one reaches every
+   section sub on every page, which is the point: the lead is sized against the
+   headline it sits beside, so moving one without the other re-weights forty
+   section headers rather than leaving them alone. */
+@utility type-lead {
+  font-size: 1.0625rem;
+  line-height: 1.32;
+  letter-spacing: -0.0111em;
+  font-weight: 400;
+  @media (width >= theme(--breakpoint-md)) {
+    font-size: 1.1875rem;
+    letter-spacing: -0.0095em;
+  }
+  @media (width >= theme(--breakpoint-lg)) {
+    font-size: 1.3125rem;
+    letter-spacing: -0.0125em;
+  }
+  @media (width >= theme(--breakpoint-xl)) {
+    font-size: 1.5rem;
+    letter-spacing: -0.0111em;
+  }
+}
+
+@utility type-body {
+  font-size: 1rem;
+  line-height: 1.6;
+  @media (width >= theme(--breakpoint-lg)) {
+    font-size: 1.0625rem;
+  }
+}
+
+@utility type-small {
+  font-size: 0.875rem;
+  line-height: 1.4;
+  @media (width >= theme(--breakpoint-lg)) {
+    font-size: 0.9375rem;
+  }
+}
+
+/* column headers and measured values only. this is NOT licence for an
+   all-caps tracked eyebrow above a headline — v3 removed those, and the
+   tracking here is a third of what the old eyebrows carried. */
+@utility type-mono-label {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  letter-spacing: 0.0636em;
+  font-weight: 500;
+  text-transform: uppercase;
+  @media (width >= theme(--breakpoint-md)) {
+    font-size: 0.75rem;
+    letter-spacing: 0.0583em;
+  }
+}
+
+/* layout primitives — board `03 · Responsive System`.
+
+   the content column and its gutters step on the same tailwind-default
+   tiers as the type ramp: base (drawn 390) → md 768 → lg 1024 → xl 1280
+   (drawn 1440). the board's "wide" tier at 1440 needs no breakpoint —
+   a max-width caps the column on its own and the content simply centres,
+   so `2xl` is left at the tailwind default. */
+
+@utility gutter {
+  padding-inline: 1.25rem;
+  @media (width >= theme(--breakpoint-md)) {
+    padding-inline: 2.5rem;
+  }
+  @media (width >= theme(--breakpoint-lg)) {
+    padding-inline: 3.5rem;
+  }
+  @media (width >= theme(--breakpoint-xl)) {
+    padding-inline: 5.5rem;
+  }
+}
+
+@utility container-page {
+  width: 100%;
+  margin-inline: auto;
+  @media (width >= theme(--breakpoint-md)) {
+    max-width: 43rem;
+  }
+  @media (width >= theme(--breakpoint-lg)) {
+    max-width: 57rem;
+  }
+  @media (width >= theme(--breakpoint-xl)) {
+    max-width: 79rem;
+  }
+}
+
+/* a product visual starts at the content left edge and runs past the right
+   edge of the viewport. never centred, never boxed.
+
+   the overhang is 14.44vw = 208/1440, so at the drawn width the visual
+   resolves to exactly the 1560 it is drawn at (1264 column + 88 gutter +
+   208 past the edge) and the overhang *grows* on a larger monitor rather
+   than vanishing as the column stops widening.
+
+   off below md: the board switches the bleed off entirely and shows a
+   focal crop at full scale instead — crop, don't shrink.
+
+   the child must be a block child of the column, since the 50% resolves
+   against it. when the visual is a data row, order it so the bleed cuts
+   the allocation bar and never a value. */
+@utility bleed-right {
+  @media (width >= theme(--breakpoint-md)) {
+    margin-right: calc(50% - 50vw - 14.44vw);
+  }
+}
+
+/* clips the overhang on the section that holds a bleed. `clip`, not
+   `hidden`: hidden makes a scroll container, and on html/body it silently
+   kills `position: sticky` descendants — which both the docs sidebar and
+   the marketing header rely on. never put this on html or body. */
+@utility bleed-clip {
+  overflow-x: clip;
+}
+
+/* the companion to the bleed: a visual that *ends* by dissolving into the page
+   ground instead of terminating on a frame edge.
+
+   the mask ramps the whole layer — plane, dividers and content together — so
+   the surface stops existing rather than being cut. that is the difference
+   from `bleed-right`, which crops: a cut says "this is all of it", a dissolve
+   says "this continues". use it only where the content genuinely does (an
+   event log, a list of experiments), never to hide a value the section is
+   making a claim about. anything that must stay readable is composed *over*
+   the masked layer as a sibling, not inside it.
+
+   two axes are two nested elements rather than one two-layer mask.
+   `mask-composite: intersect` is the one-element form and it is the only
+   property this file would need with a browser floor worth avoiding — the
+   nesting costs one div and works everywhere.
+
+   the ramp start is call-site tunable so a panel can hold its values longer
+   without a second utility. the two axes carry separate custom property names
+   on purpose: with one shared name a nested pair would inherit the outer
+   element's stop and silently ramp on the wrong axis.
+
+   the horizontal ramps carry the same md floor as `bleed-right`, and for the
+   same reason: below it the board crops at full scale rather than shrinking,
+   and a mask taking 40% of a 390px column is the shrink failure by another
+   route. the vertical ramp has no floor — a column is full width at every
+   tier, so fading its foot costs no legibility and says the same thing. */
+@utility dissolve-r {
+  @media (width >= theme(--breakpoint-md)) {
+    mask-image: linear-gradient(
+      to right,
+      #000 var(--dissolve-x-from, 55%),
+      transparent 100%
+    );
+    mask-repeat: no-repeat;
+  }
+}
+
+@utility dissolve-b {
+  mask-image: linear-gradient(
+    to bottom,
+    #000 var(--dissolve-y-from, 55%),
+    transparent 100%
+  );
+  mask-repeat: no-repeat;
+}
+
+/* the all-sides case: a plane a focal card sits *inside* rather than beside,
+   so there is no one edge to ramp toward. reach for it only when the card
+   overlaps the middle of the surface — a directional ramp is the default and
+   this is the exception, or every panel on the page ends up wearing a
+   vignette. */
+@utility dissolve-edges {
+  @media (width >= theme(--breakpoint-md)) {
+    mask-image: radial-gradient(
+      ellipse 72% 80% at 50% 50%,
+      #000 var(--dissolve-hold, 45%),
+      transparent 100%
+    );
+    mask-repeat: no-repeat;
+  }
+}
+
+/* long-form prose — board `05 · MDX prose system`.
+
+   the metrics live in a class rather than in the react component map because
+   prose arrives two ways: MDX (docs, library) renders through
+   `mdxComponents`, legal pages pass plain JSX children. a component map can
+   only reach the first, which is why legal forked a copy of it. a class
+   reaches both.
+
+   every element rule sits inside :where() and so carries zero specificity: a
+   Callout, a table cell or a code tab always wins with its own class, and
+   nothing here ever needs !important. adding a component to the MDX map never
+   requires a counter-rule.
+
+   `pre`, `figure` and the code inside them are deliberately unstyled —
+   rehype-pretty-code emits its own figure wrapper and CodeTabs zeroes those
+   margins itself.
+
+   headings are calc()'d off the body size, which is what makes this one scale
+   at two densities rather than two scales. */
+@utility prose {
+  --prose-measure: var(--container-measure);
+  --prose-body: 0.96875rem;
+  --prose-leading: 1.7;
+  --prose-gap: 1.25rem;
+
+  max-width: var(--prose-measure);
+  font-family: var(--font-body);
+  color: var(--color-text-secondary);
+
+  :where(& h1),
+  :where(& h2),
+  :where(& h3),
+  :where(& h4) {
+    font-family: var(--font-heading);
+    font-weight: 500;
+    color: var(--color-text-primary);
+    scroll-margin-top: 6rem;
+  }
+
+  :where(& h1) {
+    font-size: calc(var(--prose-body) * 2.05);
+    line-height: 1.15;
+    letter-spacing: -0.03em;
+    margin-block: 0 calc(var(--prose-gap) * 1.2);
+  }
+
+  :where(& h2) {
+    font-size: calc(var(--prose-body) * 1.35);
+    line-height: 1.3;
+    letter-spacing: -0.02em;
+    margin-block: calc(var(--prose-gap) * 2.8) calc(var(--prose-gap) * 0.8);
+  }
+
+  :where(& h3) {
+    font-size: calc(var(--prose-body) * 1.1);
+    line-height: 1.4;
+    letter-spacing: -0.01em;
+    margin-block: calc(var(--prose-gap) * 2) calc(var(--prose-gap) * 0.6);
+  }
+
+  :where(& h4) {
+    font-size: calc(var(--prose-body) * 0.97);
+    line-height: 1.45;
+    margin-block: calc(var(--prose-gap) * 1.6) calc(var(--prose-gap) * 0.4);
+  }
+
+  :where(& p) {
+    margin-block: var(--prose-gap);
+    font-size: var(--prose-body);
+    line-height: var(--prose-leading);
+  }
+
+  :where(& ul),
+  :where(& ol) {
+    margin-block: var(--prose-gap);
+    padding-inline-start: 1.25rem;
+  }
+
+  :where(& ul) {
+    list-style-type: disc;
+  }
+
+  :where(& ol) {
+    list-style-type: decimal;
+  }
+
+  :where(& li) {
+    padding-inline-start: 0.25rem;
+    font-size: var(--prose-body);
+    line-height: var(--prose-leading);
+    &::marker {
+      color: var(--color-text-faint);
+    }
+  }
+
+  :where(& li + li) {
+    margin-top: 0.5rem;
+  }
+
+  :where(& a) {
+    color: var(--color-text-primary);
+    text-decoration-line: underline;
+    text-decoration-color: var(--color-accent-dim);
+    text-underline-offset: 3px;
+    transition: text-decoration-color var(--motion-quick);
+    &:hover {
+      text-decoration-color: var(--color-accent);
+    }
+  }
+
+  :where(& strong) {
+    font-weight: 500;
+    color: var(--color-text-primary);
+  }
+
+  :where(& blockquote) {
+    margin-block: calc(var(--prose-gap) * 1.2);
+    border-inline-start: 1px solid var(--color-border-strong);
+    padding-inline-start: 1rem;
+    color: var(--color-text-dim);
+  }
+
+  :where(& hr) {
+    margin-block: calc(var(--prose-gap) * 2.4);
+    border-color: var(--color-border-subtle);
+  }
+
+  :where(& table) {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: start;
+    font-size: calc(var(--prose-body) * 0.9);
+  }
+
+  :where(& thead) {
+    border-bottom: 1px solid var(--color-border-strong);
+  }
+
+  :where(& tr) {
+    border-bottom: 1px solid var(--color-border);
+    &:last-child {
+      border-bottom: 0;
+    }
+  }
+
+  :where(& th) {
+    white-space: nowrap;
+    padding: 0.625rem 1rem;
+    font-family: var(--font-mono);
+    font-size: 0.65625rem;
+    font-weight: 400;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-text-faint);
+  }
+
+  :where(& td) {
+    padding: 0.625rem 1rem;
+    vertical-align: top;
+    line-height: 1.6;
+  }
+
+  :where(& :not(pre) > code) {
+    border-radius: 5px;
+    border: 1px solid var(--color-border-subtle);
+    background-color: var(--color-bg-panel);
+    padding: 0.125rem 0.375rem;
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+    color: var(--color-text-primary);
+  }
+}
+
+/* numbers a run of `##` headings inside `prose`. targets a pseudo-element
+   nothing else styles, so it adds the numeral without touching the heading
+   metrics `prose` already set. */
+@utility prose-steps {
+  counter-reset: prose-step;
+
+  & > h2 {
+    position: relative;
+    padding-inline-start: 2.75rem;
+    &::before {
+      counter-increment: prose-step;
+      content: counter(prose-step);
+      position: absolute;
+      inset-inline-start: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.75rem;
+      height: 1.75rem;
+      border-radius: 8px;
+      border: 1px solid var(--color-accent-dim);
+      background-color: var(--color-accent-soft);
+      font-family: var(--font-mono);
+      font-size: 0.8125rem;
+      color: var(--color-accent);
+    }
+  }
+}
+
+/* the library density. custom properties only — nothing here competes with a
+   declaration in `prose`, so it wins on source order alone. */
+@utility prose-article {
+  --prose-measure: var(--container-measure-wide);
+  --prose-body: 1.125rem;
+  --prose-leading: 1.75;
+  --prose-gap: 1.375rem;
+}
+
+html {
+  background-color: #08090A;
+  color-scheme: dark;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--color-bg);
+  color: var(--color-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

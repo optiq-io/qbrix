@@ -1,0 +1,194 @@
+---
+title: Pricing & discounts
+description: Find the discount tier that maximizes revenue per session rather than conversion rate — a continuous reward, and the one recipe with a legal caution attached.
+order: 44
+---
+
+# Pricing & discounts
+
+You can offer no discount, 5%, 10% or 15%. The deepest discount converts best and might still be your worst option. The question is not which tier converts — it is which tier makes the most money per visitor, and that is a different number.
+
+This is the recipe where the reward stops being a coin flip and becomes an amount. That changes the modelling, the policy portfolio, and what you have to be careful about.
+
+## Where this fits
+
+**Use it when the outcome has a size, not just a yes/no** — revenue per session, order value, margin. If you only care whether someone converted, you want the [checkout conversion](/docs/checkout-conversion) recipe and a binary reward.
+
+**Volume works the same way as everywhere else**, with one caveat: continuous rewards are noisier than binary ones. A handful of unusually large orders can move an average far more than a handful of extra conversions moves a rate, so give it more traffic than you would a binary experiment on the same surface before trusting the ranking.
+
+**Discounting has a floor you should set yourself.** qbrix optimizes what you tell it to. If your reward is revenue and a 15% discount earns the most revenue per session, that is what it will serve — margin is not in the reward unless you put it there. Deciding that is a pricing decision, not a configuration one.
+
+## The modelling decisions
+
+| Decision | This recipe |
+|---|---|
+| **Arm** | One discount tier. Four of them, including no discount. |
+| **Reward** | Revenue from the session, in your currency. `0.0` if nothing was bought. |
+| **Reward type** | `continuous` |
+| **Context** | A declared schema of segment properties, plus an id. |
+
+### The reward must be revenue, not conversion
+
+<Callout type="warning">
+Optimize conversion on a ladder of discounts and the learner will correctly, inevitably discover that the deepest discount converts best. It will be right, and you will lose money. The reward has to carry the value of the outcome, not just its occurrence.
+</Callout>
+
+```python
+# right: the reward is what the session was worth
+reward = order_total_eur if purchased else 0.0
+
+# wrong: every tier looks equally good per conversion, so the cheapest wins
+reward = 1.0 if purchased else 0.0
+```
+
+If margin matters more than revenue — and it usually does on a discount experiment — use it:
+
+```python
+reward = (order_total_eur - cost_of_goods_eur) if purchased else 0.0
+```
+
+**Nothing validates the scale for you.** `continuous` means unbounded real values, and the API accepts whatever number you send. Two things follow: keep the unit stable for the life of the experiment (euros throughout, not euros here and cents there), and be aware that one refund-sized outlier is a real observation as far as the learner is concerned.
+
+## Set up the experiment
+
+<Steps>
+
+## Create the pool
+
+```python
+import qbrix
+
+client = qbrix.Qbrix()
+
+pool = client.pool.create(
+    name="checkout-discount",
+    arms=[
+        {"name": "none", "metadata": {"pct": 0}},
+        {"name": "five", "metadata": {"pct": 5}},
+        {"name": "ten", "metadata": {"pct": 10}},
+        {"name": "fifteen", "metadata": {"pct": 15}},
+    ],
+)
+```
+
+Include the no-discount arm. It is your baseline, and without it you cannot tell whether discounting helps at all — only which discount is least bad.
+
+## Create the experiment
+
+```python
+experiment = client.experiment.create(
+    name="checkout-discount-q3",
+    pool_id=pool.id,
+    policy="auto",
+    policy_params={
+        "reward_type": "continuous",
+        "context_schema": CUSTOMER_SCHEMA,
+    },
+)
+```
+
+`reward_type: "continuous"` scopes the portfolio to learners that model an unbounded mean rather than a success probability — a materially smaller set than binary gets, since the Beta-family learners do not apply. `"GaussianTSPolicy"` is the classical single-learner choice here if you would rather pick one.
+
+Context is optional but earns its place on this recipe more than most: price sensitivity genuinely differs by segment, and a global optimum is an average across customers who would have paid full price and customers who needed the nudge. Declare the segment shape once:
+
+```python
+CUSTOMER_SCHEMA = [
+    {"type": "categorical", "name": "plan", "values": ["free", "pro", "team"]},
+    {"type": "numeric", "name": "tenure_months", "min": 0, "max": 36},
+    {"type": "numeric", "name": "orders_last_90d", "min": 0, "max": 20},
+    {"type": "boolean", "name": "used_discount_before"},
+]
+```
+
+</Steps>
+
+## Select and apply
+
+```python
+DISCOUNT_PCT = {"none": 0, "five": 5, "ten": 10, "fifteen": 15}
+
+result = client.agent.select(
+    experiment_id=EXPERIMENT_ID,
+    context={
+        "id": customer_id,
+        "properties": {
+            "plan": customer.plan,
+            "tenure_months": customer.tenure_months,
+            "orders_last_90d": customer.orders_last_90d,
+            "used_discount_before": customer.used_discount_before,
+        },
+        # metadata is for gate rules — the model does not read it
+        "metadata": {"country": customer.country},
+    },
+)
+
+pct = DISCOUNT_PCT.get(result.arm.name, 0)
+```
+
+The fallback is `0` — no discount — rather than a middle tier. If something is wrong, giving money away is the wrong default.
+
+Every call must carry the properties the schema declares — a name it does not declare is a `400`. See [Contexts](/docs/contexts).
+
+## Close the loop
+
+```python
+if result.request_id is not None:
+    session["qbrix_request_id"] = result.request_id
+
+# on order completion
+client.agent.feedback(
+    request_id=session["qbrix_request_id"],
+    reward=order_total_eur,
+)
+
+# on abandonment — the session was worth nothing, and that is signal
+client.agent.feedback(
+    request_id=session["qbrix_request_id"],
+    reward=0.0,
+)
+```
+
+The zeros matter more here than anywhere else. A deep discount that converts occasionally at high value and otherwise drives nothing has a revenue-per-session that only makes sense if the empty sessions are counted.
+
+**Refunds are a real problem and qbrix does not solve it.** Feedback is reported once against a `request_id`; there is no revision. If refunds are material on this surface, either delay feedback past your refund window — the `request_id` stays valid, so the [delayed pattern](/docs/llm-routing) applies — or accept that the reward is gross revenue and read the results with that in mind. Pick one deliberately and write it down.
+
+## Legal caution
+
+<Callout type="warning" title="Read this before shipping personalized prices">
+Varying a price by customer is regulated in ways that varying a headline is not.
+
+In the **EU**, the Consumer Rights Directive as amended by the Omnibus Directive requires a trader to inform the consumer when a price has been personalized on the basis of automated decision-making. A contextual pricing experiment is squarely within that description. There are equivalent and diverging rules elsewhere.
+
+Practical guidance that keeps most teams out of trouble:
+
+* **Prefer promotional discounts to base-price changes.** Testing which offer to surface is a much softer proposition than testing what the product costs.
+* **Prefer segment-level tiers to per-individual pricing.** Four coarse behavioural properties are a different thing from a per-customer willingness-to-pay model, legally and reputationally.
+* **Never encode protected characteristics or close proxies for them.** Postcode, device price tier and similar features can proxy for protected attributes even when nothing in your code names one.
+* **Keep the disclosure consistent with what you actually do**, and make sure whoever writes it knows this experiment exists.
+
+This is not legal advice. If you are running personalized pricing in the EU, have counsel look at the surface before it goes live.
+</Callout>
+
+## What you should see
+
+The learner ranks tiers by revenue per session, which frequently is **not** the ranking by conversion rate. A shallower discount converting less often but earning more per session is the result this recipe exists to find — and the one a conversion-rate A/B test would have told you to reject.
+
+Watch the two numbers side by side. If revenue per session is flat across tiers, your customers are not price-sensitive on this surface and you have just saved yourself the discount.
+
+<BurstTestNote />
+
+## Four things to get right
+
+**Keep the unit and the definition stable.** Changing the reward from revenue to margin mid-flight mixes two objectives in one learner. Start a new experiment.
+
+**Fix the tier set at creation.** Arms are decided when the pool is created, so include the tiers you might want. A tier that turns out to be a bad idea simply stops being served.
+
+**One experiment per surface.** A discount experiment on the cart and another at checkout will each attribute the other's effect to its own arms.
+
+**Set policy parameters at creation.** They are read when the learner initializes, so `policy_params` edits on a running experiment take effect after a reset rather than immediately.
+
+## Next
+
+- [Feedback & rewards](/docs/feedback-and-rewards) — what `continuous` assumes and how it differs from `binary` and `bounded`
+- [Personalization by segment](/docs/personalization-by-segment) — the same contextual setup on a simpler reward
+- [Contexts](/docs/contexts) — declaring a context schema

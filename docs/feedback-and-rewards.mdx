@@ -1,0 +1,195 @@
+---
+title: Feedback & Rewards
+description: How the feedback loop works — reward types, async processing, and best practices.
+order: 6
+---
+
+# Feedback & rewards
+
+The feedback loop is how qbrix learns. After selecting an arm, you observe the outcome and send a **reward** signal back. The system uses these rewards to update the policy's parameters, making future selections better over time.
+
+## The select-feedback loop
+
+![Select-feedback loop](/select-feedback-loop.png)
+
+Each selection returns a `request_id` that links the selection to its feedback. This is how qbrix correlates which arm was shown with the reward it received.
+
+## Sending feedback
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+result = client.agent.select(
+    experiment_id="<experiment-id>",
+    context={"id": "user-42"},
+)
+
+# ... user interacts with the selected variant ...
+
+client.agent.feedback(
+    request_id=result.request_id,
+    reward=1.0,
+)
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+# select
+RESP=$(curl -s -X POST $QBRIX_URL/api/v1/agent/select \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"experiment_id": "<experiment-id>"}')
+
+REQ_ID=$(echo $RESP | jq -r .request_id)
+
+# feedback
+curl -X POST $QBRIX_URL/api/v1/agent/feedback \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "request_id": "'"$REQ_ID"'",
+    "reward": 1.0
+  }'
+```
+</CodeTab>
+</CodeTabs>
+
+## Reward types
+
+The reward value you send depends on which policy you're using:
+
+### Binary rewards (0 or 1)
+
+Used by: **BetaTSPolicy**, **KLUCBPolicy**, **LogisticTSPolicy**, **GLMUCBPolicy**
+
+```python
+# user clicked → reward 1
+client.agent.feedback(request_id=req_id, reward=1.0)
+
+# user didn't click → reward 0
+client.agent.feedback(request_id=req_id, reward=0.0)
+```
+
+Best for click-through rates, conversions, sign-ups — any yes/no outcome.
+
+### Continuous rewards (any float)
+
+Used by: **GaussianTSPolicy**, **LinUCBPolicy**, **LinTSPolicy**
+
+```python
+# revenue generated
+client.agent.feedback(request_id=req_id, reward=49.99)
+
+# time on page (seconds)
+client.agent.feedback(request_id=req_id, reward=127.5)
+
+# engagement score (0-100)
+client.agent.feedback(request_id=req_id, reward=73.2)
+```
+
+Best for revenue, engagement time, scores — any numeric outcome.
+
+### Bounded rewards
+
+Used by: **UCB1TunedPolicy**, **MOSSPolicy**, **MOSSAnyTimePolicy**, **DirichletTSPolicy**, **EXP3Policy**, **EXP3IXPolicy**, **FPLPolicy**
+
+Rewards should be bounded (typically between 0 and 1). If your raw metric isn't bounded, normalize it:
+
+```python
+# normalize revenue to [0, 1] range
+max_revenue = 200.0
+reward = min(actual_revenue / max_revenue, 1.0)
+client.agent.feedback(request_id=req_id, reward=reward)
+```
+
+## How feedback is processed
+
+Feedback is **asynchronous**. Sending a reward doesn't update the policy on the spot — the call returns as soon as the reward is safely queued.
+
+<Flow caption="Your call returns at step 2. Steps 3 onward are qbrix's problem, not your request's.">
+  <Step label="Your app" detail="feedback()" />
+  <Step label="Queued" detail="durably, then returns" owned />
+  <Step label="Trained" detail="in batches" owned />
+  <Step label="Serving" detail="within 60s" owned />
+</Flow>
+
+1. qbrix verifies the signed selection token from your call
+2. The reward is durably queued and `feedback()` returns
+3. Rewards are trained in batches, per experiment
+4. Updated parameters are published
+5. Selection picks them up on its next refresh
+
+<Callout type="info">
+Parameter updates land within **60 seconds**. That window is by design — it's what keeps selection fast regardless of how much feedback you're sending. See [How qbrix works](/docs/architecture#timings) for the full timing table.
+</Callout>
+
+## Selection tokens
+
+qbrix uses **HMAC-signed selection tokens** instead of server-side session state to correlate selections with feedback.
+
+When you call `/agent/select`, the response includes a `request_id` that encodes:
+- Tenant ID
+- Experiment ID
+- Selected arm index
+- Context (ID, properties, metadata)
+
+When feedback arrives, the token is verified and decoded. This means:
+- **No server-side state** needed to track active selections
+- **No expiration** — you can send feedback hours or days after selection
+- **Tamper-proof** — the HMAC signature prevents modification
+
+## Feedback timing
+
+### When to send feedback
+
+Send feedback as soon as you observe the outcome. There's no strict time limit, but sooner is better for learning speed.
+
+| Scenario | When to Send |
+|----------|-------------|
+| Click-through | On click event (or after timeout for no-click) |
+| Purchase | On checkout completion |
+| Engagement | After session ends or at a defined checkpoint |
+| Revenue | On transaction completion |
+
+### Missing feedback
+
+Not every selection needs feedback. If a user abandons a session before you can observe an outcome, it's fine to skip feedback for that selection. The policy will still learn from the feedback it does receive.
+
+<Callout type="warning">
+If your feedback rate is very low (under 5%), the policy will learn slowly. Consider whether you can send partial or proxy rewards to increase the signal.
+</Callout>
+
+### Delayed feedback
+
+Feedback can arrive long after selection. Common in scenarios like:
+- **Email campaigns** — user opens hours later
+- **Purchase funnels** — conversion happens days after first impression
+- **Subscription trials** — outcome known after trial period
+
+The signed token doesn't expire, so delayed feedback works out of the box.
+
+## Best practices
+
+### Use consistent reward scales
+
+Pick a reward scale and stick with it for the duration of an experiment. Changing the scale mid-experiment (e.g., switching from 0/1 to 0-100) will confuse the policy.
+
+### Send negative signals too
+
+For binary rewards, send `reward=0.0` when the user _doesn't_ convert — not just `reward=1.0` when they do. Without negative signals, the policy can't distinguish between "this arm is bad" and "we haven't seen enough data for this arm."
+
+### Don't double-count
+
+Send one feedback event per selection. If a user clicks a button multiple times, count it as one reward. Duplicate feedback inflates the perceived reward rate.
+
+### Match the policy to your reward type
+
+Using a binary-reward policy (BetaTSPolicy) with continuous rewards, or vice versa, will produce poor results. See [Policies](/docs/policies) for which reward types each policy expects.
+
+---
+
+## What's next
+
+- [Contexts](/docs/contexts) — add per-request features for personalized selection
+- [Pools & experiments](/docs/pools-and-experiments) — the data model
+- [API reference](/docs/api-reference) — full endpoint documentation

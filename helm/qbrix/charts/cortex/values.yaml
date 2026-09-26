@@ -1,0 +1,134 @@
+# cortex service values
+# training service - SINGLE INSTANCE BY DESIGN
+#
+# architecture decision: cortex runs as a single instance (event sourcing pattern)
+#
+# why single instance?
+# - training is NOT on the hot path (doesn't affect selection latency)
+# - ensures correct parameter updates (no race conditions between pods)
+# - redis streams provides back-pressure (buffers spikes in feedback volume)
+# - training operations are computationally cheap (handles thousands of events/sec)
+# - simplicity: no distributed locks, no coordination overhead
+#
+# if cortex becomes a bottleneck:
+# 1. vertical scaling (increase cpu/memory)
+# 2. increase batch size for better throughput
+# 3. shard by experiment (each cortex owns subset of experiments)
+
+# single instance - this is intentional, not a limitation
+replicaCount: 1
+
+image:
+  repository: qbrix/cortex
+  pullPolicy: IfNotPresent
+  tag: ""  # defaults to chart appVersion
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# service configuration
+service:
+  type: ClusterIP
+  port: 50052
+  annotations: {}
+
+# autoscaling disabled - single instance by design
+autoscaling:
+  enabled: false
+
+# no PDB - single instance with Recreate strategy ensures clean handoff
+podDisruptionBudget:
+  enabled: false
+
+resources:
+  requests:
+    memory: "512Mi"
+    cpu: "200m"
+  limits:
+    memory: "2Gi"
+    cpu: "2000m"
+
+# grpc health check probes
+livenessProbe:
+  grpc:
+    port: 50052
+  initialDelaySeconds: 15
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  grpc:
+    port: 50052
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# shutdown. no prestop delay: cortex answers only low-volume admin rpcs,
+# so there is no endpoint race to cover. the grace period has to outlast
+# the grpc drain plus the worker drain and the dispatcher finishing its
+# in-flight training, or feedback is abandoned mid-batch.
+terminationGracePeriodSeconds: 60
+
+# node selection
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# pod annotations and labels
+podAnnotations: {}
+podLabels: {}
+
+# security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# service account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# environment-specific config
+config:
+  logLevel: "INFO"
+
+  # grpc settings
+  grpc:
+    host: "0.0.0.0"
+    port: 50052
+
+  # drain budget handed to the grpc server and to each stream worker
+  # on shutdown. terminationGracePeriodSeconds below must cover the
+  # grpc drain plus the worker drain, plus any prestop delay.
+  shutdownGraceSec: 20
+
+  # stream names and consumer groups are fixed topology, declared in
+  # qbrixstore.stream.topology. only this replica's identity is configurable.
+  stream:
+    consumerName: "worker-0"
+
+  # batch processing settings
+  batch:
+    size: 256              # number of feedback events per batch
+    timeoutMs: 100         # max wait time for batch accumulation
+    numWorkers: 4          # number of parallel training workers
+
+# extra environment variables
+extraEnv: []
+
+# extra volumes and mounts
+extraVolumes: []
+extraVolumeMounts: []

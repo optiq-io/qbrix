@@ -1,0 +1,267 @@
+---
+title: JavaScript / TypeScript SDK
+description: Isomorphic TypeScript SDK for select and feedback — Node, edge, serverless, Deno, Bun, and browser.
+order: 11
+---
+
+# JavaScript / TypeScript SDK
+
+A tiny, isomorphic client for **selection** and **feedback**. Works on Node 18+, edge runtimes (Vercel, Cloudflare Workers, Deno Deploy), Bun, and the browser. Ships dual ESM + CJS with bundled TypeScript types and zero runtime dependencies.
+
+<Callout type="info">
+The JS SDK covers `select` and `feedback` only. Pool, experiment, and gate management is available via the [Python SDK](/docs/python-sdk) or the [REST API](/docs/api-reference).
+</Callout>
+
+## Installation
+
+```bash
+npm install @optiqio/qbrix
+```
+
+Works with any package manager:
+
+```bash
+pnpm add @optiqio/qbrix
+yarn add @optiqio/qbrix
+```
+
+Requires Node 18+. TypeScript types are included — no `@types/` package needed.
+
+## Quickstart
+
+```ts
+import { QbrixClient } from "@optiqio/qbrix";
+
+// reads QBRIX_API_KEY and QBRIX_BASE_URL from the environment automatically
+const qbrix = new QbrixClient();
+
+// select an arm for this user/context
+const { arm, requestId } = await qbrix.select("homepage-cta", { id: "user-42" });
+
+// render the chosen arm
+console.log(`showing: ${arm.name}`);
+
+// report the outcome — pass back the requestId from select
+await qbrix.feedback(requestId, 1.0); // 1 = converted, 0 = no action
+```
+
+## Client initialization
+
+```ts
+import { QbrixClient } from "@optiqio/qbrix";
+
+const qbrix = new QbrixClient({
+  apiKey: "optiq_...",
+  baseUrl: "https://cloud.qbrix.io",
+  timeout: 5000,
+  maxRetries: 0,
+});
+```
+
+All options are optional. When omitted, the client reads from environment variables then falls back to built-in defaults.
+
+## Configuration
+
+Resolution order per option: explicit argument → environment variable → default.
+
+| Option | Type | Default | Env Var |
+|--------|------|---------|---------|
+| `apiKey` | `string` | — | `QBRIX_API_KEY` |
+| `baseUrl` | `string` | `http://localhost:8080` | `QBRIX_BASE_URL` |
+| `timeout` | `number` (ms) | `5000` | — |
+| `maxRetries` | `number` | `0` | — |
+| `retryOn` | `number[]` | `[429, 502, 503, 504]` | — |
+| `fetch` | `typeof fetch` | runtime global | — |
+| `headers` | `Record<string, string>` | `{}` | — |
+| `logger` | `QbrixLogger` | silent | — |
+
+`timeout` and `maxRetries` are also overridable per call on `select()` and `feedback()` — see [Handling outages](/docs/handling-outages) for a hot-path budget that's tighter than the client-wide default.
+
+## Select
+
+```ts
+select(experimentId: string, context: Context, options?: SelectOptions): Promise<SelectResult>
+```
+
+```ts
+interface Context {
+  id: string;                          // required — a stable user/session identifier
+  properties?: Record<string, string | number | boolean>;  // named values, encoded server-side
+  vector?: number[];                   // pre-encoded escape hatch; see /docs/contexts
+  metadata?: Record<string, unknown>;  // optional arbitrary attributes
+}
+
+interface SelectOptions {
+  timeout?: number;     // overrides the client's default timeout for this call only
+  maxRetries?: number;  // overrides the client's default max retries for this call only
+  fallback?: Arm;       // arm to resolve locally if qbrix is unreachable — see Handling outages
+}
+
+interface SelectResult {
+  arm: { id: string; name: string; index: number };
+  requestId: string | null;  // null for a paused experiment or a resolved fallback
+  isDefault: boolean;        // true for a real gate decision, or for a resolved fallback
+  isFallback: boolean;       // true only when select() never reached the proxy
+}
+```
+
+Example:
+
+```ts
+const { arm, requestId, isDefault } = await qbrix.select("checkout-banner", {
+  id: "usr_8a1k2",
+  metadata: { country: "US", plan: "pro" },
+});
+
+showBanner(arm.name);
+```
+
+## Feedback
+
+```ts
+feedback(requestId: string | null, reward: number, options?: FeedbackOptions): Promise<void>
+```
+
+Report the outcome for a prior `select`. `requestId` is the value returned by that call; `reward` is the observed signal — for example `1.0` for a conversion and `0.0` for no action, or any numeric reward your experiment defines. A falsy `requestId` (a paused experiment or a resolved `fallback`) makes this a safe no-op — there's no server-minted token to report against, so call it unconditionally rather than guarding on `isFallback` yourself.
+
+```ts
+await qbrix.feedback(requestId, 1.0);
+```
+
+## Handling outages
+
+`select()` sits on your request path — give it a tight per-call `timeout` and a `fallback` arm so it always resolves instead of hanging or rejecting when qbrix is unreachable:
+
+```ts
+const result = await qbrix.select(
+  "homepage-cta",
+  { id: userId },
+  { timeout: 300, fallback: { id: "arm_control", name: "control", index: 0 } },
+);
+
+if (result.isFallback) {
+  // never reached the proxy — arm is your declared fallback, not a gate decision
+}
+
+// safe even for a fallback result: requestId is null, so this is a no-op
+await qbrix.feedback(result.requestId, 1.0);
+```
+
+`fallback` only kicks in for availability failures (timeout, connection error, 429, 5xx) — a 4xx caller error still throws even with `fallback` set. See [Handling outages](/docs/handling-outages) for the full contract, including `isFallback` vs `isDefault`.
+
+## Recommended pattern: server-side handler
+
+Your API key (`optiq_…`) is a secret. Anywhere the client runs, the key goes too — bundling it into browser code exposes it to every visitor. The recommended pattern is a thin server-side or edge handler that keeps the key in an environment variable and returns only what the browser needs:
+
+```ts
+// edge / route handler — runs on the server
+import { QbrixClient, QbrixAPIError } from "@optiqio/qbrix";
+
+const qbrix = new QbrixClient({ apiKey: process.env.QBRIX_API_KEY });
+
+export default async function handler(req: Request): Promise<Response> {
+  const { userId } = await req.json();
+  try {
+    const { arm, requestId } = await qbrix.select("homepage-cta", { id: userId });
+    // return only what the browser needs — never the api key
+    return Response.json({ arm, requestId });
+  } catch (err) {
+    if (err instanceof QbrixAPIError) {
+      return Response.json({ error: err.code ?? "qbrix_error" }, { status: err.status });
+    }
+    return Response.json({ error: "internal_error" }, { status: 500 });
+  }
+}
+```
+
+## Calling directly from the browser
+
+`select` and `feedback` accept requests from any origin, so the SDK works in client-side code without a proxying handler. The management endpoints — pools, experiments, gates — do not: they are restricted to the console's own origin, and a browser call to them fails preflight by design.
+
+```ts
+// runs in the browser — the key ships with your bundle
+const qbrix = new QbrixClient({
+  apiKey: "optiq_...",
+  baseUrl: "https://cloud.qbrix.io",
+});
+
+const { arm, requestId } = await qbrix.select("homepage-cta", { id: userId });
+```
+
+Understand what this costs before choosing it. A key in a browser bundle is readable by every visitor and usable from anywhere — CORS restricts which *pages* may read a response, never who may send a request. A key lifted from your bundle can be replayed from anywhere, and the selections it drives count against your plan's usage.
+
+That trade-off is reasonable for internal tools, prototypes, and low-stakes surfaces. For anything else, prefer the server-side handler above: it keeps the key in an environment variable and costs you one network hop.
+
+## React usage
+
+There is no React-specific package — `QbrixClient` runs anywhere, so a few lines of React are all you need. Keep the client (and your API key) on the server behind a route like the handler above, then have your component call that route:
+
+```tsx
+import { useEffect, useState } from "react";
+
+export function HomepageCta({ userId }: { userId: string }) {
+  const [arm, setArm] = useState<{ name: string } | null>(null);
+  const [requestId, setRequestId] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/select", { method: "POST", body: JSON.stringify({ userId }) })
+      .then((res) => res.json())
+      .then(({ arm, requestId }) => {
+        setArm(arm);
+        setRequestId(requestId);
+      });
+  }, [userId]);
+
+  if (!arm) return null;
+
+  const report = () =>
+    requestId &&
+    fetch("/api/feedback", {
+      method: "POST",
+      body: JSON.stringify({ requestId, reward: 1.0 }),
+    });
+
+  return <button onClick={report}>{arm.name}</button>;
+}
+```
+
+`/api/select` is the server handler from the previous section; add a matching `/api/feedback` route that calls `qbrix.feedback(requestId, reward)`. The API key never reaches the browser.
+
+## Error handling
+
+Every failure throws a typed error from the `QbrixError` hierarchy. Catch the ones you care about with `instanceof`:
+
+```ts
+import {
+  QbrixAPIError,
+  RateLimitedError,
+  AuthenticationError,
+  QbrixTimeoutError,
+} from "@optiqio/qbrix";
+
+try {
+  const { arm, requestId } = await qbrix.select("homepage-cta", { id: "user-42" });
+} catch (err) {
+  if (err instanceof RateLimitedError) {
+    console.warn(`rate limited; retry after ${err.retryAfter}s`);
+  } else if (err instanceof AuthenticationError) {
+    throw new Error("check your QBRIX_API_KEY");
+  } else if (err instanceof QbrixTimeoutError) {
+    // request exceeded the configured timeout
+  } else if (err instanceof QbrixAPIError) {
+    console.error(`qbrix ${err.status} ${err.code}: ${err.detail}`);
+  }
+  throw err;
+}
+```
+
+### Error hierarchy
+
+| Class | When thrown |
+|-------|-------------|
+| `QbrixAPIError` | Non-2xx response from the proxy. Subclasses: `BadRequestError` (400), `AuthenticationError` (401), `ForbiddenError` (403), `NotFoundError` (404), `ConflictError` (409), `RateLimitedError` (429), `InternalServerError` (500), `BadGatewayError` (502), `ServiceUnavailableError` (503), `GatewayTimeoutError` (504) |
+| `RateLimitedError` | HTTP 429. Adds `retryAfter` (seconds) |
+| `QbrixConnectionError` | Network failure — request never completed |
+| `QbrixTimeoutError` | Request exceeded `timeout` |
+
+All classes extend `QbrixError`. `select({ fallback })` only resolves locally for the availability-class subset of these — see [Handling outages](/docs/handling-outages).

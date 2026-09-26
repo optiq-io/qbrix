@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+jobs:
+  test:
+    uses: ./.github/workflows/_test.yml
+
+  # the console ships one build for both editions, so what needs proving is the
+  # import boundary rather than a second build.
+  web:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+        with:
+          package_json_file: web/package.json
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+
+      - name: Check the console edition boundary
+        working-directory: web
+        run: pnpm --filter @qbrix/console check-boundary
+
+      - name: Type-check the console
+        working-directory: web
+        run: pnpm --filter @qbrix/console type-check
+
+      - name: Build the console
+        working-directory: web
+        run: pnpm --filter @qbrix/console build
+
+      - name: Check the docs
+        working-directory: web
+        run: pnpm check-docs
+
+  # the chart renders under a release name other than `qbrix` and every host and
+  # secret it references resolves inside that render. unfiltered on purpose: it
+  # takes seconds, and a path-gated check is one a chart-only PR can skip.
+  helm:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3.2.4
+        with:
+          version: "0.4.x"
+
+      - name: Lint, render and check the chart
+        run: bin/check-chart
+
+  # only on release-please's branch: see bin/check-release-pr
+  release-pr:
+    if: startsWith(github.head_ref, 'release-please--')
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - name: Check the release pr changes only notes and versions
+        run: bin/check-release-pr origin/${{ github.base_ref }}

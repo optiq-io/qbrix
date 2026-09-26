@@ -1,0 +1,352 @@
+---
+title: Checkout & CTA conversion
+description: Optimize which checkout or call-to-action variant each visitor sees, on a binary purchase reward — the canonical qbrix loop, end to end.
+order: 41
+---
+
+# Checkout & CTA conversion
+
+You have three versions of a checkout button — different copy, different urgency, different social proof — and no idea which converts best. A fixed-split A/B test sends a third of your traffic to the worst one for as long as the test runs. qbrix shifts traffic toward whatever is winning while it is still learning, and keeps enough exploration to notice if that changes.
+
+This is the simplest shape qbrix has: a small set of variants, one binary outcome, and no per-visitor features. Read this one first — the other recipes assume it.
+
+## Where this fits
+
+Checkout is the surface adaptive optimization suits best. The decision repeats on every session, the outcome is unambiguous — purchased or didn't — and it resolves within minutes of the decision being made.
+
+**Volume is what turns a difference into a conclusion.** Separating a 10% relative lift from noise on a 3% baseline takes on the order of 50,000 selections per arm, so a three-variant test becomes trustworthy somewhere around 150,000 decisions. qbrix starts shifting traffic toward the leader long before that, so you capture value from the first thousand — just treat the *ranking* as settled only once the volume is there. The free tier's 100,000 monthly selections is sized at roughly one experiment for exactly this reason.
+
+Below that volume you still come out ahead: an adaptive split gives less traffic to the weaker variants than a fixed 33/33/33 does at any sample size. You simply hold off on declaring a winner.
+
+**If you need a fixed split, you can have one.** Some decisions call for an even, unchanging comparison — a compliance sign-off, or a result you will need to defend months later. Adaptive allocation improves an outcome rather than measuring it: moving traffic to the leader is the whole point, which makes it the wrong instrument for a controlled readout. Run those on a [feature gate](/docs/feature-gates) at a fixed rollout, and keep qbrix for the decisions where you would rather the number went up than be precisely documented.
+
+## The modelling decisions
+
+| Decision | This recipe |
+|---|---|
+| **Arm** | One checkout variant. Three of them, control included. |
+| **Reward** | `1.0` if the session ended in a purchase, `0.0` if it did not. |
+| **Reward type** | `binary` |
+| **Context** | A stable visitor id. No properties — every visitor is answered from the same global belief. |
+
+### What a context has to contain
+
+Every `select` call carries a context object, and its `id` is required. The other two fields are optional and independent of each other:
+
+| Field | Required | Who reads it |
+|---|---|---|
+| `id` | Yes | Feature gates, for deterministic bucketing — the same visitor always lands on the same side of a rollout |
+| `properties` | Only for contextual experiments | The policy. Named values matching the experiment's declared schema |
+| `metadata` | No | Feature gate rules only. The policy never sees it |
+
+This recipe is the **non-contextual** shape — an id and nothing else:
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+context = {"id": "user-42"}
+
+# with gate targeting, still non-contextual:
+context = {"id": "user-42", "metadata": {"country": "DE", "plan": "pro"}}
+```
+</CodeTab>
+<CodeTab label="typescript">
+```typescript
+const context = { id: "user-42" };
+
+// with gate targeting, still non-contextual:
+const context = { id: "user-42", metadata: { country: "DE", plan: "pro" } };
+```
+</CodeTab>
+</CodeTabs>
+
+The **contextual** shape adds `properties`, which is what lets a policy give different visitors different answers. That is a different modelling decision with its own trade-offs — see [Contexts](/docs/contexts) for how to design one, and [LLM model & prompt routing](/docs/llm-routing) for a recipe that uses one.
+
+<Callout type="tip">
+Starting non-contextual is the right instinct. It needs no feature pipeline, converges on less data, and proves your feedback loop works. Add context once you have evidence that different visitors want different things.
+</Callout>
+
+<Callout type="warning">
+**Decide your variant set now.** A pool's arms are fixed at creation. There is no endpoint to add a fourth variant later, and that is deliberate — introducing an arm mid-flight invalidates everything the learner has concluded about the others. If there is any chance you will want a fourth variant, create it now and leave it in.
+</Callout>
+
+## Set up the experiment
+
+Setup is a one-time act, so do it from a script or the [console](https://cloud.qbrix.io) — not from your request path. The TypeScript SDK covers selection and feedback only; use Python, `curl`, or the console for pools and experiments.
+
+<Steps>
+
+## Create the pool
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+import qbrix
+
+client = qbrix.Qbrix()  # reads QBRIX_API_KEY / QBRIX_BASE_URL
+
+pool = client.pool.create(
+    name="checkout-cta",
+    arms=[
+        {"name": "control", "metadata": {"copy": "Complete purchase"}},
+        {"name": "urgency", "metadata": {"copy": "Complete purchase — 2 left"}},
+        {"name": "social-proof", "metadata": {"copy": "Join 12,000 buyers"}},
+    ],
+)
+
+print(pool.id)
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl -s -X POST $QBRIX_URL/api/v1/pools \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "checkout-cta",
+    "arms": [
+      {"name": "control", "metadata": {"copy": "Complete purchase"}},
+      {"name": "urgency", "metadata": {"copy": "Complete purchase — 2 left"}},
+      {"name": "social-proof", "metadata": {"copy": "Join 12,000 buyers"}}
+    ]
+  }' | jq .
+```
+</CodeTab>
+</CodeTabs>
+
+The `metadata` here is documentation for you and for the console. It is **not** returned when you select — see [Map the arm name to behaviour](#map-the-arm-name-to-behaviour) below.
+
+## Create the experiment
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+experiment = client.experiment.create(
+    name="checkout-cta-q3",
+    pool_id=pool.id,
+    policy="auto",
+    policy_params={"reward_type": "binary"},
+)
+
+print(experiment.id)
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl -s -X POST $QBRIX_URL/api/v1/experiments \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "checkout-cta-q3",
+    "pool_id": "'"$POOL_ID"'",
+    "policy": "auto",
+    "policy_params": {"reward_type": "binary"}
+  }' | jq .
+```
+</CodeTab>
+</CodeTabs>
+
+`auto` is the right default here and almost everywhere: it runs a portfolio of learners and routes traffic toward whichever is doing best on your data, so you are not betting the experiment on an algorithm choice made before you had any data. If you already know your conversion rate is stationary and want a single well-understood learner, `"BetaTSPolicy"` is the classical choice for binary rewards — see [Policies](/docs/policies).
+
+## Limit the blast radius
+
+Optional, and worth doing on a checkout. A [gate](/docs/feature-gates) at 20% lets you watch the loop on real traffic before committing the whole funnel to it:
+
+```python
+client.gate.create(
+    experiment.id,
+    enabled=True,
+    rollout_percentage=20.0,
+    default_arm_id=pool.arms[0].id,
+)
+```
+
+Visitors outside the rollout are served `default_arm_id` — your control — and the response comes back with `is_default: true`. They still receive a `request_id`, so feedback is accepted and credited normally; `is_default` is how you tell gate-served traffic from learner-served traffic in your own analytics. Raise `rollout_percentage` to `100.0` when you are satisfied.
+
+</Steps>
+
+## Map the arm name to behaviour
+
+This is the part every integration needs and the part people get wrong.
+
+A selection response is deliberately minimal:
+
+```json
+{
+  "arm": {"id": "arm_7f3a…", "name": "social-proof", "index": 2},
+  "request_id": "req_abc123",
+  "is_default": false
+}
+```
+
+**There is no `metadata` on the selected arm.** Selection is the hot path — it runs on every render — and echoing an arbitrary user-defined metadata blob on every response would grow the payload without bound. The arm's `name` is the contract. Map it to behaviour on your side:
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+CTA_COPY = {
+    "control": "Complete purchase",
+    "urgency": "Complete purchase — 2 left",
+    "social-proof": "Join 12,000 buyers",
+}
+```
+</CodeTab>
+<CodeTab label="typescript">
+```typescript
+const CTA_COPY: Record<string, string> = {
+  control: "Complete purchase",
+  urgency: "Complete purchase — 2 left",
+  "social-proof": "Join 12,000 buyers",
+};
+```
+</CodeTab>
+</CodeTabs>
+
+If you would rather the copy live in qbrix than in your codebase, read the pool once at boot and build the map from it — `client.pool.get(pool_id)` **does** return each arm's metadata. Just don't do it per request.
+
+<Callout type="tip">
+Because the map is keyed on the name, always handle an unknown key by falling back to control. That is what protects you the day someone renames an arm in the console.
+</Callout>
+
+## Select on the request path
+
+The API key is a secret and travels wherever the client runs, so selection happens on your server. The browser asks your handler; your handler asks qbrix.
+
+<Flow caption="The key never leaves your server. The browser receives a variant name and a request id — nothing else.">
+<Step label="Browser" detail="POST /api/cta { userId }" />
+<Step label="Your route handler" detail="holds QBRIX_API_KEY" />
+<Step label="qbrix select" detail="returns arm + request_id" owned />
+<Step label="Rendered CTA" detail="copy + request id to the client" />
+</Flow>
+
+<CodeTabs>
+<CodeTab label="typescript">
+```typescript
+import { QbrixClient } from "@optiqio/qbrix";
+
+const qbrix = new QbrixClient({ apiKey: process.env.QBRIX_API_KEY });
+
+export default async function handler(req: Request): Promise<Response> {
+  const { userId } = (await req.json()) as { userId: string };
+
+  const { arm, requestId } = await qbrix.select(EXPERIMENT_ID, { id: userId });
+
+  return Response.json({
+    copy: CTA_COPY[arm.name] ?? CTA_COPY.control,
+    requestId,
+  });
+}
+```
+</CodeTab>
+<CodeTab label="python">
+```python
+result = client.agent.select(
+    experiment_id=EXPERIMENT_ID,
+    context={"id": user_id},
+)
+
+copy = CTA_COPY.get(result.arm.name, CTA_COPY["control"])
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl -s -X POST $QBRIX_URL/api/v1/agent/select \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "experiment_id": "'"$EXP_ID"'",
+    "context": {"id": "user-42"}
+  }' | jq .
+```
+</CodeTab>
+</CodeTabs>
+
+The `context.id` should be stable for a visitor — a user id, or a first-party cookie for anonymous traffic. It is what a [gate](/docs/feature-gates) buckets on, so a visitor who is inside the 20% rollout on one page load stays inside it on the next.
+
+## Close the loop
+
+You need the `request_id` at the moment the purchase completes, which is a different request from the one that rendered the button — often minutes later. Store it with the session or the cart.
+
+<CodeTabs>
+<CodeTab label="typescript">
+```typescript
+// on the order-completed webhook or handler
+await qbrix.feedback(session.qbrixRequestId, 1.0);
+```
+</CodeTab>
+<CodeTab label="python">
+```python
+client.agent.feedback(request_id=session["qbrix_request_id"], reward=1.0)
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl -s -X POST $QBRIX_URL/api/v1/agent/feedback \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"request_id": "req_abc123", "reward": 1.0}'
+```
+</CodeTab>
+</CodeTabs>
+
+### Handle a missing request id
+
+`request_id` is `null` when the experiment is paused — the proxy serves the default arm and mints no feedback token. Selection still succeeds, so code that assumes a string will fail at feedback time, in production, on the day someone pauses an experiment in the console.
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+result = client.agent.select(experiment_id=EXPERIMENT_ID, context={"id": user_id})
+
+copy = CTA_COPY.get(result.arm.name, CTA_COPY["control"])
+
+if result.request_id is not None:
+    session["qbrix_request_id"] = result.request_id
+```
+</CodeTab>
+<CodeTab label="typescript">
+```typescript
+const { arm, requestId } = await qbrix.select(EXPERIMENT_ID, { id: userId });
+
+if (requestId) {
+  session.qbrixRequestId = requestId;
+}
+```
+</CodeTab>
+</CodeTabs>
+
+### What about sessions that never convert?
+
+Most of them won't, and that is signal, not noise — a variant with no purchases needs to be learned as bad. Send `0.0` when the session ends without a purchase, on whatever boundary you already have: a cart-abandonment job, a session timeout, a nightly sweep.
+
+If you send nothing, the learner sees only successes and concludes every arm converts at 100%. It will still rank them roughly correctly, because the arm shown more often accumulates more successes — but the numbers in the console will be meaningless and drift correction gets much slower.
+
+## What you should see
+
+Two things move on different clocks, and knowing which is which will save you an afternoon.
+
+**Beliefs update continuously.** Every reward you send is consumed and folded into what the learner knows, within seconds. In the [console](/docs/console-experiments) you can watch each variant's observed rate and confidence separate as feedback arrives.
+
+**Served allocation follows a little later.** Selection reads *cached* parameters — that is what keeps it fast enough to sit in your render path — so a change in beliefs reaches the traffic split when that cache next refreshes, on the order of minutes rather than instantly.
+
+<BurstTestNote />
+
+The measurement above is exactly the setup this page configures, so you can reproduce it directly.
+
+Stop when the ranking has been stable across enough traffic to trust, then decide what you want. You can leave the experiment running — traffic stays mostly on the winner, and drift is handled for you — or take the result and hardcode it.
+
+## Four things to get right
+
+**Fix the variant set at the start.** Arms are decided when the pool is created, so spend the extra ten minutes now and include the fourth idea you are unsure about. It costs nothing to carry an arm that turns out to be mediocre; the learner will simply stop showing it.
+
+**Set policy parameters at creation.** They are read when the learner initializes, so editing `policy_params` on a running experiment has no effect until beliefs are reset. If you want to change them, reset the experiment or start a new one — both are one call.
+
+**One experiment per surface.** If two experiments both change the checkout button, each will attribute the other's effect to its own arms. Give every experiment a surface of its own and the attribution stays clean.
+
+**Keep the reward about this decision.** Feed back the outcome the variant could plausibly have caused — this session's purchase, not the account's lifetime revenue and not a conversion that happened somewhere else. A tight reward is what makes the learning fast.
+
+## Next
+
+- [Contexts](/docs/contexts) — context schemas, and when to add one
+- [LLM model & prompt routing](/docs/llm-routing) — the contextual version of this loop, with a reward you construct
+- [Feedback & rewards](/docs/feedback-and-rewards) — reward types in depth

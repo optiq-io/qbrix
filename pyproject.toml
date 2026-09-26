@@ -1,0 +1,85 @@
+[project]
+name = "qbrixio"
+version = "0.1.0"  # x-release-please-version
+description = "qbrix distributed multi-armed bandit system"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "motorsvc",
+    "cortexsvc",
+    "proxysvc[ee,resend]",
+    "tracesvc",
+]
+
+[tool.uv.workspace]
+members = ["svc/*", "ee/svc/*"]
+
+[tool.uv.sources]
+cortexsvc = { workspace = true }
+proxysvc = { workspace = true }
+motorsvc = { workspace = true }
+tracesvc = { workspace = true }
+qbrixcore = { path = "../../lib/core", editable = true }
+qbrixlog = { path = "../../lib/log", editable = true }
+qbrixproto = { path = "../../lib/proto", editable = true }
+qbrixruntime = { path = "../../lib/runtime", editable = true }
+qbrixstore = { path = "../../lib/store", editable = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+    "pytest-cov>=6.0.0",
+    "pre-commit>=4.0.1",
+    "black>=26.1.0",
+    "pytest-mock>=3.14.1",
+    "mypy-protobuf>=5.0.0",
+    "locust>=2.43.1",
+    "aiosqlite>=0.22.1",
+    "pytest-asyncio>=1.3.0",
+    "fakeredis>=2.26.0",
+    "httpx>=0.27.0",
+]
+
+[tool.black]
+# generated protobuf stubs are machine-generated; do not format or lint them.
+# force-exclude (not extend-exclude) so they're skipped even when passed
+# explicitly, e.g. by the pre-commit hook.
+force-exclude = '/lib/proto/qbrixproto/.*_pb2.*\.pyi?$'
+
+[tool.coverage.run]
+omit = [
+    "**/cli.py",
+]
+
+[tool.pytest.ini_options]
+testpaths = [
+    "lib/core/tests",
+    "lib/log/tests",
+    "lib/runtime/tests",
+    "lib/store/tests",
+    "svc/motor/tests",
+    "svc/cortex/tests",
+    "svc/proxy/tests",
+    "svc/trace/tests",
+    "ee/svc/meter/tests",
+]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = [
+    "--import-mode=importlib",
+    "--strict-markers",
+    "--strict-config",
+]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Slow running tests",
+    "performance: Performance tests",
+]
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"

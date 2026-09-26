@@ -1,0 +1,60 @@
+[project]
+name = "cortexsvc"
+version = "0.1.0"  # x-release-please-version
+description = ""
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.3.1",
+    "grpcio>=1.76.0",
+    "grpcio-reflection>=1.76.0",
+    "pydantic>=2.12.3",
+    "pydantic-settings>=2.12.0",
+    "qbrixcore",
+    "qbrixstore",
+    "qbrixproto",
+    "qbrixlog",
+    "qbrixruntime",
+    "grpcio-health-checking>=1.76.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+    "pytest-cov>=6.0.0",
+    "pre-commit>=4.0.1",
+    "black>=26.1.0",
+    "pytest-mock>=3.14.1",
+]
+
+[tool.uv.sources]
+qbrixcore = { path = "../../lib/core", editable = true }
+qbrixstore = { path = "../../lib/store", editable = true }
+qbrixproto = { path = "../../lib/proto", editable = true }
+qbrixlog = { path = "../../lib/log", editable = true }
+qbrixruntime = { path = "../../lib/runtime", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--import-mode=importlib",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=cortexsvc",
+    "--cov-report=term-missing",
+]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Slow running tests",
+]
+
+[project.scripts]
+server = "cortexsvc.cli:run"
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"

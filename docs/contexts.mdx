@@ -1,0 +1,370 @@
+---
+title: Contexts
+description: Describe a request with named properties and let qbrix encode them, so contextual policies can personalize selection.
+order: 7
+---
+
+# Contexts
+
+Contexts let you pass per-request information to qbrix so that **contextual policies** (LinUCB, LinTS) can personalize selections. Instead of finding a single best arm for everyone, contextual policies learn which arm works best for each type of request.
+
+You describe a request by **naming what you know about it** — `device`, `country`, `cart_value` — against a schema you declare once when you create the experiment. qbrix turns those names into the numeric vector the policy needs. You never build that vector yourself.
+
+## When to use contexts
+
+| Scenario | Without Context | With Context |
+|----------|----------------|-------------|
+| Homepage hero | Same best image for all users | Different image by user segment |
+| Pricing page | One price for everyone | Personalized pricing by geography/behavior |
+| Recommendations | Global best item | Per-user recommendations |
+| Ad placement | Same ad for all | Targeted ads by user features |
+
+Use contexts when different users (or different situations) should see different variants. If you just want to find the single best variant overall, stochastic policies without context are simpler and sufficient.
+
+## Context object
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | Yes | Identifies the request source (e.g., user ID, session ID). Used by feature gates for deterministic rollout. |
+| `properties` | object | For contextual policies | Named values encoded server-side against the experiment's declared schema. |
+| `metadata` | object | No | Arbitrary key-value pairs. Used by feature gate rules for targeting. Never seen by the policy. |
+| `vector` | float[] | No | Pre-encoded feature vector. The escape hatch for callers who already hold their own embeddings — see [When the raw vector is the right choice](#when-the-raw-vector-is-the-right-choice). |
+
+`properties` and `vector` are two ways to say the same thing, and sending both is an error. Pick one per experiment.
+
+## Declaring a context schema
+
+The schema is a list of properties. Each one declares a name, a type, and whatever that type needs to encode a value.
+
+| Type | Declares | Width | Encoding |
+|------|----------|-------|----------|
+| `categorical` | `values` — the values you expect | `len(values) + 1` | One-hot, plus a trailing `other` slot |
+| `numeric` | `min` and `max` | 1 | Min-max normalized into `[0, 1]`, clamped to the range |
+| `boolean` | nothing | 1 | `1.0` or `0.0` |
+
+### Step 1: create an experiment with a schema
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+CONTEXT_SCHEMA = [
+    {"type": "categorical", "name": "device", "values": ["mobile", "desktop"]},
+    {"type": "categorical", "name": "country", "values": ["US", "DE", "TR"]},
+    {"type": "numeric", "name": "cart_value", "min": 0, "max": 500},
+    {"type": "boolean", "name": "returning"},
+]
+
+experiment = client.experiment.create(
+    name="checkout-personalization",
+    pool_id=pool.id,
+    policy="LinUCBPolicy",
+    policy_params={"alpha": 1.5, "context_schema": CONTEXT_SCHEMA},
+)
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl -X POST $QBRIX_URL/api/v1/experiments \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "checkout-personalization",
+    "pool_id": "<pool-id>",
+    "policy": "LinUCBPolicy",
+    "policy_params": {
+      "alpha": 1.5,
+      "context_schema": [
+        {"type": "categorical", "name": "device", "values": ["mobile", "desktop"]},
+        {"type": "categorical", "name": "country", "values": ["US", "DE", "TR"]},
+        {"type": "numeric", "name": "cart_value", "min": 0, "max": 500},
+        {"type": "boolean", "name": "returning"}
+      ]
+    }
+  }'
+```
+</CodeTab>
+</CodeTabs>
+
+### Step 2: send named values on each selection
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+from qbrix import Context
+
+result = client.agent.select(
+    experiment_id=experiment.id,
+    context=Context(
+        id="user-42",
+        properties={
+            "device": "mobile",
+            "country": "US",
+            "cart_value": 62.5,
+            "returning": False,
+        },
+        metadata={"plan": "pro"},
+    ),
+)
+```
+</CodeTab>
+<CodeTab label="typescript">
+```typescript
+const { arm, requestId } = await qbrix.select(EXPERIMENT_ID, {
+  id: userId,
+  properties: {
+    device: "mobile",
+    country: "US",
+    cartValue: 62.5,
+    returning: false,
+  },
+});
+```
+</CodeTab>
+<CodeTab label="bash">
+```bash
+curl -X POST $QBRIX_URL/api/v1/agent/select \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "experiment_id": "<experiment-id>",
+    "context": {
+      "id": "user-42",
+      "properties": {
+        "device": "mobile",
+        "country": "US",
+        "cart_value": 62.5,
+        "returning": false
+      }
+    }
+  }'
+```
+</CodeTab>
+</CodeTabs>
+
+## Width is derived, never supplied
+
+The width of the vector — `dim` — is computed from the schema and stored on the experiment. **You must not send it yourself.** Sending `context_schema` and `dim` together is a `400`: two sources for one number is how a contextual experiment silently starts training on the wrong shape.
+
+The schema above derives a width of **11**:
+
+| | Width |
+|---|---|
+| reserved baseline slot | 1 |
+| `device` — 2 values + `other` | 3 |
+| `country` — 3 values + `other` | 4 |
+| `cart_value` | 1 |
+| `returning` | 1 |
+| **total** | **11** |
+
+### The reserved baseline slot
+
+Every schema carries one slot you do not declare and cannot override. Contextual policies fit `θₐᵀx` with no bias term, so without it an all-zero encoding predicts exactly `0` for every variant however much each has learned, and selection falls through to the exploration term alone.
+
+It is why a schema whose properties sum to 10 reports a width of 11. Nothing is wrong.
+
+### The `other` slot
+
+Every categorical carries a trailing slot for values the schema never declared. A `country` of `"JP"` against the schema above is scored as `other` rather than rejected.
+
+This is deliberate, and it is the reason qbrix uses a declared schema rather than feature hashing: **your traffic is allowed to surprise you without invalidating anything.** A new device type appearing in production does not change the width, does not break selection, and does not throw away what the model has learned.
+
+### Keep the width small
+
+Width is capped at **64**. LinUCB and LinTS invert a `dim × dim` matrix per arm on every selection, so width is paid on the hot path of every request, forever.
+
+A high-cardinality property is where this bites: `country` with 190 values is 191 slots on its own. Bucket it — continent, or your top five markets plus `other` — and you keep most of the signal for a fraction of the width. The console's schema builder shows the running total as you add properties.
+
+## What the encoder accepts
+
+The type rules are strict in one direction and forgiving in the other, deliberately.
+
+| You send | Declared as | Result |
+|---|---|---|
+| `"mobile"` | categorical | ok |
+| `3` | categorical | ok, encoded as `"3"` — JSON callers legitimately send category codes as numbers |
+| `true` | categorical | ok, encoded as `"true"` |
+| `3.0` | categorical | **400** — `"3.0"` and `"3"` are not obviously the same category |
+| `20` or `20.5` | numeric | ok |
+| `"20"` | numeric | **400** — a caller bug, not a JSON artifact |
+| `600` where max is `500` | numeric | clamped to `500`, not rejected |
+| a value a categorical never declared | categorical | encoded into the `other` slot |
+| a property you declared but omitted | — | takes its default segment |
+| **a name the schema never declared** | — | **400** |
+
+<Callout type="warning">
+That last row is the one worth internalising. `{"devise": "mobile"}` — one transposed letter — is rejected with **400 `INVALID_CONTEXT_PROPERTIES`**, naming the undeclared property and listing the ones the schema does declare.
+
+It is strict because the alternative is worse: a typo would otherwise encode to defaults on every request, the model would train against a constant vector, and nothing anywhere would tell you. By the time allocation looked flat, the training data would already be spoiled.
+</Callout>
+
+### Omitting properties is fine
+
+A schema-backed experiment that receives no properties at all serves the **default vector** — every categorical at `other`, every numeric at its declared midpoint, every boolean false. That is a real point in feature space, so it selects and trains normally rather than failing.
+
+## Declare ranges at your actual operating range
+
+For numeric properties, declare `min` and `max` where your traffic actually sits, not where it theoretically could.
+
+A `cart_value` declared `0–500` whose real traffic sits between 10 and 30 compresses all of the signal into 4% of the range, and the policy has almost nothing to separate. Declaring `10–30` and letting the clamp absorb the tail is strictly better and costs nothing — outliers are clamped, not rejected.
+
+## The schema is fixed at creation
+
+Like a pool's arms and an experiment's policy, the schema is bound for the life of the experiment. The learned parameters have its width baked into their shape, so changing it would invalidate everything trained so far.
+
+Changing it on `PATCH` returns **409 `CONTEXT_SCHEMA_IMMUTABLE`**. So does *omitting* it — `policy_params` is replaced wholesale, so silence would drop the schema.
+
+To tune another parameter, resend the schema unchanged alongside it:
+
+```python
+client.experiment.update(
+    experiment.id,
+    policy_params={
+        "alpha": 2.5,
+        "context_schema": experiment.policy_params["context_schema"],
+    },
+)
+```
+
+To change the shape, create a new experiment.
+
+<Callout type="tip">
+The stored schema is **canonical, not verbatim**. A `min` you sent as `0` comes back as `0.0`. The API has not mangled your input — it normalized it so that a later comparison is not defeated by JSON number typing.
+</Callout>
+
+## Context ID
+
+The `id` field identifies the request source. Every selection carries one, and it drives:
+
+- **Feature gates**: Rollout percentage uses a hash of the context ID for deterministic assignment. The same user always gets the same gate decision.
+- **Debugging**: Trace which user saw which arm.
+- **Deduplication**: Identify repeated requests from the same source.
+
+```python
+# use a stable user identifier
+context = Context(id="user-42")
+
+# or a session ID if users aren't authenticated
+context = Context(id="session-abc123")
+```
+
+## Context metadata
+
+Metadata is a free-form JSON object for feature gate targeting. It is **not** used by the policy — only by the rules engine.
+
+This is the distinction that costs people the most time. Both `properties` and `metadata` live on the context object and they go to different places:
+
+| Field | Who reads it |
+|---|---|
+| `properties` | **The policy.** This is what the model learns on. |
+| `metadata` | **Feature gate rules only.** The policy never sees it. |
+
+Putting `{"device": "mobile"}` in `metadata` and expecting the model to personalize on it does nothing. It has to be a declared property.
+
+```python
+context = Context(
+    id="user-42",
+    properties={"device": "mobile", "country": "US"},
+    metadata={"plan": "pro"},
+)
+```
+
+Feature gate rules can then target based on the metadata fields:
+
+```json
+{
+  "key": "plan",
+  "operator": "in",
+  "value": ["pro", "enterprise"],
+  "arm_id": "<arm-id>"
+}
+```
+
+See [Feature gates](/docs/feature-gates) for the full targeting operator reference.
+
+## When the raw vector is the right choice
+
+`vector` is not legacy and it is not deprecated. It is the specialist path, permanently supported, and for some inputs it is the only correct answer.
+
+### Use `properties` when
+
+Your features are things you can **name and enumerate**: device type, country, plan, price, tenure bucket, whether someone is a returning visitor. This is almost everything, and it is what the console, the SDKs and the schema are built around.
+
+### Use `vector` when
+
+| Case | Why properties cannot serve it |
+|---|---|
+| You already hold a **learned embedding** — a sentence-transformer output, a user or item embedding from your own model | The values are not nameable scalars. There is no schema that describes 384 anonymous dimensions, and one-hot/normalize is the wrong operation for them |
+| The feature is a **derived quantity you compute** — a similarity score, a model prediction, a PCA component, an RFM score | You could declare it numeric, and often should. Reach for `vector` when you have several and re-declaring each adds nothing |
+| You are **migrating an existing contextual experiment** and need the encoding to stay byte-identical | Any schema-derived encoding would differ from what the learned parameters were fitted on |
+
+### What you give up
+
+Choosing `vector` means qbrix stops doing these things for you:
+
+- **No `other` slot.** An unseen value has nowhere to go; handling it is yours.
+- **No reserved baseline slot.** If you want an intercept, include a constant yourself.
+- **No clamping, no normalization, no defaults.** An absent vector is a `400`, not a fallback.
+- **Slot ordering is yours to keep stable, forever, across every call site.** Position 0 must mean the same thing on every call, in every service, indefinitely. Reordering silently invalidates everything learned so far.
+
+That last one is the honest cost, and it is the failure that motivated declared schemas in the first place.
+
+### Using a vector
+
+Create the experiment with `dim` instead of a schema, and send `vector` instead of `properties`:
+
+```python
+experiment = client.experiment.create(
+    name="embedding-personalized",
+    pool_id=pool.id,
+    policy="LinUCBPolicy",
+    policy_params={"alpha": 1.5, "dim": 384},
+)
+
+result = client.agent.select(
+    experiment_id=experiment.id,
+    context=Context(id="user-42", vector=embedding),
+)
+```
+
+<Callout type="warning">
+The vector length must exactly match `dim`. Anything else is rejected with **400 `INVALID_CONTEXT_VECTOR`**, and the message names both widths: `context.vector has width 3, experiment expects 4`.
+
+Omitting `vector` on a `dim`-only experiment is treated as width 0 and rejected the same way. Without a schema there is no principled default, so the request fails rather than quietly selecting as if it were non-contextual. This differs from a schema-backed experiment, which *does* have a default — see [Omitting properties is fine](#omitting-properties-is-fine).
+
+Sending a vector to a non-contextual experiment stays valid; it is ignored.
+</Callout>
+
+## Using context with stochastic policies
+
+Stochastic policies (BetaTS, UCB1Tuned, etc.) **ignore** context features — they don't personalize per request. You can still pass `id` and `metadata` for feature gate functionality:
+
+```python
+# BetaTSPolicy ignores properties, but gates can use id + metadata
+result = client.agent.select(
+    experiment_id="<experiment-id>",
+    context={"id": "user-42", "metadata": {"country": "US"}},
+)
+```
+
+## Choosing between stochastic and contextual
+
+| Question | Stochastic | Contextual |
+|----------|-----------|-----------|
+| Do different user types prefer different variants? | No / Don't know | Yes |
+| Do you know something about the request at selection time? | No | Yes |
+| How many properties? | N/A | 3-6 is ideal |
+| Data volume? | Works with little data | Needs more data to learn per-context patterns |
+| Complexity? | Simple | Declare a schema once |
+
+<Callout type="tip">
+Start with a stochastic policy (BetaTSPolicy) to validate your setup. Once you confirm the feedback loop works, switch to a contextual policy to unlock personalization.
+</Callout>
+
+---
+
+## What's next
+
+- [Personalization by segment](/docs/personalization-by-segment) — the full recipe, end to end
+- [Policies](/docs/policies) — detailed reference for LinUCB, LinTS, and every policy
+- [Pools & experiments](/docs/pools-and-experiments) — the data model
+- [Feedback & rewards](/docs/feedback-and-rewards) — how the learning loop works

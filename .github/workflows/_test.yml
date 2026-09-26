@@ -1,0 +1,116 @@
+name: Test
+
+on:
+  workflow_call:
+
+jobs:
+  # both editions of the python suite. the matrix is the point: the two runs
+  # differ by one variable, so an oss failure is a boundary failure and nothing
+  # else. the oss run deletes the cloud plugin outright, which is stricter than
+  # switching it off — core that reaches into `ee` fails here rather than at a
+  # self-hoster's first install.
+  pytest:
+    name: pytest (${{ matrix.edition }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        edition: [cloud, oss]
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: qbrix
+          POSTGRES_PASSWORD: qbrix
+          POSTGRES_DB: qbrix
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PROXY_EE_ENABLED: ${{ matrix.edition == 'cloud' }}
+      PROXY_POSTGRES_HOST: localhost
+      PROXY_POSTGRES_PORT: 5432
+      PROXY_REDIS_HOST: localhost
+      PROXY_REDIS_PORT: 6379
+      MOTOR_REDIS_HOST: localhost
+      MOTOR_REDIS_PORT: 6379
+      CORTEX_REDIS_HOST: localhost
+      CORTEX_REDIS_PORT: 6379
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.10'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3.2.4
+        with:
+          version: "0.4.x"
+
+      - name: Delete the cloud plugin
+        if: matrix.edition == 'oss'
+        shell: bash
+        run: |
+          set -euo pipefail
+          while read -r path; do
+            if [ ! -e "$path" ]; then
+              echo "::error::$path is listed in bin/ee-paths.txt but does not exist"
+              exit 1
+            fi
+            rm -rf -- "$path"
+            echo "deleted $path"
+          done < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' bin/ee-paths.txt)
+
+      # not --frozen: the lock names metersvc, which the oss tree no longer has
+      - name: Install dependencies
+        run: |
+          uv sync --all-packages
+
+      - name: Run tests with coverage
+        if: matrix.edition == 'cloud'
+        run: |
+          uv run pytest \
+            --cov=qbrixcore \
+            --cov=qbrixlog \
+            --cov=qbrixruntime \
+            --cov=qbrixstore \
+            --cov=motorsvc \
+            --cov=cortexsvc \
+            --cov=proxysvc \
+            --cov=tracesvc \
+            --cov=metersvc \
+            --cov-report=xml \
+            --cov-report=term-missing
+
+      - name: Run tests
+        if: matrix.edition == 'oss'
+        run: |
+          uv run pytest
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4.6.0
+        if: always() && matrix.edition == 'cloud'
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella

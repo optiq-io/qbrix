@@ -1,0 +1,32 @@
+name: Docs
+
+# qbrix.io renders docs/ from this repo at build time, so a docs change on main
+# redeploys the site. push only, never pull_request: a fork must not reach the
+# app key.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+
+permissions: {}
+
+jobs:
+  redeploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Mint a dispatch token for qbrix-www
+        id: token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ vars.DOCS_BRIDGE_APP_ID }}
+          private-key: ${{ secrets.DOCS_BRIDGE_APP_PRIVATE_KEY }}
+          owner: optiq-io
+          repositories: qbrix-www
+          permission-actions: write
+
+      - name: Dispatch the site deploy
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+        run: gh workflow run deploy.yml --repo optiq-io/qbrix-www --ref main

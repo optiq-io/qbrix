@@ -1,0 +1,205 @@
+---
+title: Feature rollouts
+description: Roll a feature out to a slice of traffic and let qbrix find the best variant within it — plus an honest account of when a plain flag is the better tool.
+order: 46
+---
+
+# Feature rollouts
+
+You are shipping a new onboarding flow. You want it in front of 20% of new signups first, you want the old flow available for everyone else, and among the new variants you would rather not wait a fortnight to find out which works.
+
+That is two mechanisms doing two jobs. A [feature gate](/docs/feature-gates) decides **who is eligible**. The experiment decides **what the eligible ones see**. Confusing the two is the most common mistake on this recipe, so this page starts there.
+
+## Where this fits
+
+**Use it when the rollout and the choice are separate questions** — you are controlling exposure for safety reasons *and* you have more than one candidate implementation.
+
+**If you have exactly one new variant and you want it on for everyone eventually**, you do not need a bandit. You need a flag, and a gate on its own does that job perfectly.
+
+**If you need a clean before/after measurement**, this is the wrong tool and it is worth being blunt about it. See the section below.
+
+## The modelling decisions
+
+| Decision | This recipe |
+|---|---|
+| **Arm** | One implementation, **including the current one as `control`**. |
+| **Reward** | `1.0` if the user completed the flow, `0.0` if they dropped out. |
+| **Reward type** | `binary` |
+| **Context** | A stable user id. No properties. |
+
+Control belongs in the pool. Without it you learn which new variant is best among the new ones, with no evidence that any of them beats what you already ship.
+
+## How a gate actually decides
+
+This is the part the mental model usually gets wrong. A gate is not a funnel that admits people to an experiment. It is a series of checks, and **the first one that applies serves an arm directly** — the learner is only consulted if none of them do.
+
+<Flow caption="Evaluated in this order. The first check that applies wins, and the learner never sees that request.">
+<Step label="Gate enabled?" detail="if not — straight to the learner" />
+<Step label="In schedule?" detail="outside → default arm" />
+<Step label="In rollout %?" detail="outside → default arm" />
+<Step label="Rule match?" detail="first match → that rule's arm" />
+<Step label="Learner" detail="picks among all arms" owned />
+</Flow>
+
+Three consequences worth internalising:
+
+**A matching rule pins a variant — it does not admit anyone to the experiment.** A rule saying `country in ["DE"]` does not mean "German users are eligible". It means German users are served that rule's committed arm and are never handed to the learner at all.
+
+**Rules are only reached if you are already inside the schedule and the rollout.** They are the last check, not the first.
+
+**Disabling the gate does not disable the experiment.** With `enabled: false` there is no gating, so every request goes to the learner. If you want to stop serving variants, pause the experiment instead — that serves the control arm and mints no `request_id`.
+
+Everyone served by the gate rather than the learner comes back with `is_default: true`. They still receive a `request_id`, so their feedback is accepted normally — which is what you want, because your control arm is learning from them.
+
+## Set up the rollout
+
+<Steps>
+
+## Create the pool
+
+```python
+import qbrix
+
+client = qbrix.Qbrix()
+
+pool = client.pool.create(
+    name="onboarding-flow",
+    arms=[
+        {"name": "control", "metadata": {"version": "v1"}},
+        {"name": "streamlined", "metadata": {"version": "v2-short"}},
+        {"name": "guided", "metadata": {"version": "v2-guided"}},
+    ],
+)
+```
+
+## Create the experiment
+
+```python
+experiment = client.experiment.create(
+    name="onboarding-rollout",
+    pool_id=pool.id,
+    policy="auto",
+    policy_params={"reward_type": "binary"},
+)
+```
+
+`"UCB1TunedPolicy"` is the single-learner choice if you want an explicit, well-understood exploration schedule rather than a portfolio — see [Policies](/docs/policies).
+
+## Create the gate
+
+```python
+control_arm = next(a for a in pool.arms if a.name == "control")
+
+client.gate.create(
+    experiment.id,
+    enabled=True,
+    rollout_percentage=20.0,
+    default_arm_id=control_arm.id,
+)
+```
+
+Everyone outside the 20% is served `control`. Because bucketing is a hash of `context.id`, the same user lands on the same side on every request — no flicker between page loads.
+
+## Optionally, pin specific segments
+
+A rule keeps a segment on the current flow regardless of the experiment — the common "not on our biggest accounts yet" requirement:
+
+```python
+client.gate.update(
+    experiment.id,
+    rules=[
+        {
+            "key": "plan",
+            "operator": "eq",
+            "value": "enterprise",
+            "arm_id": control_arm.id,
+        },
+    ],
+)
+```
+
+The rollout and the default arm you just set are untouched — `update` writes only what you pass it.
+
+Rule keys are read from `context.metadata`, never from the policy's context properties. The full operator list is in [Feature gates](/docs/feature-gates).
+
+## Raise the rollout
+
+`update` writes the fields you pass and leaves the rest of the gate alone, so widening a rollout is one argument:
+
+```python
+client.gate.update(experiment.id, rollout_percentage=50.0)
+```
+
+The default arm, the rules and the schedule are all still there. Repeat this as confidence grows — 20%, 50%, 100% — and read the gate back with `gate.get(experiment.id)` whenever you want to confirm the whole picture.
+
+<Callout>
+To *clear* a field rather than leave it alone, pass it explicitly: `default_arm_id=None` removes the committed arm, and `rules=[]` removes every rule. Omitting an argument and passing `None` mean different things.
+</Callout>
+
+</Steps>
+
+## Select and report
+
+```python
+FLOWS = {"control": render_v1, "streamlined": render_v2_short, "guided": render_v2_guided}
+
+result = client.agent.select(
+    experiment_id=EXPERIMENT_ID,
+    context={
+        "id": user_id,
+        "metadata": {"plan": user.plan, "country": user.country},
+    },
+)
+
+flow = FLOWS.get(result.arm.name, render_v1)
+```
+
+`metadata` here feeds the gate rules. Every key a rule tests must be present on the request, or the rule cannot match.
+
+Closing the loop is the usual pattern — persist `request_id`, report completion, and report the drop-outs too:
+
+```python
+if result.request_id is not None:
+    session["qbrix_request_id"] = result.request_id
+
+# when onboarding completes, or when the session is abandoned
+client.agent.feedback(request_id=session["qbrix_request_id"], reward=1.0)
+```
+
+If you want to analyse gate-served traffic separately from learner-served traffic, `is_default` is the flag to record — it is the only thing distinguishing them.
+
+## When not to use a bandit
+
+Worth saying plainly, because the honest answer is sometimes "use a flag".
+
+**Adaptive allocation optimizes an outcome; it does not measure one.** It moves traffic to the leader by design, which is exactly what makes it the wrong instrument when the measurement *is* the deliverable:
+
+- **A compliance or regulatory change** where you need a defensible, even comparison months later.
+- **An infrastructure migration** — a new database, a new payment processor — where the question is "is it equivalent?", not "which is better?". A bandit that starves the new path of traffic is hiding the failure mode you were watching for.
+- **Anything with a legal or contractual before/after obligation.**
+
+For all of those, use a gate at a fixed rollout percentage and no experiment. You get controlled exposure, sticky bucketing and a clean split — which is the whole job.
+
+Use a bandit when you would rather the number went up than be precisely documented. That is a real and common preference, but it is a choice, and it should be made on purpose.
+
+## What you should see
+
+Within the rolled-out slice, allocation shifts toward the better variant while control keeps enough traffic to remain a live comparison. Outside the slice, everyone continues to see control.
+
+<BurstTestNote />
+
+## Four things to get right
+
+**Include control as an arm.** Said above; it is the one that decides whether the experiment can answer your actual question.
+
+**Give the gate a `default_arm_id`.** It is what everyone outside the rollout is served, and control is almost always the right choice.
+
+**Remember rules pin rather than admit.** If a rule matches, that user never reaches the learner — so a broad rule can quietly shrink your experiment to a fraction of the traffic you thought it had.
+
+**Fix the variant set at creation.** Arms are decided when the pool is created. A third candidate implementation you are unsure about costs nothing to include and cannot be added later.
+
+## Next
+
+- [Feature gates](/docs/feature-gates) — the full rule and operator reference
+- [Checkout & CTA conversion](/docs/checkout-conversion) — the same binary loop without gating
+- [Console: experiments](/docs/console-experiments) — pausing, resuming and resetting

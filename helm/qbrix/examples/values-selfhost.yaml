@@ -1,0 +1,78 @@
+# a single-cluster install behind ingress-nginx: in-cluster postgres and redis,
+# generated secrets, console and api on one host.
+#
+#   helm install qbrix oci://ghcr.io/optiq-io/charts/qbrix -f values-selfhost.yaml
+#
+# replace qbrix.example.com with your host. the console calls /api on its own
+# origin, so both ingresses must serve the same host.
+
+proxy:
+  replicaCount: 1
+  autoscaling:
+    enabled: false
+  podDisruptionBudget:
+    enabled: false
+  config:
+    signupMode: "first-user"
+    # optional: without an email provider new accounts are verified
+    # automatically and reset / invite links go to the proxy log
+    # emailProvider: "smtp"
+    # emailFrom: "qbrix <noreply@example.com>"
+    # smtp:
+    #   host: "smtp.example.com"
+    #   username: "qbrix"
+    #   existingSecret: "qbrix-smtp"
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: qbrix.example.com
+        paths:
+          - path: /api
+            pathType: Prefix
+            port: 8080
+    # tls:
+    #   - secretName: qbrix-tls
+    #     hosts:
+    #       - qbrix.example.com
+
+console:
+  replicaCount: 1
+  autoscaling:
+    enabled: false
+  podDisruptionBudget:
+    enabled: false
+  ingress:
+    enabled: true
+    className: nginx
+    hosts:
+      - host: qbrix.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    # tls:
+    #   - secretName: qbrix-tls
+    #     hosts:
+    #       - qbrix.example.com
+
+motor:
+  replicaCount: 1
+  autoscaling:
+    enabled: false
+  podDisruptionBudget:
+    enabled: false
+
+# insights and the event log: uncomment to deploy trace and clickhouse
+# global:
+#   analytics:
+#     enabled: true
+# trace:
+#   enabled: true
+#   replicaCount: 1
+#   autoscaling:
+#     enabled: false
+#   podDisruptionBudget:
+#     enabled: false
+# infrastructure:
+#   clickhouse:
+#     enabled: true

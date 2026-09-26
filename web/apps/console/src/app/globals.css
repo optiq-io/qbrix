@@ -1,0 +1,8 @@
+@import "tailwindcss";
+@import "@qbrix/ui/styles/globals.css";
+
+/* tailwind v4 skips node_modules by default. the @qbrix/ui workspace is
+   symlinked there in production builds, so classes only used inside the
+   package would never reach the final stylesheet. point @source at the
+   real path so every UI-package class is picked up. */
+@source "../../../../packages/ui/src/**/*.{ts,tsx}";

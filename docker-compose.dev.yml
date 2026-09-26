@@ -1,0 +1,256 @@
+name: qbrix-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-qbrix}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-qbrix}
+      POSTGRES_DB: ${POSTGRES_DATABASE:-qbrix}
+    ports:
+      - "5432:5432"
+    volumes:
+      - qbrix_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qbrix"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - qbrix_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # one-shot schema migration; mirrors the helm migration hook. runs alembic
+  # from the qbrixstore wheel baked into the proxy image, then exits. services
+  # that touch postgres wait for this to complete successfully.
+  migrate:
+    build:
+      context: .
+      dockerfile: svc/proxy/Dockerfile
+    command: ["python", "-m", "qbrixstore.migrate", "upgrade", "head"]
+    environment:
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_USER: ${POSTGRES_USER:-qbrix}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-qbrix}
+      POSTGRES_DATABASE: ${POSTGRES_DATABASE:-qbrix}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  proxy:
+    build:
+      context: .
+      dockerfile: svc/proxy/Dockerfile
+    ports:
+      - "50050:50050"
+      - "8080:8080"
+    environment:
+      # infrastructure (docker service hostnames)
+      PROXY_POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      PROXY_REDIS_HOST: ${REDIS_HOST:-redis}
+      PROXY_MOTOR_HOST: motor
+      PROXY_CORTEX_HOST: cortex
+      # runtime environment
+      PROXY_RUNENV: ${RUNENV:-dev}
+      # auth
+      PROXY_JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
+      PROXY_TOKEN_SECRET: ${TOKEN_SECRET:-change-me-in-production}
+      # multi-tenancy
+      PROXY_DEFAULT_TENANT_NAME: "Default"
+      PROXY_DEFAULT_TENANT_SLUG: "default"
+      # logging
+      PROXY_LOG_LEVEL: ${LOG_LEVEL:-WARNING}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      # error tracking
+      SENTRY_DSN: "${PROXY_SENTRY_DSN:-}"
+      SENTRY_ENVIRONMENT: "${SENTRY_ENVIRONMENT:-local}"
+      # cloud edition
+      PROXY_EE_ENABLED: "${QBRIX_EE_ENABLED:-false}"
+      # analytics: needs the trace + clickhouse services
+      PROXY_ANALYTICS_ENABLED: "${QBRIX_ANALYTICS_ENABLED:-false}"
+      PROXY_CLICKHOUSE_HOST: ${CLICKHOUSE_HOST:-clickhouse}
+      PROXY_STRIPE_SECRET_KEY: "${STRIPE_SECRET_KEY:-}"
+      PROXY_STRIPE_WEBHOOK_SECRET: "${STRIPE_WEBHOOK_SECRET:-}"
+      PROXY_STRIPE_PRICE_ID_STARTER: "${STRIPE_PRICE_ID_STARTER:-}"
+      PROXY_STRIPE_PRICE_ID_GROWTH: "${STRIPE_PRICE_ID_GROWTH:-}"
+      PROXY_STRIPE_PRICE_ID_SCALE: "${STRIPE_PRICE_ID_SCALE:-}"
+      PROXY_STRIPE_PRICE_ID_ENTERPRISE: "${STRIPE_PRICE_ID_ENTERPRISE:-}"
+      PROXY_STRIPE_METER_ID: "${STRIPE_METER_ID:-}"
+      PROXY_STRIPE_METERED_PRICE_ID_STARTER: "${STRIPE_METERED_PRICE_ID_STARTER:-}"
+      PROXY_STRIPE_METERED_PRICE_ID_GROWTH: "${STRIPE_METERED_PRICE_ID_GROWTH:-}"
+      PROXY_STRIPE_METERED_PRICE_ID_SCALE: "${STRIPE_METERED_PRICE_ID_SCALE:-}"
+      # self-host runtime
+      PROXY_SIGNUP_MODE: "${SIGNUP_MODE:-first-user}"
+      PROXY_CORS_ORIGINS: "${CORS_ORIGINS:-}"
+      PROXY_CONSOLE_URL: "${CONSOLE_URL:-http://localhost:3001}"
+      # transactional email
+      PROXY_EMAIL_PROVIDER: "${EMAIL_PROVIDER:-auto}"
+      PROXY_EMAIL_FROM: "${EMAIL_FROM:-qbrix <noreply@localhost>}"
+      PROXY_RESEND_API_KEY: "${RESEND_API_KEY:-}"
+      PROXY_SMTP_HOST: "${SMTP_HOST:-}"
+      PROXY_SMTP_PORT: "${SMTP_PORT:-587}"
+      PROXY_SMTP_USERNAME: "${SMTP_USERNAME:-}"
+      PROXY_SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+      PROXY_SMTP_STARTTLS: "${SMTP_STARTTLS:-true}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  motor:
+    build:
+      context: .
+      dockerfile: svc/motor/Dockerfile
+    ports:
+      - "50051:50051"
+    environment:
+      MOTOR_REDIS_HOST: ${REDIS_HOST:-redis}
+      MOTOR_LOG_LEVEL: ${LOG_LEVEL:-WARNING}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      # error tracking
+      SENTRY_DSN: "${MOTOR_SENTRY_DSN:-}"
+      SENTRY_ENVIRONMENT: "${SENTRY_ENVIRONMENT:-local}"
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      replicas: 1
+
+  cortex:
+    build:
+      context: .
+      dockerfile: svc/cortex/Dockerfile
+    ports:
+      - "50052:50052"
+    environment:
+      CORTEX_REDIS_HOST: ${REDIS_HOST:-redis}
+      CORTEX_LOG_LEVEL: ${LOG_LEVEL:-WARNING}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      # error tracking
+      SENTRY_DSN: "${CORTEX_SENTRY_DSN:-}"
+      SENTRY_ENVIRONMENT: "${SENTRY_ENVIRONMENT:-local}"
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      replicas: 1
+
+  console:
+    build:
+      context: ./web
+      dockerfile: apps/console/Dockerfile
+      args:
+        # console and proxy are separate origins here, so /api cannot be relative
+        NEXT_PUBLIC_API_URL: "http://localhost:8080/api"
+        NEXT_PUBLIC_SENTRY_DSN: "${CONSOLE_SENTRY_DSN:-}"
+        NEXT_PUBLIC_SENTRY_ENVIRONMENT: "${CONSOLE_SENTRY_ENVIRONMENT:-development}"
+        NEXT_PUBLIC_SENTRY_RELEASE: "${CONSOLE_SENTRY_RELEASE:-}"
+    ports:
+      - "3001:3000"
+    environment:
+      STRIPE_PRICE_ID_STARTER: "${STRIPE_PRICE_ID_STARTER:-}"
+      STRIPE_PRICE_ID_GROWTH: "${STRIPE_PRICE_ID_GROWTH:-}"
+      STRIPE_PRICE_ID_SCALE: "${STRIPE_PRICE_ID_SCALE:-}"
+      STRIPE_PRICE_ID_ENTERPRISE: "${STRIPE_PRICE_ID_ENTERPRISE:-}"
+    depends_on:
+      - proxy
+
+  # local smtp catcher for the email flows (enabled with --profile mail).
+  # point the proxy at it with SMTP_HOST=mailpit SMTP_PORT=1025 SMTP_STARTTLS=false
+  # and read what it caught on http://localhost:8025
+  mailpit:
+    profiles: ["mail"]
+    image: axllent/mailpit:v1.31@sha256:74d609a42ec279aa63c6b4622a6fa9b5408d1ad5b1d76a1c4be40a265ce0863d
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  # analytics (enabled with --profile analytics)
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.1@sha256:44caeed7c81f7934c28a8ffa3a422a4ca96cf3bccc486d21311e5133ce88d49f
+    profiles: ["analytics"]
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - qbrix_clickhouse_data:/var/lib/clickhouse
+    environment:
+      CLICKHOUSE_DB: qbrix
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  trace:
+    profiles: ["analytics"]
+    build:
+      context: .
+      dockerfile: svc/trace/Dockerfile
+    ports:
+      - "50053:50053"
+    environment:
+      TRACE_REDIS_HOST: ${REDIS_HOST:-redis}
+      TRACE_CLICKHOUSE_HOST: ${CLICKHOUSE_HOST:-clickhouse}
+      TRACE_LOG_LEVEL: ${LOG_LEVEL:-WARNING}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      # error tracking
+      SENTRY_DSN: "${TRACE_SENTRY_DSN:-}"
+      SENTRY_ENVIRONMENT: "${SENTRY_ENVIRONMENT:-local}"
+    depends_on:
+      redis:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    deploy:
+      replicas: 1
+
+  # cloud edition (enabled with --profile cloud)
+  meter:
+    profiles: ["cloud"]
+    build:
+      context: .
+      dockerfile: ee/svc/meter/Dockerfile
+    ports:
+      - "50054:50054"
+    environment:
+      METER_REDIS_HOST: ${REDIS_HOST:-redis}
+      METER_POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      METER_POSTGRES_USER: ${POSTGRES_USER:-qbrix}
+      METER_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-qbrix}
+      METER_POSTGRES_DATABASE: ${POSTGRES_DATABASE:-qbrix}
+      METER_STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      METER_LOG_LEVEL: ${LOG_LEVEL:-WARNING}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      # error tracking
+      SENTRY_DSN: "${METER_SENTRY_DSN:-}"
+      SENTRY_ENVIRONMENT: "${SENTRY_ENVIRONMENT:-local}"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    deploy:
+      replicas: 1
+
+volumes:
+  qbrix_postgres_data:
+  qbrix_redis_data:
+  qbrix_clickhouse_data:

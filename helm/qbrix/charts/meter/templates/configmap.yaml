@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "meter.fullname" . }}
+  labels:
+    {{- include "meter.labels" . | nindent 4 }}
+data:
+  # grpc settings
+  METER_GRPC_HOST: {{ .Values.config.grpc.host | quote }}
+  METER_GRPC_PORT: {{ .Values.config.grpc.port | quote }}
+  METER_SHUTDOWN_GRACE_SEC: {{ .Values.config.shutdownGraceSec | quote }}
+
+  # redis connection
+  METER_REDIS_HOST: {{ include "meter.redisHost" . | quote }}
+  METER_REDIS_PORT: {{ .Values.global.redis.port | quote }}
+  METER_REDIS_DB: {{ .Values.global.redis.db | quote }}
+
+  # postgres connection
+  METER_POSTGRES_HOST: {{ include "meter.postgresHost" . | quote }}
+  METER_POSTGRES_PORT: {{ .Values.global.postgres.port | quote }}
+  METER_POSTGRES_DATABASE: {{ .Values.global.postgres.database | quote }}
+
+  # aggregation / emit settings
+  METER_BUCKET_SECONDS: {{ .Values.config.bucket.seconds | quote }}
+  METER_CLOSE_GRACE_SECONDS: {{ .Values.config.bucket.closeGraceSeconds | quote }}
+  METER_EMIT_INTERVAL_SECONDS: {{ .Values.config.bucket.emitIntervalSeconds | quote }}
+
+  # stripe billing meter
+  METER_STRIPE_METER_EVENT_NAME: {{ .Values.config.stripe.meterEventName | quote }}
+
+  # logging
+  METER_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  LOG_FORMAT: {{ .Values.global.logging.format | quote }}
+
+  {{- if .Values.global.sentry.enabled }}
+  SENTRY_ENVIRONMENT: {{ .Values.global.sentry.environment | quote }}
+  SENTRY_RELEASE: {{ include "meter.imageTag" . | quote }}
+  {{- end }}

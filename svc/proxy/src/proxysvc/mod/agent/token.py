@@ -1,0 +1,143 @@
+"""
+selection token utilities for encoding/decoding selection context.
+
+uses HMAC-SHA256 for signing and base64 for encoding. the token contains
+all selection context data, eliminating the need for server-side storage.
+"""
+
+from __future__ import annotations
+
+import base64
+import hmac
+import json
+import time
+from dataclasses import dataclass
+
+from proxysvc.core.error import TokenExpiredError, TokenInvalidError
+
+
+@dataclass
+class SelectionEntry:
+    """decoded selection data from token."""
+
+    tenant_id: str
+    experiment_id: str
+    arm_index: int
+    context_id: str
+    context_vector: list[float]
+    context_metadata: dict
+    timestamp_ms: int
+    meta_experiment_id: str | None = None
+    learner_index: int | None = None
+    learner_experiment_id: str | None = None
+
+
+class SelectionToken:
+
+    @staticmethod
+    def encode(
+        secret: bytes,
+        tenant_id: str,
+        experiment_id: str,
+        arm_index: int,
+        context_id: str,
+        context_vector: list[float],
+        context_metadata: dict,
+        meta_experiment_id: str | None = None,
+        learner_index: int | None = None,
+        learner_experiment_id: str | None = None,
+    ) -> str:
+        """
+        create a signed token containing selection data.
+
+        args:
+            secret: hmac signing key
+            tenant_id: tenant identifier
+            experiment_id: experiment identifier
+            arm_index: selected arm index
+            context_id: context identifier
+            context_vector: context feature vector
+            context_metadata: context metadata dict
+            meta_experiment_id: meta-bandit experiment id
+            learner_index: learner index in meta-bandit's learner list
+            learner_experiment_id: learner experiment id
+
+        returns:
+            base64-encoded signed token
+        """
+        payload = {
+            "tnt_id": tenant_id,
+            "exp_id": experiment_id,
+            "arm_idx": arm_index,
+            "ctx_id": context_id,
+            "ctx_vec": context_vector,
+            "ctx_meta": context_metadata,
+            "ts": int(time.time() * 1000),
+        }
+        if meta_experiment_id is not None:
+            payload["meta_id"] = meta_experiment_id
+        if learner_index is not None:
+            payload["lrn_idx"] = learner_index
+        if learner_experiment_id is not None:
+            payload["lrn_eid"] = learner_experiment_id
+        data = json.dumps(payload, separators=(",", ":")).encode()
+        sig = hmac.new(secret, data, "sha256").digest()[:16]
+        return base64.urlsafe_b64encode(data + sig).decode()
+
+    @staticmethod
+    def decode(
+        secret: bytes,
+        token: str,
+        max_age_ms: int | None = None,
+    ) -> SelectionEntry:
+        """
+        verify and decode a selection token.
+
+        args:
+            secret: hmac signing key (must match key used to create token)
+            token: base64-encoded signed token
+            max_age_ms: maximum token age in milliseconds (None = no expiry check)
+
+        returns:
+            SelectionData with decoded selection context
+
+        raises:
+            TokenInvalidError: if signature verification fails
+            TokenExpiredError: if token has expired
+        """
+        try:
+            raw = base64.urlsafe_b64decode(token)
+        except Exception as e:
+            raise TokenInvalidError(f"failed to decode token: {e}")
+
+        if len(raw) < 17:
+            raise TokenInvalidError("token too short")
+
+        data, sig = raw[:-16], raw[-16:]
+        expected_sig = hmac.new(secret, data, "sha256").digest()[:16]
+
+        if not hmac.compare_digest(sig, expected_sig):
+            raise TokenInvalidError("invalid token signature")
+
+        try:
+            payload = json.loads(data)
+        except json.JSONDecodeError as e:
+            raise TokenInvalidError(f"failed to parse token payload: {e}")
+
+        if max_age_ms is not None:
+            age_ms = int(time.time() * 1000) - payload["ts"]
+            if age_ms > max_age_ms:
+                raise TokenExpiredError(f"token expired ({age_ms}ms > {max_age_ms}ms)")
+
+        return SelectionEntry(
+            tenant_id=payload["tnt_id"],
+            experiment_id=payload["exp_id"],
+            arm_index=payload["arm_idx"],
+            context_id=payload["ctx_id"],
+            context_vector=payload["ctx_vec"],
+            context_metadata=payload["ctx_meta"],
+            timestamp_ms=payload["ts"],
+            meta_experiment_id=payload.get("meta_id"),
+            learner_index=payload.get("lrn_idx"),
+            learner_experiment_id=payload.get("lrn_eid"),
+        )

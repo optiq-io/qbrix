@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+#
+# a release pr may change the notes, the manifest, and version lines, nothing
+# else. release-please rewrites every file it versions from the contents it read
+# when its run started, so a merge that lands mid-run is silently reverted in the
+# release pr, and later runs keep the stale branch while the notes are unchanged.
+# uv.lock is exempt: release-please never writes it, and the relock that does
+# runs on a fresh checkout of the release branch.
+#
+#   bin/check-release-pr [base]      (default: origin/main)
+
+set -euo pipefail
+
+base="${1:-origin/main}"
+
+stray=$(
+  git diff --unified=0 "$base"...HEAD -- . \
+    ':(exclude)CHANGELOG.md' ':(exclude).release-please-manifest.json' \
+    ':(exclude)uv.lock' |
+    grep -E '^[-+]' |
+    grep -vE '^(\+\+\+|---) ' |
+    grep -vE 'x-release-please-version' |
+    grep -vE '^[-+]  "version": "[^"]+",$' ||
+    true
+)
+
+if [ -n "$stray" ]; then
+  echo "the release pr changes more than versions; close it so release-please reopens it from main:"
+  echo "$stray"
+  exit 1
+fi
+echo "ok  the release pr changes only the notes and versions"

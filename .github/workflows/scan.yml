@@ -1,0 +1,57 @@
+name: Image Scan
+
+# code scanning needs advanced security on a private repository, so the scan
+# starts with the public one.
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  visibility:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      public: ${{ steps.repo.outputs.public }}
+    steps:
+      - id: repo
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          visibility=$(gh api "repos/${GITHUB_REPOSITORY}" --jq .visibility)
+          echo "public=$([ "$visibility" = public ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+  scan:
+    name: scan (${{ matrix.service }}:${{ matrix.tag }})
+    needs: visibility
+    if: needs.visibility.outputs.public == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [proxy, motor, cortex, trace, console]
+        tag: [latest, edge]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Scan ${{ matrix.service }}:${{ matrix.tag }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/qbrix/${{ matrix.service }}:${{ matrix.tag }}
+          version: v0.74.0
+          severity: CRITICAL,HIGH
+          limit-severities-for-sarif: true
+          format: sarif
+          output: trivy.sarif
+
+      - name: Upload to code scanning
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: trivy.sarif
+          category: trivy-${{ matrix.service }}-${{ matrix.tag }}

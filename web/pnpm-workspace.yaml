@@ -1,0 +1,9 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# pnpm v10+ reads onlyBuiltDependencies from here instead of package.json.
+# Keep this in sync with the "pnpm.onlyBuiltDependencies" field in ./package.json
+# so both pnpm v9 (local) and v10+ (CI) build sharp's native binary.
+onlyBuiltDependencies:
+  - sharp

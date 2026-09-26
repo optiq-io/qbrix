@@ -1,0 +1,227 @@
+---
+title: Personalization by segment
+description: Serve a different variant to different kinds of visitor, learned from named properties rather than from hand-written targeting rules.
+order: 43
+---
+
+# Personalization by segment
+
+You have three checkout treatments. Express suits a small basket on a phone, installments suit a large considered basket, and a returning customer responds to neither. No single one wins everywhere, and the usual answer is a stack of targeting rules that somebody wrote once and nobody has revisited since.
+
+The alternative is to describe each visitor to qbrix and let it learn the segmentation itself. This is the same loop as [checkout conversion](/docs/checkout-conversion), with one addition: you declare **what a visitor looks like** when you create the experiment, and send named values on every request.
+
+## Where this fits
+
+**Use it when you have evidence that different visitors want different things**, and facts available at request time that plausibly explain the difference.
+
+**Contextual learning needs more data than a global answer does**, because it is fitting a separate response per region of your feature space rather than one number per variant. If a global experiment on the same surface has not converged yet, a contextual one will not either. Run [checkout conversion](/docs/checkout-conversion) first, confirm the loop works, then add the properties.
+
+**If the segments are genuinely known and stable** — enterprise versus self-serve, say — a [feature gate](/docs/feature-gates) rule is simpler, cheaper and completely predictable. Reach for context when you suspect the segmentation exists but cannot write it down.
+
+## The modelling decisions
+
+| Decision | This recipe |
+|---|---|
+| **Arm** | One checkout treatment — standard, express, installments. |
+| **Reward** | `1.0` if the visitor converted, `0.0` if not. |
+| **Reward type** | `binary` |
+| **Context** | A declared **schema**, and named **properties** per request. |
+
+### Properties and metadata are not the same field
+
+This is the distinction that costs people the most time. Both live on the context object; they go to different places.
+
+| Field | Who reads it | Shape |
+|---|---|---|
+| `id` | Feature gates, for deterministic bucketing | Any stable string. Required. |
+| `properties` | **The policy.** This is what the model learns on. | Named values, matching the declared schema. |
+| `metadata` | **Feature gate rules only.** The policy never sees it. | Free-form JSON. |
+
+Putting `{"device": "mobile"}` in `metadata` and expecting the model to personalize on it does nothing. It has to be a property, and the schema has to declare it.
+
+## Set up the experiment
+
+<Steps>
+
+## Create the pool
+
+```python
+pool = client.pool.create(
+    name="checkout-treatments",
+    arms=[
+        {"name": "standard"},
+        {"name": "express"},
+        {"name": "installments"},
+    ],
+)
+```
+
+## Declare what a visitor looks like
+
+Decide the property list before you create the experiment — the schema is fixed for its life, the same constraint as arms, for the same reason.
+
+```python
+CONTEXT_SCHEMA = [
+    {"type": "categorical", "name": "device", "values": ["mobile", "desktop"]},
+    {"type": "categorical", "name": "country", "values": ["US", "DE", "TR"]},
+    {"type": "numeric", "name": "cart_value", "min": 0, "max": 500},
+    {"type": "boolean", "name": "returning"},
+]
+```
+
+## Create the experiment
+
+```python
+experiment = client.experiment.create(
+    name="checkout-personalization",
+    pool_id=pool.id,
+    policy="auto",
+    policy_params={
+        "reward_type": "binary",
+        "context_schema": CONTEXT_SCHEMA,
+    },
+)
+```
+
+A declared schema is itself the request for a contextual strategy — `use_context` and `dim` are both implied by it, and passing `dim` yourself is an error. With `auto` you get both contextual and non-contextual learners competing, which is useful in itself: if the non-contextual ones keep winning, your properties are not carrying signal.
+
+`"LinTSPolicy"` or `"LinUCBPolicy"` are the single-learner contextual choices if you would rather pick one — see [Policies](/docs/policies).
+
+</Steps>
+
+## Describe the visitor
+
+There is no encoding step. You send the values you already have, under the names you declared.
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+def visitor(request) -> dict:
+    return {
+        "device": "mobile" if request.is_mobile else "desktop",
+        "country": request.country,
+        "cart_value": request.cart_value,
+        "returning": request.is_returning,
+    }
+```
+</CodeTab>
+<CodeTab label="typescript">
+```typescript
+function visitorProperties(req: VisitorRequest) {
+  return {
+    device: req.isMobile ? "mobile" : "desktop",
+    country: req.country,
+    cartValue: req.cartValue,
+    returning: req.isReturning,
+  };
+}
+```
+</CodeTab>
+</CodeTabs>
+
+The one-hot slots, the normalization and the width are the server's problem. What used to be three rules about building a vector is now two about declaring a schema:
+
+**Declare numeric ranges where your traffic actually sits.** A `cart_value` declared `0–500` whose real traffic sits between 10 and 30 compresses the signal into 4% of the range. Declare `10–30` and let the clamp absorb the tail — outliers are clamped, not rejected.
+
+**Start with three to six properties.** Contextual learners invert a matrix per arm on every selection; more width means slower learning and more work per request. Add properties when the ones you have prove insufficient, not in advance. A high-cardinality property like `country` is where this bites — bucket it rather than enumerating 190 values.
+
+<Callout type="warning">
+**A property name the schema never declared is rejected**, with **400 `INVALID_CONTEXT_PROPERTIES`** naming it and listing what the schema does declare. `{"devise": "mobile"}` fails the call.
+
+That is deliberate. The alternative is worse: a typo would encode to defaults on every request, the model would train against a constant vector, and nothing would tell you until allocation looked flat weeks later.
+
+A *value* you never declared is a different case and is absorbed, not rejected — a `country` of `"JP"` against the schema above is scored into a reserved `other` slot. Your traffic is allowed to surprise you.
+</Callout>
+
+## Select on the request path
+
+The key stays on your server, so the browser asks your handler and your handler asks qbrix.
+
+<Flow caption="Properties are read from what you already know about the request. The browser never sees the key, the experiment, or the schema.">
+<Step label="Browser" detail="POST /api/checkout { visitorId }" />
+<Step label="Your route handler" detail="reads what it knows" />
+<Step label="qbrix select" detail="encodes, returns a variant + request_id" owned />
+<Step label="Rendered checkout" detail="treatment back to the client" />
+</Flow>
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+from qbrix import Context
+
+result = client.agent.select(
+    experiment_id=EXPERIMENT_ID,
+    context=Context(
+        id=visitor_id,
+        properties=visitor(request),
+        # metadata is for gate rules — the model does not read it
+        metadata={"plan": request.plan},
+    ),
+)
+
+treatment = result.arm.name
+```
+</CodeTab>
+<CodeTab label="typescript">
+```typescript
+const { arm, requestId } = await qbrix.select(EXPERIMENT_ID, {
+  id: visitorId,
+  // named values, sent as they are. numbers stay numbers — cartValue is
+  // declared numeric server-side and normalised against its range there,
+  // so stringifying it here would fail the encode.
+  properties: visitorProperties(req),
+});
+```
+</CodeTab>
+</CodeTabs>
+
+## Close the loop
+
+Same as any binary experiment — persist the `request_id`, report the outcome when it happens, and send the zeros as well as the ones.
+
+<CodeTabs>
+<CodeTab label="python">
+```python
+if result.request_id is not None:
+    session["qbrix_request_id"] = result.request_id
+
+# later, when the visitor converts or the session ends
+client.agent.feedback(request_id=session["qbrix_request_id"], reward=1.0)
+```
+</CodeTab>
+<CodeTab label="typescript">
+```typescript
+if (requestId) session.qbrixRequestId = requestId;
+
+await qbrix.feedback(session.qbrixRequestId, 1.0);
+```
+</CodeTab>
+</CodeTabs>
+
+**Do not recompute properties at feedback time.** The encoded vector is recorded with the selection; feedback refers to it by id. Recomputing is unnecessary and, if it differs, misleading to you when you read the logs later.
+
+## What you should see
+
+**First, a global preference** — one variant ahead on average, exactly as a non-contextual experiment would show.
+
+**Then, if your properties carry signal, the split stops being global.** Different segments settle on different treatments. This is the payoff, and it takes noticeably longer than the global answer.
+
+**If it never happens**, that is a real finding rather than a failure: either the properties do not predict variant preference, or the variants genuinely work equally well for everyone. Both are worth knowing, and both are cheaper to learn this way than by writing targeting rules on a hunch.
+
+<BurstTestNote />
+
+## Four things to get right
+
+**Fix the property list at creation.** The schema is bound to the experiment, and its width is baked into the learned parameters. A fifth property means a new experiment — the same constraint as arms, for the same reason. Changing or omitting the schema on an update returns `409 CONTEXT_SCHEMA_IMMUTABLE`; to tune `alpha`, resend the schema unchanged alongside it.
+
+**Send the values raw.** Numbers stay numbers. `cart_value` is declared numeric and normalized server-side, so sending `"62.5"` as a string is a `400`, not a convenience.
+
+**Do not declare anything you would not want to defend.** Properties derived from protected characteristics — or close proxies for them — turn a personalization experiment into a discrimination problem, whatever your intent. Stick to behaviour and context.
+
+**Set policy parameters at creation.** They are read when the learner initializes, so `policy_params` edits on a running experiment take effect after a reset rather than immediately.
+
+## Next
+
+- [Contexts](/docs/contexts) — the full reference on schemas, properties and the raw-vector escape hatch
+- [Feature gates](/docs/feature-gates) — when a written rule beats a learned one
+- [Pricing & discounts](/docs/pricing-and-discounts) — the same contextual machinery on a continuous reward

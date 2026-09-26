@@ -1,0 +1,92 @@
+---
+title: How qbrix works
+description: The two paths every request takes, what qbrix guarantees, and the timings you can design against.
+order: 3
+---
+
+# How qbrix works
+
+qbrix runs two paths that never block each other.
+
+The **selection path** answers `select()` — it picks a variant and returns. The **learning path** consumes `feedback()` and updates what the policy knows. Selection stays fast because it never waits for learning, and learning stays thorough because it never has to fit inside a request.
+
+Everything below is a contract you can design against: what happens on each path, what qbrix guarantees when things go wrong, and how long changes take to land.
+
+## The selection path
+
+<Flow caption="Your app never waits on training to get a decision.">
+  <Step label="Your app" detail="select()" />
+  <Step label="Gate" detail="rollout, schedule, rules" owned />
+  <Step label="Policy" detail="picks a variant" owned />
+  <Step label="Response" detail="variant + token" />
+</Flow>
+
+1. qbrix authenticates the request — API key or JWT.
+2. If the experiment has a feature gate, the gate evaluates rollout, schedule, and targeting rules.
+3. If the gate commits a variant, it returns immediately. The policy is never consulted.
+4. Otherwise the policy picks a variant from its current parameters.
+5. The response carries the variant plus a signed selection token.
+
+When parameters are warm, step 4 runs entirely in memory — no database call, no network hop, no lock. That's the whole reason selection is fast, and it's why selection latency doesn't move when your feedback volume does.
+
+## The learning path
+
+<Flow caption="feedback() returns at step 2 — everything after it happens on qbrix's own time.">
+  <Step label="Your app" detail="feedback()" />
+  <Step label="Queued" detail="durably, then returns" owned />
+  <Step label="Trained" detail="in batches, per experiment" owned />
+  <Step label="Published" detail="new parameters" owned />
+</Flow>
+
+1. qbrix verifies the signed selection token from your `feedback()` call.
+2. The reward is queued.
+3. qbrix trains in batches, per experiment.
+4. Updated parameters are published.
+5. Selection picks them up on the next refresh.
+
+`feedback()` returns as soon as the reward is queued — it does not wait for training. A slow-training experiment never delays another one, and it never delays selection.
+
+<Callout type="tip">
+Feedback is asynchronous by design. Don't write client code that expects a reward to be reflected in the very next `select()` call — see [Timings](#timings) for the windows that actually apply.
+</Callout>
+
+## Timings
+
+These are the only latency numbers that affect how you write your integration.
+
+| Change | Time to take effect |
+|--------|---------------------|
+| Feedback → updated policy parameters | Up to 60s |
+| Policy or experiment config change | Up to 5 min |
+| Feature gate change | Up to 30s |
+| New experiment or pool | Immediate |
+
+Parameter updates are eventually consistent. During the window, some requests may still be served by the previous parameters — which is correct behaviour for an adaptive system, not a defect. Learning is statistical; a handful of requests either side of a refresh changes nothing about where the policy converges.
+
+## Guarantees
+
+### No feedback is lost
+
+Rewards are durably queued before `feedback()` returns. If training is interrupted mid-batch, in-flight rewards are recovered and reprocessed on restart. An unclean shutdown does not drop rewards.
+
+### A broken gate never breaks a request
+
+If a feature gate fails to evaluate for any reason — malformed config, missing metadata, an unexpected error — it falls through to normal policy selection instead of failing the request. This is deliberate: for gate logic, qbrix chooses availability over correctness. A gate misconfiguration degrades targeting, never uptime.
+
+### Feedback correlation needs no session state
+
+Every selection response includes an HMAC-signed token encoding the experiment, the chosen variant, and the request context. When feedback arrives, qbrix verifies and decodes that token to correlate the two.
+
+This means you don't need to store anything between `select()` and `feedback()`. The token is the correlation. Pass it through your queue, your webhook, or your job runner, and send it back whenever the outcome is known — minutes or hours later is fine.
+
+### Rate limits protect the hot path only
+
+A flat per-principal abuse guard applies to `/api/v1/agent/select` and `/api/v1/agent/feedback`. Management endpoints — pools, experiments, gates, billing — are not rate-limited.
+
+The limit is not tiered. Plans meter on selection volume and bill overage; they don't throttle your request rate. See [Plans & limits](/docs/plans-and-limits).
+
+## Next steps
+
+- [Feedback & rewards](/docs/feedback-and-rewards) — the reward types and how to send them
+- [Feature gates](/docs/feature-gates) — rollouts, targeting, and schedules
+- [Policies](/docs/policies) — the algorithms behind every decision

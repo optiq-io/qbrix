@@ -1,0 +1,31 @@
+import warnings
+
+from pydantic import model_validator
+from pydantic_settings import SettingsConfigDict
+
+from qbrixruntime.config import GrpcSettings
+
+
+class MotorSettings(GrpcSettings):
+    model_config = SettingsConfigDict(env_prefix="MOTOR_")
+
+    grpc_port: int = 50051
+    grpc_server_thread_pool_size: int = 100
+
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    redis_password: str | None = None
+    redis_db: int = 0
+
+    param_cache_ttl: int = 60
+    param_cache_maxsize: int = 1000
+    agent_cache_ttl: int = 300
+    agent_cache_maxsize: int = 100
+
+    @model_validator(mode="after")
+    def validate_ttls(self):
+        if self.param_cache_ttl > self.agent_cache_ttl:
+            warnings.warn(
+                "param_cache_ttl > agent_cache_ttl may cause unnecessary redis lookups"
+            )
+        return self

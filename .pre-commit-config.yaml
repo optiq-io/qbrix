@@ -1,0 +1,15 @@
+# pre-commit hooks for qbrix.
+# enable once per clone with: uv run pre-commit install
+#
+# uses the project's black (from the dev dependency group) so the version
+# always matches `make lint` / `make fmt`. generated protobuf stubs are
+# skipped via force-exclude in pyproject.toml's [tool.black].
+repos:
+  - repo: local
+    hooks:
+      - id: black
+        name: black
+        entry: uv run black
+        language: system
+        types: [python]
+        require_serial: true
