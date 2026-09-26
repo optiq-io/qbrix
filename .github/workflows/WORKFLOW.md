@@ -158,8 +158,10 @@ Every write goes through a token minted from the release GitHub App
 `pull-requests` write. A tag pushed with the workflow's own `GITHUB_TOKEN` starts no
 other workflow, so with that token `build.yml` would never publish a release.
 
-`release-as` in `release-please-config.json` pins the first release to `0.1.0`.
-Delete it once `v0.1.0` exists, or every later release PR proposes `0.1.0` again.
+To choose a version instead of the computed one, end a squash commit's message with
+a `Release-As: X.Y.Z` footer. The commit must still be user facing (`feat`, `fix`,
+`perf`, `revert` or `deps`): release-please opens no release PR while the changelog
+would be empty.
 
 ### `pr-title.yml` — PR Title
 
