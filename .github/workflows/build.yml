@@ -26,6 +26,7 @@ jobs:
     outputs:
       build_matrix: ${{ steps.set.outputs.build_matrix }}
       publish_matrix: ${{ steps.set.outputs.publish_matrix }}
+      publish_platform_matrix: ${{ steps.set.outputs.publish_platform_matrix }}
       retag_list: ${{ steps.set.outputs.retag_list }}
       has_builds: ${{ steps.set.outputs.has_builds }}
       has_publishes: ${{ steps.set.outputs.has_publishes }}
@@ -135,10 +136,15 @@ jobs:
 
           has_builds=$([ "$include" = "[]" ] && echo false || echo true)
           has_publishes=$([ "$publish" = "[]" ] && echo false || echo true)
+          publish_platforms=$(echo "$publish" | jq -c '[.[] as $s
+            | ({platform:"linux/amd64", arch:"amd64", runner:"ubuntu-24.04"},
+               {platform:"linux/arm64", arch:"arm64", runner:"ubuntu-24.04-arm"})
+            | $s + .]')
 
           {
             echo "build_matrix={\"include\":$include}"
             echo "publish_matrix={\"include\":$publish}"
+            echo "publish_platform_matrix={\"include\":$publish_platforms}"
             echo "retag_list=$retag"
             echo "has_builds=$has_builds"
             echo "has_publishes=$has_publishes"
@@ -281,28 +287,25 @@ jobs:
 
   # Public multi-arch images on ghcr for the services that changed: `:edge` from
   # main, the version (and :latest for a final release) from a v* tag, which
-  # builds everything. Gated on the same test run as the ecr push.
-  publish:
-    name: publish (${{ matrix.service }})
+  # builds everything. Gated on the same test run as the ecr push. Each platform
+  # builds on its own native runner and pushes by digest; publish joins them.
+  publish-image:
+    name: publish (${{ matrix.service }}, ${{ matrix.arch }})
     needs: [detect, test]
     if: >
       always() &&
       github.event_name == 'push' &&
       needs.test.result == 'success' &&
       needs.detect.outputs.has_publishes == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
-      id-token: write
-      attestations: write
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.detect.outputs.publish_matrix) }}
+      matrix: ${{ fromJSON(needs.detect.outputs.publish_platform_matrix) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
 
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
@@ -316,10 +319,6 @@ jobs:
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           images: ghcr.io/${{ github.repository_owner }}/qbrix/${{ matrix.service }}
-          tags: |
-            type=edge,branch=main
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
           labels: |
             org.opencontainers.image.title=qbrix-${{ matrix.service }}
 
@@ -328,14 +327,82 @@ jobs:
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64,linux/arm64
-          push: true
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/qbrix/${{ matrix.service }},push-by-digest=true,name-canonical=true,push=true
           provenance: mode=max
           sbom: true
-          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=release-${{ matrix.service }}
-          cache-to: type=gha,mode=max,scope=release-${{ matrix.service }}
+          cache-from: type=gha,scope=release-${{ matrix.service }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=release-${{ matrix.service }}-${{ matrix.arch }}
+
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: digests-${{ matrix.service }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: publish (${{ matrix.service }})
+    needs: [detect, publish-image]
+    if: always() && needs.publish-image.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.detect.outputs.publish_matrix) }}
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/qbrix/${{ matrix.service }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-${{ matrix.service }}-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=edge,branch=main
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Create the multi-arch manifest
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          mapfile -t tags < <(jq -r '.tags[] | "--tag=" + .' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          sources=()
+          for digest in *; do sources+=("$IMAGE@sha256:$digest"); done
+          docker buildx imagetools create "${tags[@]}" "${sources[@]}"
+
+      - id: push
+        name: Resolve the manifest digest
+        env:
+          TAG: ${{ steps.meta.outputs.version }}
+        run: |
+          digest=$(docker buildx imagetools inspect "$IMAGE:$TAG" --format '{{json .Manifest}}' | jq -r .digest)
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       # what `gh attestation verify` checks. github only issues attestations
       # for private repositories on enterprise plans, so this starts with the
@@ -344,7 +411,7 @@ jobs:
         if: github.event.repository.visibility == 'public'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-name: ghcr.io/${{ github.repository_owner }}/qbrix/${{ matrix.service }}
+          subject-name: ${{ env.IMAGE }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
 
@@ -393,7 +460,7 @@ jobs:
   # protection so skipped matrix jobs don't wedge the rules.
   gate:
     if: always()
-    needs: [detect, test, build, retag, publish, chart]
+    needs: [detect, test, build, retag, publish-image, publish, chart]
     runs-on: ubuntu-latest
     steps:
       - name: Check results
@@ -402,6 +469,7 @@ jobs:
           echo "test:    ${{ needs.test.result }}"
           echo "build:   ${{ needs.build.result }}"
           echo "retag:   ${{ needs.retag.result }}"
+          echo "publish-image: ${{ needs.publish-image.result }}"
           echo "publish: ${{ needs.publish.result }}"
           echo "chart:   ${{ needs.chart.result }}"
 
@@ -412,6 +480,7 @@ jobs:
           case "${{ needs.test.result }}" in failure|cancelled) exit 1 ;; esac
           case "${{ needs.build.result }}" in failure|cancelled) exit 1 ;; esac
           case "${{ needs.retag.result }}" in failure|cancelled) exit 1 ;; esac
+          case "${{ needs.publish-image.result }}" in failure|cancelled) exit 1 ;; esac
           case "${{ needs.publish.result }}" in failure|cancelled) exit 1 ;; esac
           case "${{ needs.chart.result }}" in failure|cancelled) exit 1 ;; esac
           echo "ok"
