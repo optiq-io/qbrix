@@ -1,0 +1,198 @@
+---
+title: Self-hosting
+description: Run qbrix on your own machine or cluster — the Docker Compose quickstart, Kubernetes with Helm, email, analytics, upgrades and backups.
+order: 2
+---
+
+# Self-hosting
+
+qbrix is open source under Apache-2.0, and the version you run yourself is the whole product: the API, selection, learning, the console, feature gates and analytics. A self-hosted install has no usage limits, no seat or experiment caps and no license key.
+
+There are two supported ways to run it. **Docker Compose** puts everything on one machine and is the fastest way to a working install. **Helm** runs it on Kubernetes, where each service scales on its own.
+
+## Quickstart with Docker Compose
+
+You need Docker with Compose v2.
+
+<Steps>
+
+## Get the files
+
+```bash
+git clone https://github.com/optiq-io/qbrix.git
+cd qbrix
+```
+
+## Write the configuration
+
+```bash
+bin/selfhost-init
+```
+
+This copies `.env.example` to `.env` and generates the three secrets qbrix needs: the Postgres password, the key that signs console sessions, and the key that signs selection tokens. Add `--analytics` to turn on insights and the event log, or `--port 9000` to serve on a port other than `8000`.
+
+## Start qbrix
+
+```bash
+docker compose up -d
+```
+
+Compose pulls the images from `ghcr.io/optiq-io/qbrix`, runs the database migrations, and serves the console and the API together on one port.
+
+## Create your workspace
+
+Open [http://localhost:8000](http://localhost:8000) and register. The first account creates the workspace and becomes its admin. After that, public registration closes and teammates join by invite from **Settings → Members**.
+
+## Run an experiment
+
+Create an API key under **Settings → API keys**, then point the SDK at your instance:
+
+```bash
+pip install "qbrix[http]"
+export QBRIX_BASE_URL=http://localhost:8000
+export QBRIX_API_KEY=optiq_...
+```
+
+```python
+import qbrix
+
+pool = qbrix.pool.create(
+    name="homepage-buttons",
+    arms=[{"name": "blue"}, {"name": "green"}, {"name": "red"}],
+)
+exp = qbrix.experiment.create(name="button-color", pool_id=pool.id, policy="auto")
+
+result = qbrix.agent.select(experiment_id=exp.id, context={"id": "user-123"})
+qbrix.agent.feedback(request_id=result.request_id, reward=1.0)
+```
+
+The [Quickstart](/docs/getting-started) takes it from here.
+
+</Steps>
+
+<Callout type="info">
+`QBRIX_BASE_URL` is the address of your install, not of the API path: the SDKs add `/api/...` themselves. On the quickstart that is `http://localhost:8000`.
+</Callout>
+
+## Before you go past localhost
+
+The quickstart defaults are right for a laptop. On a server that other people reach, change three things in `.env` and run `docker compose up -d` again.
+
+**The public URL.** Set `CONSOLE_URL` to the address people open in their browser, such as `https://qbrix.example.com`. Verification, password-reset and invite emails link to it; left at the default, every link points at `localhost`.
+
+**TLS.** The bundled gateway speaks plain HTTP on `QBRIX_PORT`. Put your own TLS terminator or load balancer in front of it. If that hop appends to `X-Forwarded-For`, set `TRUSTED_PROXY_HOPS=2`, so the login rate limit keys on each client rather than on your load balancer.
+
+**Email.** See the next section. Without it, new accounts are verified automatically and there is no way to receive a password reset except by reading the logs.
+
+## Email
+
+qbrix sends three kinds of email: account verification, password reset and invites. It picks a provider from `EMAIL_PROVIDER`:
+
+| Value | Behaviour |
+|---|---|
+| `auto` (default) | Resend when `RESEND_API_KEY` is set, otherwise SMTP when `SMTP_HOST` is set, otherwise none |
+| `smtp` | Any SMTP relay, configured by `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` and `SMTP_STARTTLS` |
+| `resend` | [Resend](https://resend.com), with `RESEND_API_KEY` |
+| `none` | No email is sent |
+
+Set `EMAIL_FROM` to an address your relay is allowed to send from, such as `qbrix <noreply@example.com>`.
+
+With no provider, qbrix verifies new accounts automatically, because a verification link that can't be delivered would only lock people out. Reset and invite links are written to the proxy's log instead (`docker compose logs proxy`). A provider you name explicitly but don't configure stops the proxy at startup rather than failing later.
+
+<Callout type="tip">
+To see the emails without a real relay, run [Mailpit](https://mailpit.axllent.org) next to qbrix on the `qbrix_default` network and set `SMTP_HOST=mailpit`, `SMTP_PORT=1025` and `SMTP_STARTTLS=false`.
+</Callout>
+
+## Who can sign up
+
+`SIGNUP_MODE` decides who may create a workspace through the public registration page:
+
+| Value | Behaviour |
+|---|---|
+| `first-user` (default) | The first registration creates the workspace and its admin; after that, registration is closed |
+| `invite-only` | Registration is always closed; accounts are created only by accepting an invite |
+| `open` | Anyone who can reach the console may create a workspace |
+
+Invites work in every mode. An admin invites people from **Settings → Members**, and the invite link lets them create an account in that workspace.
+
+## Analytics
+
+Per-experiment insights, the Activity tab and the [Event Log](/docs/console-event-log) need an analytics store. They are off by default, and qbrix runs fully without them: selection, learning, gates and the rest of the console don't depend on analytics.
+
+To turn them on, add two lines to `.env` (or run `bin/selfhost-init --analytics` on a fresh install):
+
+```bash
+COMPOSE_PROFILES=analytics
+ANALYTICS_ENABLED=true
+```
+
+`docker compose up -d` then starts ClickHouse and the service that writes events into it, and the console shows the analytics pages.
+
+## Kubernetes with Helm
+
+The chart runs the same images on Kubernetes 1.25+ with Helm 3.10+. You need an ingress controller and a default StorageClass for the in-cluster databases.
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/optiq-io/qbrix/main/helm/qbrix/examples/values-selfhost.yaml
+# set your host (qbrix.example.com) in values-selfhost.yaml, then
+helm install qbrix oci://ghcr.io/optiq-io/charts/qbrix -f values-selfhost.yaml
+```
+
+Any release name works. By default the chart runs Postgres and Redis in the cluster and generates the secrets on first install, keeping them across upgrades. The console and the API must share one host: the chart routes `/api` to the API and everything else to the console.
+
+The chart's [README](https://github.com/optiq-io/qbrix/tree/main/helm) covers secrets you manage yourself (needed for Argo CD and Flux, which only render), external Postgres and Redis, analytics, email and every value.
+
+**Scaling.** The API, selection, the console and the analytics writer are stateless and scale horizontally. Learning runs as a single instance: it applies feedback in order, which is what keeps parameter updates correct. Scale it vertically.
+
+## Configuration
+
+Compose reads `.env`, whose settings are documented inline in [`.env.example`](https://github.com/optiq-io/qbrix/blob/main/.env.example). Helm reads its values file. Both end up as environment variables on each service, and [Configuration](/docs/configuration) lists every one of them.
+
+## Upgrading
+
+Releases are tagged `vX.Y.Z` on [GitHub](https://github.com/optiq-io/qbrix/releases), and each release's notes say what changed. Images are tagged with the full version, with `X.Y` for the latest patch of a minor, and with `latest` for the newest release.
+
+**Compose.** Pin a version in `.env` rather than following `latest`, so an upgrade happens when you choose:
+
+```bash
+# in .env: QBRIX_VERSION=0.2.0
+docker compose pull
+docker compose up -d
+```
+
+The `migrate` service applies any database migrations before you use the new version. Read the release notes first: a release that needs a manual step says so there.
+
+**Helm.**
+
+```bash
+helm upgrade qbrix oci://ghcr.io/optiq-io/charts/qbrix --version 0.2.0 -f values-selfhost.yaml
+```
+
+Migrations run as a hook before the new pods roll out, and a failed migration fails the upgrade instead of starting new code on an old schema.
+
+## Backups
+
+Two stores hold state you can't rebuild. Back them up together, so a restore brings back experiments and what they have learned at the same point in time.
+
+| Store | Holds |
+|---|---|
+| **Postgres** | Workspaces, users, API keys, pools, experiments and gates |
+| **Redis** | What each experiment has learned (its model parameters), and feedback that hasn't been trained on yet |
+
+Redis is not a cache you can drop: the learned parameters exist nowhere else. Losing them doesn't lose your experiments, but each one starts learning again from scratch.
+
+With Compose:
+
+```bash
+docker compose exec -T postgres pg_dump -U qbrix qbrix > qbrix-$(date +%F).sql
+docker compose exec redis redis-cli SAVE
+docker compose cp redis:/data/dump.rdb ./redis-$(date +%F).rdb
+```
+
+With analytics on, ClickHouse holds the event history behind insights and the event log. It is worth backing up if you rely on that history, but qbrix keeps working without it.
+
+## Getting help
+
+Ask questions and report bugs in [GitHub issues](https://github.com/optiq-io/qbrix/issues). Support for self-hosted installs is community, best-effort. Report security issues privately, as described in [SECURITY.md](https://github.com/optiq-io/qbrix/blob/main/SECURITY.md).
+
+If you'd rather not run qbrix yourself, we can run it for you. See [managed hosting](https://qbrix.io/managed-hosting/).

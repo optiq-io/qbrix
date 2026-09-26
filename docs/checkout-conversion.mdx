@@ -14,7 +14,7 @@ This is the simplest shape qbrix has: a small set of variants, one binary outcom
 
 Checkout is the surface adaptive optimization suits best. The decision repeats on every session, the outcome is unambiguous — purchased or didn't — and it resolves within minutes of the decision being made.
 
-**Volume is what turns a difference into a conclusion.** Separating a 10% relative lift from noise on a 3% baseline takes on the order of 50,000 selections per arm, so a three-variant test becomes trustworthy somewhere around 150,000 decisions. qbrix starts shifting traffic toward the leader long before that, so you capture value from the first thousand — just treat the *ranking* as settled only once the volume is there. The free tier's 100,000 monthly selections is sized at roughly one experiment for exactly this reason.
+**Volume is what turns a difference into a conclusion.** Separating a 10% relative lift from noise on a 3% baseline takes on the order of 50,000 selections per arm, so a three-variant test becomes trustworthy somewhere around 150,000 decisions. qbrix starts shifting traffic toward the leader long before that, so you capture value from the first thousand — just treat the *ranking* as settled only once the volume is there.
 
 Below that volume you still come out ahead: an adaptive split gives less traffic to the weaker variants than a fixed 33/33/33 does at any sample size. You simply hold off on declaring a winner.
 
@@ -72,7 +72,7 @@ Starting non-contextual is the right instinct. It needs no feature pipeline, con
 
 ## Set up the experiment
 
-Setup is a one-time act, so do it from a script or the [console](https://cloud.qbrix.io) — not from your request path. The TypeScript SDK covers selection and feedback only; use Python, `curl`, or the console for pools and experiments.
+Setup is a one-time act, so do it from a script or the console — not from your request path. The TypeScript SDK covers selection and feedback only; use Python, `curl`, or the console for pools and experiments.
 
 <Steps>
 
@@ -99,7 +99,7 @@ print(pool.id)
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl -s -X POST $QBRIX_URL/api/v1/pools \
+curl -s -X POST $QBRIX_BASE_URL/api/v1/pools \
   -H "X-API-Key: $QBRIX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -133,7 +133,7 @@ print(experiment.id)
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl -s -X POST $QBRIX_URL/api/v1/experiments \
+curl -s -X POST $QBRIX_BASE_URL/api/v1/experiments \
   -H "X-API-Key: $QBRIX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -250,7 +250,7 @@ copy = CTA_COPY.get(result.arm.name, CTA_COPY["control"])
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl -s -X POST $QBRIX_URL/api/v1/agent/select \
+curl -s -X POST $QBRIX_BASE_URL/api/v1/agent/select \
   -H "X-API-Key: $QBRIX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -281,7 +281,7 @@ client.agent.feedback(request_id=session["qbrix_request_id"], reward=1.0)
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl -s -X POST $QBRIX_URL/api/v1/agent/feedback \
+curl -s -X POST $QBRIX_BASE_URL/api/v1/agent/feedback \
   -H "X-API-Key: $QBRIX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"request_id": "req_abc123", "reward": 1.0}'

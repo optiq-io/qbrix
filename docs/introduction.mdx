@@ -6,7 +6,7 @@ order: 1
 
 # Introduction
 
-qbrix is an adaptive optimization engine delivered as a cloud service. You give it a set of variants and a way to score outcomes; it serves the best-performing variant on every request and keeps getting better from what happens next.
+qbrix is an open-source adaptive optimization engine that you run on your own infrastructure. You give it a set of variants and a way to score outcomes; it serves the best-performing variant on every request and keeps getting better from what happens next.
 
 It runs selection and learning on separate paths, so deciding is fast no matter how much feedback you send. See [How qbrix works](/docs/architecture) for the timings that follow from that.
 
@@ -24,7 +24,7 @@ It runs selection and learning on separate paths, so deciding is fast no matter 
 
 ## How you'll use it
 
-1. **Sign up** at [cloud.qbrix.io](https://cloud.qbrix.io/register) and create an API key
+1. **Run qbrix** with the [self-hosting quickstart](/docs/self-hosting) and create an API key
 2. **Create a pool** with arms via the API or console
 3. **Create an experiment** linking the pool to a policy
 4. **Integrate** select and feedback calls in your application
@@ -32,6 +32,7 @@ It runs selection and learning on separate paths, so deciding is fast no matter 
 
 ## What's next
 
+- [Self-hosting](/docs/self-hosting) — run qbrix with Docker Compose or Helm
 - [Quickstart](/docs/getting-started) — create your first experiment in minutes
 - [How qbrix works](/docs/architecture) — the two paths, the timings, and the guarantees
 - [Pools & experiments](/docs/pools-and-experiments) — data model and lifecycle

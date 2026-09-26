@@ -52,7 +52,7 @@ import { QbrixClient } from "@optiqio/qbrix";
 
 const qbrix = new QbrixClient({
   apiKey: "optiq_...",
-  baseUrl: "https://cloud.qbrix.io",
+  baseUrl: "http://localhost:8000",
   timeout: 5000,
   maxRetries: 0,
 });
@@ -73,6 +73,8 @@ Resolution order per option: explicit argument → environment variable → defa
 | `retryOn` | `number[]` | `[429, 502, 503, 504]` | — |
 | `fetch` | `typeof fetch` | runtime global | — |
 | `headers` | `Record<string, string>` | `{}` | — |
+
+`baseUrl` is the address of your qbrix install. The Compose quickstart serves `http://localhost:8000`.
 | `logger` | `QbrixLogger` | silent | — |
 
 `timeout` and `maxRetries` are also overridable per call on `select()` and `feedback()` — see [Handling outages](/docs/handling-outages) for a hot-path budget that's tighter than the client-wide default.
@@ -182,13 +184,13 @@ export default async function handler(req: Request): Promise<Response> {
 // runs in the browser — the key ships with your bundle
 const qbrix = new QbrixClient({
   apiKey: "optiq_...",
-  baseUrl: "https://cloud.qbrix.io",
+  baseUrl: "https://qbrix.example.com",
 });
 
 const { arm, requestId } = await qbrix.select("homepage-cta", { id: userId });
 ```
 
-Understand what this costs before choosing it. A key in a browser bundle is readable by every visitor and usable from anywhere — CORS restricts which *pages* may read a response, never who may send a request. A key lifted from your bundle can be replayed from anywhere, and the selections it drives count against your plan's usage.
+Understand what this costs before choosing it. A key in a browser bundle is readable by every visitor and usable from anywhere — CORS restricts which *pages* may read a response, never who may send a request. A key lifted from your bundle can be replayed from anywhere.
 
 That trade-off is reasonable for internal tools, prototypes, and low-stakes surfaces. For anything else, prefer the server-side handler above: it keeps the key in an environment variable and costs you one network hop.
 

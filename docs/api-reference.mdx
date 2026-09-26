@@ -6,9 +6,9 @@ order: 8
 
 # API reference
 
-**Base URL**: `https://cloud.qbrix.io`
+**Base URL**: the address of your qbrix install, such as `http://localhost:8000` for the [Compose quickstart](/docs/self-hosting). Every path below starts with `/api`.
 
-This reference covers the endpoints you call from your application to run adaptive optimization: pools, experiments, selection and feedback, feature gates, and policies. Account, workspace, and billing management live in the [console](https://cloud.qbrix.io), not the API.
+This reference covers the endpoints you call from your application to run adaptive optimization: pools, experiments, selection and feedback, feature gates, and policies. Account and workspace management live in the console, not the API.
 
 <Callout type="tip">
 Prefer a typed client? Use an official SDK instead of raw HTTP — see the [Python SDK](/docs/python-sdk) and [JavaScript / TypeScript SDK](/docs/javascript-sdk).
@@ -16,17 +16,17 @@ Prefer a typed client? Use an official SDK instead of raw HTTP — see the [Pyth
 The curl examples below assume these environment variables:
 
 ```bash
-export QBRIX_URL="https://cloud.qbrix.io"
+export QBRIX_BASE_URL="http://localhost:8000"
 export QBRIX_API_KEY="your-api-key"
 ```
 </Callout>
 
 ## Authentication
 
-All requests authenticate with an API key. Create and manage keys under **Settings → API Keys** in the console, then pass the key in the `X-API-Key` header:
+All requests authenticate with an API key. Create and manage keys under **Settings → API keys** in the console, then pass the key in the `X-API-Key` header:
 
 ```bash
-curl $QBRIX_URL/api/v1/pools \
+curl $QBRIX_BASE_URL/api/v1/pools \
   -H "X-API-Key: $QBRIX_API_KEY"
 ```
 
@@ -51,7 +51,7 @@ pool = client.pool.create(
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl -X POST $QBRIX_URL/api/v1/pools \
+curl -X POST $QBRIX_BASE_URL/api/v1/pools \
   -H "X-API-Key: $QBRIX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -78,7 +78,7 @@ for pool in page.items:
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl $QBRIX_URL/api/v1/pools \
+curl $QBRIX_BASE_URL/api/v1/pools \
   -H "X-API-Key: $QBRIX_API_KEY"
 ```
 </CodeTab>
@@ -94,7 +94,7 @@ pool = client.pool.get("<pool-id>")
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl $QBRIX_URL/api/v1/pools/<pool-id> \
+curl $QBRIX_BASE_URL/api/v1/pools/<pool-id> \
   -H "X-API-Key: $QBRIX_API_KEY"
 ```
 </CodeTab>
@@ -111,7 +111,7 @@ client.pool.delete("<pool-id>")
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl -X DELETE $QBRIX_URL/api/v1/pools/<pool-id> \
+curl -X DELETE $QBRIX_BASE_URL/api/v1/pools/<pool-id> \
   -H "X-API-Key: $QBRIX_API_KEY"
 ```
 </CodeTab>
@@ -127,7 +127,7 @@ experiments = client.pool.list_experiments("<pool-id>")
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl $QBRIX_URL/api/v1/pools/<pool-id>/experiments \
+curl $QBRIX_BASE_URL/api/v1/pools/<pool-id>/experiments \
   -H "X-API-Key: $QBRIX_API_KEY"
 ```
 </CodeTab>
@@ -149,7 +149,7 @@ experiment = client.experiment.create(
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl -X POST $QBRIX_URL/api/v1/experiments \
+curl -X POST $QBRIX_BASE_URL/api/v1/experiments \
   -H "X-API-Key: $QBRIX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -173,7 +173,7 @@ for exp in page.items:
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl $QBRIX_URL/api/v1/experiments \
+curl $QBRIX_BASE_URL/api/v1/experiments \
   -H "X-API-Key: $QBRIX_API_KEY"
 ```
 </CodeTab>
@@ -189,7 +189,7 @@ experiment = client.experiment.get("<experiment-id>")
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl $QBRIX_URL/api/v1/experiments/<experiment-id> \
+curl $QBRIX_BASE_URL/api/v1/experiments/<experiment-id> \
   -H "X-API-Key: $QBRIX_API_KEY"
 ```
 </CodeTab>
@@ -208,7 +208,7 @@ experiment = client.experiment.update(
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl -X PATCH $QBRIX_URL/api/v1/experiments/<experiment-id> \
+curl -X PATCH $QBRIX_BASE_URL/api/v1/experiments/<experiment-id> \
   -H "X-API-Key: $QBRIX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"enabled": false}'
@@ -228,7 +228,7 @@ experiment = client.experiment.reset("<experiment-id>")
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl -X POST $QBRIX_URL/api/v1/experiments/<experiment-id>/reset \
+curl -X POST $QBRIX_BASE_URL/api/v1/experiments/<experiment-id>/reset \
   -H "X-API-Key: $QBRIX_API_KEY"
 ```
 </CodeTab>
@@ -251,7 +251,7 @@ result = client.agent.select(
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl -X POST $QBRIX_URL/api/v1/agent/select \
+curl -X POST $QBRIX_BASE_URL/api/v1/agent/select \
   -H "X-API-Key: $QBRIX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -281,7 +281,7 @@ result = client.agent.select(
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl -X POST $QBRIX_URL/api/v1/agent/select \
+curl -X POST $QBRIX_BASE_URL/api/v1/agent/select \
   -H "X-API-Key: $QBRIX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -309,7 +309,7 @@ client.agent.feedback(
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl -X POST $QBRIX_URL/api/v1/agent/feedback \
+curl -X POST $QBRIX_BASE_URL/api/v1/agent/feedback \
   -H "X-API-Key: $QBRIX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -340,7 +340,7 @@ gate = client.gate.create(
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl -X POST $QBRIX_URL/api/v1/gates/<experiment-id> \
+curl -X POST $QBRIX_BASE_URL/api/v1/gates/<experiment-id> \
   -H "X-API-Key: $QBRIX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -362,7 +362,7 @@ gate = client.gate.get("<experiment-id>")
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl $QBRIX_URL/api/v1/gates/<experiment-id> \
+curl $QBRIX_BASE_URL/api/v1/gates/<experiment-id> \
   -H "X-API-Key: $QBRIX_API_KEY"
 ```
 </CodeTab>
@@ -383,7 +383,7 @@ gate = client.gate.update(
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl -X PATCH $QBRIX_URL/api/v1/gates/<experiment-id> \
+curl -X PATCH $QBRIX_BASE_URL/api/v1/gates/<experiment-id> \
   -H "X-API-Key: $QBRIX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"rollout_percentage": 50}'
@@ -398,7 +398,7 @@ Replaces the whole configuration: any field absent from the body is reset to its
 <CodeTabs>
 <CodeTab label="bash">
 ```bash
-curl -X PUT $QBRIX_URL/api/v1/gates/<experiment-id> \
+curl -X PUT $QBRIX_BASE_URL/api/v1/gates/<experiment-id> \
   -H "X-API-Key: $QBRIX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{

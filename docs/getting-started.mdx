@@ -10,7 +10,7 @@ Get from zero to a working experiment in under 5 minutes. By the end of this gui
 
 ## Prerequisites
 
-- A qbrix account — [sign up at cloud.qbrix.io](https://cloud.qbrix.io/register)
+- A running qbrix. The [Docker Compose quickstart](/docs/self-hosting) gets one up in a few minutes, serving the console and the API on `http://localhost:8000`
 - One of: the [Python SDK](https://pypi.org/project/qbrix/), the [JavaScript / TypeScript SDK](https://www.npmjs.com/package/@optiqio/qbrix), `curl`, or any HTTP client
 
 <Steps>
@@ -32,12 +32,12 @@ npm install @optiqio/qbrix
 
 The **Python SDK** (Python 3.10+) wraps every qbrix HTTP endpoint into a typed client — pools, experiments, selection, and feedback.
 
-The **JavaScript / TypeScript SDK** (`@optiqio/qbrix`, Node 18+) is a tiny, isomorphic client focused on the runtime hot path: `select` and `feedback`. Create pools and experiments with the Python SDK, `curl`, or the [console](https://cloud.qbrix.io) — then use the JS SDK to run selection and report rewards. See the [JavaScript / TypeScript SDK guide](/docs/javascript-sdk) for the full reference.
+The **JavaScript / TypeScript SDK** (`@optiqio/qbrix`, Node 18+) is a tiny, isomorphic client focused on the runtime hot path: `select` and `feedback`. Create pools and experiments with the Python SDK, `curl`, or the console — then use the JS SDK to run selection and report rewards. See the [JavaScript / TypeScript SDK guide](/docs/javascript-sdk) for the full reference.
 
 ## Create an API key
 
-1. Log in to [cloud.qbrix.io](https://cloud.qbrix.io)
-2. Go to **Settings → API Keys**
+1. Sign in to your qbrix console
+2. Go to **Settings → API keys**
 3. Click **Create API Key** and copy the key
 
 Set your environment variables:
@@ -49,7 +49,7 @@ import qbrix
 
 client = qbrix.Qbrix(
     api_key="your-api-key",
-    base_url="https://cloud.qbrix.io",
+    base_url="http://localhost:8000",
 )
 ```
 </CodeTab>
@@ -59,13 +59,13 @@ import { QbrixClient } from "@optiqio/qbrix";
 
 const qbrix = new QbrixClient({
   apiKey: "your-api-key",
-  baseUrl: "https://cloud.qbrix.io",
+  baseUrl: "http://localhost:8000",
 });
 ```
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-export QBRIX_URL="https://cloud.qbrix.io"
+export QBRIX_BASE_URL="http://localhost:8000"
 export QBRIX_API_KEY="your-api-key"
 ```
 </CodeTab>
@@ -80,7 +80,7 @@ Your API key (`optiq_…`) is a secret — the SDK sends it as an `X-API-Key` he
 A pool is a collection of arms (variants). Let's create one with 3 homepage hero images:
 
 <Callout type="info">
-The JavaScript / TypeScript SDK covers **selection and feedback** only. Create pools and experiments with the Python SDK, `curl`, or the [console](https://cloud.qbrix.io) — then use the JS SDK at runtime to `select` and send `feedback`.
+The JavaScript / TypeScript SDK covers **selection and feedback** only. Create pools and experiments with the Python SDK, `curl`, or the console — then use the JS SDK at runtime to `select` and send `feedback`.
 </Callout>
 
 <CodeTabs>
@@ -100,7 +100,7 @@ print(pool.id)
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl -s -X POST $QBRIX_URL/api/v1/pools \
+curl -s -X POST $QBRIX_BASE_URL/api/v1/pools \
   -H "X-API-Key: $QBRIX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -134,7 +134,7 @@ print(experiment.id)
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl -s -X POST $QBRIX_URL/api/v1/experiments \
+curl -s -X POST $QBRIX_BASE_URL/api/v1/experiments \
   -H "X-API-Key: $QBRIX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -179,7 +179,7 @@ console.log(`Request ID: ${requestId}`);
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl -s -X POST $QBRIX_URL/api/v1/agent/select \
+curl -s -X POST $QBRIX_BASE_URL/api/v1/agent/select \
   -H "X-API-Key: $QBRIX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -220,7 +220,7 @@ await qbrix.feedback(requestId, 1.0);
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl -s -X POST $QBRIX_URL/api/v1/agent/feedback \
+curl -s -X POST $QBRIX_BASE_URL/api/v1/agent/feedback \
   -H "X-API-Key: $QBRIX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -291,7 +291,7 @@ for (let i = 0; i < 20; i++) {
 ```bash
 for i in $(seq 1 20); do
   # select
-  RESP=$(curl -s -X POST $QBRIX_URL/api/v1/agent/select \
+  RESP=$(curl -s -X POST $QBRIX_BASE_URL/api/v1/agent/select \
     -H "X-API-Key: $QBRIX_API_KEY" \
     -H "Content-Type: application/json" \
     -d '{"experiment_id": "'"$EXP_ID"'", "context": {"id": "user-'"$i"'"}}')
@@ -304,7 +304,7 @@ for i in $(seq 1 20); do
   [ $(( RANDOM % 10 )) -lt 3 ] && REWARD=$( [ "$REWARD" = "1.0" ] && echo "0.0" || echo "1.0" )
 
   # feedback
-  curl -s -X POST $QBRIX_URL/api/v1/agent/feedback \
+  curl -s -X POST $QBRIX_BASE_URL/api/v1/agent/feedback \
     -H "X-API-Key: $QBRIX_API_KEY" \
     -H "Content-Type: application/json" \
     -d '{"request_id": "'"$REQ_ID"'", "reward": '"$REWARD"'}'
@@ -317,7 +317,7 @@ done
 
 ## View results
 
-Open your experiment in the [qbrix console](https://cloud.qbrix.io) to see selection distributions and reward metrics.
+Open your experiment in the qbrix console to see selection distributions and reward metrics.
 
 ## What's next
 

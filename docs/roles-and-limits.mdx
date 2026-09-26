@@ -1,0 +1,49 @@
+---
+title: Roles & limits
+description: What each role can do, how API keys inherit it, and the rate limits that protect the API.
+order: 30
+---
+
+# Roles & limits
+
+A self-hosted qbrix has no usage limits: no cap on selections, experiments, seats or API keys. What it does enforce is who may do what, and a rate limit that protects the API from runaway clients.
+
+## Rate limits
+
+A per-caller abuse guard protects the two operational endpoints:
+
+| Endpoint | Rate limited |
+|----------|--------------|
+| `/api/v1/agent/select` | Yes |
+| `/api/v1/agent/feedback` | Yes |
+| Pools, experiments, gates | No |
+
+Authentication endpoints (`login`, `register`, `refresh`, `forgot-password`, `reset-password`) carry their own separate pre-auth limiter, applied per IP and per email, returning `429` with a `Retry-After` header.
+
+## Roles & permissions
+
+Every workspace member holds one of three roles. Permissions are granted as scopes.
+
+| Capability | Admin | Member | Viewer |
+|------------|:-----:|:------:|:------:|
+| View pools, experiments, gates | Yes | Yes | Yes |
+| Create & edit pools | Yes | Yes | — |
+| Create & edit experiments | Yes | Yes | — |
+| Delete pools & experiments | Yes | Yes | — |
+| Call `select()` | Yes | Yes | Yes |
+| Send `feedback()` | Yes | Yes | — |
+| Edit feature gates | Yes | Yes | — |
+| View metrics & insights | Yes | Yes | Yes |
+| View the event log | Yes | Yes | Yes |
+| Invite & remove members | Yes | — | — |
+| Assign roles | Yes | — | — |
+
+**Viewer** can read every resource and call `select()`, but cannot write anything — including feedback. That combination is deliberate: it lets a read-only integration serve decisions without being able to influence what the policy learns. **Member** covers all day-to-day experiment work. **Admin** adds team and role control.
+
+API keys carry their own scopes, set per key when you create it. A key never has more access than the role that created it.
+
+## Next steps
+
+- [Workspace & API keys](/docs/console-workspace) — invite members and manage keys
+- [How qbrix works](/docs/architecture) — the guarantees behind the limits
+- [Configuration](/docs/configuration) — the settings behind signup, email and the login rate limit

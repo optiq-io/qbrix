@@ -20,7 +20,7 @@ The experiments table shows every experiment in your workspace:
 - **Feedback** — how many outcomes have been reported.
 - **Allocation** — the share of traffic each arm is receiving, leader first.
 
-The last four are analytics columns. With Enterprise features disabled the list shows **Experiment**, **Policy**, **Gate** and **State** instead, none of which need analytics.
+The last four are analytics columns. Without [analytics](/docs/self-hosting#analytics) the list shows **Experiment**, **Policy**, **Gate** and **State** instead.
 
 Use the filter tabs (`All` / `Active` / `Paused`) to narrow the list.
 
@@ -45,8 +45,8 @@ Clicking an experiment opens its detail page, which is tabbed:
 - **Arms** — pulls, average reward, and the belief the policy holds for each arm.
 - **Policy** — the current parameter state (Beta priors, weight vectors, etc.). For an experiment created with a context schema, this tab also shows the declared properties, what each contributes to the width, and the reserved baseline slot. The schema is fixed at creation, so it is a readout rather than a form.
 - **Gate** — rollout, rules, schedule, and a toggle to enable/disable.
-- **Insights** — analytics over the experiment's history.
-- **Activity** — every selection, reward and configuration change on this experiment, newest first. The same feed as the [Event Log](/docs/console-event-log), scoped to one experiment: filter by stream, expand a row for its payload, and read the actor on each configuration change. Requires the Scale plan.
+- **Insights** — analytics over the experiment's history. Requires [analytics](/docs/self-hosting#analytics).
+- **Activity** — every selection, reward and configuration change on this experiment, newest first. The same feed as the [Event Log](/docs/console-event-log), scoped to one experiment: filter by stream, expand a row for its payload, and read the actor on each configuration change. Requires [analytics](/docs/self-hosting#analytics).
 
 ## Editing & disabling
 

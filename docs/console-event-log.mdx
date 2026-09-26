@@ -6,8 +6,6 @@ order: 21
 
 # Event Log
 
-<Badge variant="ee">Enterprise</Badge>
-
 The **Event Log** under **Developers → Event Log** in the console gives you a queryable view of every event qbrix has processed.
 
 <ConsoleEventLog />
@@ -44,10 +42,10 @@ Each row expands to show the full event payload, and a selection row expands to 
 
 ## Retention
 
-Events are retained for **90 days**, uniformly across every event type and every plan tier. Events older than the retention window are evicted and are no longer queryable from the console.
+Events are retained for **90 days**, uniformly across every event type. Events older than the retention window are evicted and are no longer queryable from the console.
 
 <Callout type="info">
-The Event Log requires the Scale plan or above. See [Plans & limits](/docs/plans-and-limits).
+The Event Log requires [analytics](/docs/self-hosting#analytics) to be turned on for your install.
 </Callout>
 
 ## Next steps

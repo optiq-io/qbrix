@@ -64,7 +64,7 @@ experiment = client.experiment.create(
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl -X POST $QBRIX_URL/api/v1/experiments \
+curl -X POST $QBRIX_BASE_URL/api/v1/experiments \
   -H "X-API-Key: $QBRIX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -122,7 +122,7 @@ const { arm, requestId } = await qbrix.select(EXPERIMENT_ID, {
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl -X POST $QBRIX_URL/api/v1/agent/select \
+curl -X POST $QBRIX_BASE_URL/api/v1/agent/select \
   -H "X-API-Key: $QBRIX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{

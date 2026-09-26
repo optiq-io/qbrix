@@ -29,7 +29,7 @@ pool = client.pool.create(
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl -X POST $QBRIX_URL/api/v1/pools \
+curl -X POST $QBRIX_BASE_URL/api/v1/pools \
   -H "X-API-Key: $QBRIX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -104,7 +104,7 @@ experiment = client.experiment.create(
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl -X POST $QBRIX_URL/api/v1/experiments \
+curl -X POST $QBRIX_BASE_URL/api/v1/experiments \
   -H "X-API-Key: $QBRIX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -150,7 +150,7 @@ client.experiment.update(
 </CodeTab>
 <CodeTab label="bash">
 ```bash
-curl -X PATCH $QBRIX_URL/api/v1/experiments/<experiment-id> \
+curl -X PATCH $QBRIX_BASE_URL/api/v1/experiments/<experiment-id> \
   -H "X-API-Key: $QBRIX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"policy_params": {"alpha_prior": 2.0, "beta_prior": 1.0}}'

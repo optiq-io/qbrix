@@ -81,9 +81,9 @@ This means you don't need to store anything between `select()` and `feedback()`.
 
 ### Rate limits protect the hot path only
 
-A flat per-principal abuse guard applies to `/api/v1/agent/select` and `/api/v1/agent/feedback`. Management endpoints — pools, experiments, gates, billing — are not rate-limited.
+A flat per-principal abuse guard applies to `/api/v1/agent/select` and `/api/v1/agent/feedback`. Management endpoints — pools, experiments, gates — are not rate-limited.
 
-The limit is not tiered. Plans meter on selection volume and bill overage; they don't throttle your request rate. See [Plans & limits](/docs/plans-and-limits).
+See [Roles & limits](/docs/roles-and-limits).
 
 ## Next steps
 
