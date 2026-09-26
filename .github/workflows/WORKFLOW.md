@@ -99,6 +99,9 @@ at every sha, so a deploy can pin all services to one tag.
 `ghcr.io/optiq-io/qbrix/<svc>` for the changed services, meter excluded. `main`
 pushes `:edge`; a `v*` tag pushes `X.Y.Z` and `X.Y` (and `:latest` for a final
 release) for every service. The console is built without build args.
+Each platform builds on its own native runner (`ubuntu-24.04`, `ubuntu-24.04-arm`)
+in `publish-image` and is pushed by digest; `publish` joins the digests into one
+manifest list, tags it, and attests it.
 Each image carries a max-mode provenance attestation and an SBOM in its manifest,
 and, once the repository is public, a GitHub artifact attestation, so a
 self-hoster can check where an image was built:
