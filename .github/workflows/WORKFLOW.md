@@ -176,7 +176,8 @@ change. It reruns when the title is edited.
 
 Every Monday, and on demand, Trivy rescans the published `:latest` and `:edge`
 images of every public service against the current vulnerability database and
-uploads the CRITICAL and HIGH findings, fixable or not, to code scanning. A release
+uploads the CRITICAL and HIGH findings that have a fixed version to code scanning,
+the same bar the pull-request gate holds a new build to. A release
 that shipped clean does not stay clean.
 
 ### `_test.yml` — Test Suite (reusable)
