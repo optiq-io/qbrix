@@ -127,8 +127,8 @@ is listed in `bin/ee-paths.txt`, and CI deletes them all and runs the suite.
 | `/api/v1/policies` | policy catalog with parameters |
 | `/api/v1/runtime` | service health, stream diagnostics |
 | `/api/auth` | login, register, profile, API keys, workspace, invites, roles, `/config` (unauthenticated) |
-| `/api/v1/insight` | experiment analytics (analytics switch; `/api/v1/ee/insight` is a deprecated alias) |
-| `/api/v1/event` | event log from ClickHouse (analytics switch; `/api/v1/ee/event` is a deprecated alias) |
+| `/api/v1/insight` | experiment analytics (analytics switch) |
+| `/api/v1/event` | event log from ClickHouse (analytics switch) |
 | `/api/v1/ee/billing` | Stripe billing (cloud edition) |
 
 ### Request flow

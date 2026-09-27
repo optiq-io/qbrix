@@ -10,7 +10,6 @@ import proxysvc.transport.http.router.analytics.event as event_module
 from svc.proxy.tests.integration.http.conftest import as_tenant
 
 ACTIVITY_ROUTE = "/api/v1/event/experiment/exp-1/activity"
-LEGACY_ACTIVITY_ROUTE = "/api/v1/ee/event/experiment/exp-1/activity"
 
 
 def _sample_rows() -> list[dict]:
@@ -53,18 +52,6 @@ def mock_clickhouse(monkeypatch):
 
 
 class TestExperimentActivity:
-
-    async def test_legacy_path_answers_identically(
-        self, client, wired_app, tenant_a, mock_clickhouse
-    ):
-        with as_tenant(
-            wired_app.app, tenant_id=tenant_a.id, user_id="user-a", plan_tier="scale"
-        ):
-            current = await client.get(ACTIVITY_ROUTE)
-            legacy = await client.get(LEGACY_ACTIVITY_ROUTE)
-
-        assert current.status_code == legacy.status_code == 200
-        assert legacy.json() == current.json()
 
     async def test_returns_unified_feed(
         self, client, wired_app, tenant_a, mock_clickhouse

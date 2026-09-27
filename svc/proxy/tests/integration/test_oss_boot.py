@@ -19,7 +19,6 @@ PROBE = Path(__file__).resolve().parents[1] / "probe" / "oss_boot.py"
 
 BILLING_PREFIX = "/api/v1/ee/billing"
 ANALYTICS_PREFIXES = ("/api/v1/insight", "/api/v1/event")
-ALIAS_PREFIXES = ("/api/v1/ee/insight", "/api/v1/ee/event")
 
 
 def boot(*, ee: bool = False, analytics: bool) -> dict:
@@ -76,13 +75,10 @@ class TestAnalyticsSwitch:
     def test_on_mounts_insight_and_event(self, oss):
         assert mounted(oss["routes"], *ANALYTICS_PREFIXES)
 
-    def test_on_keeps_the_pre_rename_aliases(self, oss):
-        assert mounted(oss["routes"], *ALIAS_PREFIXES)
-
     def test_off_mounts_nothing_and_leaves_clickhouse_unimported(
         self, oss_without_analytics
     ):
         routes = oss_without_analytics["routes"]
 
-        assert mounted(routes, *ANALYTICS_PREFIXES, *ALIAS_PREFIXES) == []
+        assert mounted(routes, *ANALYTICS_PREFIXES) == []
         assert oss_without_analytics["loaded"] == []

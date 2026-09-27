@@ -170,10 +170,6 @@ if settings.analytics_enabled:
 
     for analytics_router in (event_router, insight_router, workspace_insight_router):
         app.include_router(analytics_router, prefix="/api/v1")
-        # pre-rename paths, still called by the published mcp server
-        app.include_router(
-            analytics_router, prefix="/api/v1/ee", include_in_schema=False
-        )
     logger.info("analytics endpoints registered")
 
 edition.register_routes(app, settings)
