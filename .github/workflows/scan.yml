@@ -1,7 +1,5 @@
 name: Image Scan
 
-# code scanning needs advanced security on a private repository, so the scan
-# starts with the public one.
 on:
   schedule:
     - cron: '0 6 * * 1'
@@ -10,24 +8,8 @@ on:
 permissions: {}
 
 jobs:
-  visibility:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    outputs:
-      public: ${{ steps.repo.outputs.public }}
-    steps:
-      - id: repo
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          visibility=$(gh api "repos/${GITHUB_REPOSITORY}" --jq .visibility)
-          echo "public=$([ "$visibility" = public ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-
   scan:
     name: scan (${{ matrix.service }}:${{ matrix.tag }})
-    needs: visibility
-    if: needs.visibility.outputs.public == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read

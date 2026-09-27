@@ -103,15 +103,12 @@ Each platform builds on its own native runner (`ubuntu-24.04`, `ubuntu-24.04-arm
 in `publish-image` and is pushed by digest; `publish` joins the digests into one
 manifest list, tags it, and attests it.
 Each image carries a max-mode provenance attestation and an SBOM in its manifest,
-and, once the repository is public, a GitHub artifact attestation, so a
-self-hoster can check where an image was built:
+and a GitHub artifact attestation, so a self-hoster can check where an image was
+built:
 
 ```bash
 gh attestation verify oci://ghcr.io/optiq-io/qbrix/proxy:0.1.0 -R optiq-io/qbrix
 ```
-
-GitHub issues artifact attestations for private repositories only on Enterprise
-plans, so that step is skipped while the repository is private.
 
 **`chart`** (`v*` tags only) — checks that the umbrella chart and every subchart
 carry the tag's version as both `version` and `appVersion`, then pushes
@@ -180,9 +177,7 @@ change. It reruns when the title is edited.
 Every Monday, and on demand, Trivy rescans the published `:latest` and `:edge`
 images of every public service against the current vulnerability database and
 uploads the CRITICAL and HIGH findings, fixable or not, to code scanning. A release
-that shipped clean does not stay clean. Code scanning on a private repository
-needs GitHub Advanced Security, so the scan runs only once the repository is
-public.
+that shipped clean does not stay clean.
 
 ### `_test.yml` — Test Suite (reusable)
 
