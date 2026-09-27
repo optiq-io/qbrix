@@ -86,7 +86,7 @@ Constructor kwargs take priority over environment variables, which take priority
 | Env Var | Default | Description |
 |---------|---------|-------------|
 | `QBRIX_API_KEY` | `None` | API key |
-| `QBRIX_BASE_URL` | `http://localhost:8080` | Address of your qbrix install. The Compose quickstart serves `http://localhost:8000` |
+| `QBRIX_BASE_URL` | `http://localhost:8000` | Address of your qbrix install, without `/api`. The default is the Compose quickstart's gateway |
 | `QBRIX_TIMEOUT` | `5.0` | Request timeout (seconds) |
 | `QBRIX_MAX_RETRIES` | `0` | Retry count on 429/5xx |
 
