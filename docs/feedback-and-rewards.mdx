@@ -35,7 +35,7 @@ client.agent.feedback(
 <CodeTab label="bash">
 ```bash
 # select
-RESP=$(curl -s -X POST $QBRIX_URL/api/v1/agent/select \
+RESP=$(curl -s -X POST $QBRIX_BASE_URL/api/v1/agent/select \
   -H "X-API-Key: $QBRIX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"experiment_id": "<experiment-id>"}')
@@ -43,7 +43,7 @@ RESP=$(curl -s -X POST $QBRIX_URL/api/v1/agent/select \
 REQ_ID=$(echo $RESP | jq -r .request_id)
 
 # feedback
-curl -X POST $QBRIX_URL/api/v1/agent/feedback \
+curl -X POST $QBRIX_BASE_URL/api/v1/agent/feedback \
   -H "X-API-Key: $QBRIX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{

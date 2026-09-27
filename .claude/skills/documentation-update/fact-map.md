@@ -48,18 +48,18 @@ These are the facts most likely to silently drift. Verify the doc's number again
 
 | # | Fact in docs | Doc location | Source of truth (anchor) |
 |---|--------------|--------------|--------------------------|
-| D1 | Plan tiers + RPM + API-key + seat + active-experiment limits | `console-workspace.mdx` table; `plans-and-limits.mdx` "Plans" + "Rate limits" | `svc/proxy/src/proxysvc/mod/auth/scope.py` → `PLAN_LIMITS`, `PAID_TIERS`, `TIER_ORDER` |
-| D2 | RBAC scope matrix; "Admin 19 / Member 18 / Viewer 7 scopes" | `plans-and-limits.mdx` "Roles & permissions"; `console-workspace.mdx` Roles table | `scope.py` → `ROLE_SCOPES` |
+| D1 | Self-host has no usage limits (no selection, experiment, seat or API-key caps); billing exists only on managed hosting | `roles-and-limits.mdx` intro; `console-workspace.mdx` "Billing"; `self-hosting.mdx` intro | `svc/proxy/src/proxysvc/core/entitlements.py` → `UnlimitedEntitlements` |
+| D2 | RBAC scope matrix; "Admin 19 / Member 18 / Viewer 7 scopes" | `roles-and-limits.mdx` "Roles & permissions"; `console-workspace.mdx` Roles table | `scope.py` → `ROLE_SCOPES` |
 | D3 | Agent cache 300s TTL / 100 entries; param cache 60s TTL / 1000 entries | `architecture.mdx` "Timings" table (surfaced as user-facing windows: 60s params / 5 min config), `feedback-and-rewards.mdx` (60s) | `svc/motor/src/motorsvc/config.py` + `svc/motor/src/motorsvc/cache.py` (CLAUDE.md: `MOTOR_AGENT_CACHE_*`, `MOTOR_PARAM_CACHE_*`) |
 | D4 | Gate cache L1 30s TTL / 1000 entries, L2 Redis 300s | `architecture.mdx` "Timings" row "Feature gate change → up to 30s" (worst case = another replica's L1 TTL; a write pushes L2 immediately and only invalidates local L1) | proxy gate cache (`svc/proxy/src/proxysvc/core/cache/`, `mod/gate/`); CLAUDE.md `PROXY_GATE_CACHE_MAXSIZE/_TTL`, `PROXY_GATE_REDIS_TTL` |
 | D5 | Cortex batch 256, 100ms timeout, 4 workers, 10s flush | **no longer asserted in docs** (deliberately internal as of the 2026-07 de-internalisation) — docs say only "trained in batches, per experiment". Do not reintroduce the numbers. | `svc/cortex/src/cortexsvc/config.py` + `dispatcher.py` (CLAUDE.md `CORTEX_BATCH_SIZE`, `_BATCH_TIMEOUT_MS`, `_NUM_WORKERS`, `_FLUSH_INTERVAL_SEC`) |
 | D6 | "100-thread gRPC pool" per service | **no longer asserted in docs** (internal; gRPC is not a user-facing concept) | service bootstrap `grpc.server(ThreadPoolExecutor(max_workers=...))` in each `svc/*/src/*/service.py` |
-| D7 | Rate-limit counters expire after 120s; apply only to `select`/`feedback` | `architecture.mdx` "Rate limits protect the hot path only", `plans-and-limits.mdx` | proxy rate limiter (`svc/proxy/src/proxysvc/mod/agent/` or `core/`); `scope.py` `ABUSE_RATE_LIMIT_PER_MINUTE` (=6000) |
+| D7 | Rate-limit counters expire after 120s; apply only to `select`/`feedback` | `architecture.mdx` "Rate limits protect the hot path only", `roles-and-limits.mdx` | proxy rate limiter (`svc/proxy/src/proxysvc/mod/agent/` or `core/`); `scope.py` `ABUSE_RATE_LIMIT_PER_MINUTE` (=6000) |
 | D8 | Param update propagates **within 60 seconds** | `feedback-and-rewards.mdx` callout; `architecture.mdx` "Timings" | bounded by param cache TTL (D3, 60s). Corrected 2026-07 from the old "~30 seconds" claim, which was below the actual TTL. |
 | D9 | Event Log retention = **flat 90 days**, uniform across tiers | `console-event-log.mdx` | `lib/store/qbrixstore/clickhouse/migrations.py` → `create_tables(ttl_days=90)` applies one `event_date + INTERVAL 90 DAY` TTL to all event tables. **Confirmed 2026-07**: no per-tier retention in code, and `qbrix-iac` sets no ClickHouse TTL. Do not reintroduce a per-tier table without a real source. |
 | D10 | Invite link expiry — **72 hours** | `console-workspace.mdx` | `svc/proxy/src/proxysvc/mod/auth/service.py` → `expires_at = datetime.now(timezone.utc) + timedelta(hours=72)`. **Corrected 2026-08**: both the doc and this row previously said 7 days. The `Invite.expires_at` column stores whatever the issuer computed — it is not the source of the window. |
 | D11 | API key prefix `optiq_` | `getting-started.mdx`, `python-sdk.mdx`, `javascript-sdk.mdx`, `console-workspace.mdx`, `api-reference.mdx` | `svc/proxy/src/proxysvc/mod/auth/service.py` → `_api_key_prefix = "optiq_"` |
-| D12 | Base URL `https://cloud.qbrix.io`; API prefix `/api/v1` | `api-reference.mdx`, all quickstarts | `web/apps/console` deploy domain; proxy router mount prefix (`transport/http/`) |
+| D12 | Base URL is the install's address (`http://localhost:8000` on the Compose quickstart); API prefix `/api/v1`; env var `QBRIX_BASE_URL` | `api-reference.mdx`, `getting-started.mdx`, `self-hosting.mdx`, SDK pages | `docker-compose.yml` gateway port (`QBRIX_PORT`); proxy router mount prefix (`transport/http/`) |
 
 > D1/D2 reality (verified 2026-07): `PLAN_LIMITS` has **five** tiers
 > (`free, starter, growth, scale, enterprise`); the differentiator is `included_selections_per_month`
@@ -184,7 +184,7 @@ If a change set touches any of these, re-verify the listed docs:
 | Changed source | Re-check docs |
 |----------------|---------------|
 | `lib/core/qbrixcore/policy/**` (new/removed policy, param/default/reward-type change) | `policies.mdx`, `auto-policy.mdx`, `feedback-and-rewards.mdx` |
-| `svc/proxy/src/proxysvc/mod/auth/scope.py` (`PLAN_LIMITS`, `ROLE_SCOPES`, tiers) | `plans-and-limits.mdx`, `console-workspace.mdx`, `console-event-log.mdx` (D9) |
+| `svc/proxy/src/proxysvc/mod/auth/scope.py` (`ROLE_SCOPES`) | `roles-and-limits.mdx`, `console-workspace.mdx` |
 | `svc/proxy/src/proxysvc/transport/http/router/**` (endpoints) | `api-reference.mdx`, `getting-started.mdx` |
 | `svc/proxy/src/proxysvc/mod/gate/**` (`rule.py` operators, resolution) | `feature-gates.mdx` |
 | `svc/motor/**/config.py`, `cache.py` (cache TTLs/sizes) | `architecture.mdx`, `feedback-and-rewards.mdx` |
@@ -194,6 +194,7 @@ If a change set touches any of these, re-verify the listed docs:
 | `lib/store/qbrixstore/redis/events.py` (event types/fields) | `console-event-log.mdx`, `architecture.mdx` |
 | `../qbrix-www/apps/www/src/config/docs.ts` (sidebar) | S1/S2 — reconcile with `docs/` files |
 | `web/apps/console/src/app/**` (console pages) | `console-*.mdx` |
+| `.env.example`, `docker-compose.yml`, `bin/selfhost-init`, `helm/README.md`, `svc/*/src/*/config.py` | `self-hosting.mdx`, `configuration.mdx` |
 | `../qbrix-python/**`, `../qbrix-js/**` (external) | `sdks.mdx`, `python-sdk.mdx`, `javascript-sdk.mdx`, `use-cases.mdx` |
 
 ---
@@ -201,5 +202,3 @@ If a change set touches any of these, re-verify the listed docs:
 ## External facts (cannot be verified from the qbrix monorepo alone)
 
 - **SDK method names, defaults, versions, error classes** — `../qbrix-python`, `../qbrix-js` (read when present; flag as external).
-- **Live domain / base URL** (`cloud.qbrix.io`) — deploy config in `qbrix-iac`.
-- **Pricing tier marketing names** — reconcile code tiers (`growth`/`scale`) with the pricing page `../qbrix-www/apps/www/src/app/pricing/` and Stripe objects; the docs and the pricing page must agree.
