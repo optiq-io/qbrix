@@ -2,8 +2,8 @@ apiVersion: v2
 name: cortex
 description: Qbrix Cortex Service - Training service for bandit parameter updates
 type: application
-version: 0.1.0  # x-release-please-version
-appVersion: "0.1.0"  # x-release-please-version
+version: 0.2.0  # x-release-please-version
+appVersion: "0.2.0"  # x-release-please-version
 
 keywords:
   - qbrix
