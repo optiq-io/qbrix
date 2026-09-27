@@ -738,7 +738,7 @@ wheels = [
 
 [[package]]
 name = "cortexsvc"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "svc/cortex" }
 dependencies = [
     { name = "click" },
@@ -939,7 +939,7 @@ name = "exceptiongroup"
 version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions" },
+    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/50/79/66800aadf48771f6b62f7eb014e352e5d06856655206165d775e675a02c9/exceptiongroup-1.3.1.tar.gz", hash = "sha256:8b412432c6055b0b7d14c310000ae93352ed6754f70fa8f7c34141f91c4e3219", size = 30371, upload-time = "2025-11-21T23:01:54.787Z" }
 wheels = [
@@ -1580,7 +1580,7 @@ wheels = [
 
 [[package]]
 name = "metersvc"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "ee/svc/meter" }
 dependencies = [
     { name = "cachebox" },
@@ -1635,7 +1635,7 @@ dev = [
 
 [[package]]
 name = "motorsvc"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "svc/motor" }
 dependencies = [
     { name = "cachebox" },
@@ -1998,7 +1998,7 @@ wheels = [
 
 [[package]]
 name = "proxysvc"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "svc/proxy" }
 dependencies = [
     { name = "bcrypt" },
@@ -2592,7 +2592,7 @@ wheels = [
 
 [[package]]
 name = "qbrixcore"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "lib/core" }
 dependencies = [
     { name = "click" },
@@ -2619,7 +2619,7 @@ dev = [
 
 [[package]]
 name = "qbrixio"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "cortexsvc" },
@@ -2668,7 +2668,7 @@ dev = [
 
 [[package]]
 name = "qbrixlog"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "lib/log" }
 dependencies = [
     { name = "sentry-sdk" },
@@ -2686,7 +2686,7 @@ dev = [
 
 [[package]]
 name = "qbrixproto"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "lib/proto" }
 dependencies = [
     { name = "grpcio" },
@@ -2707,7 +2707,7 @@ dev = [
 
 [[package]]
 name = "qbrixruntime"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "lib/runtime" }
 dependencies = [
     { name = "grpcio" },
@@ -2738,7 +2738,7 @@ dev = [
 
 [[package]]
 name = "qbrixstore"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "lib/store" }
 dependencies = [
     { name = "alembic" },
@@ -3005,7 +3005,7 @@ wheels = [
 
 [[package]]
 name = "tracesvc"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "svc/trace" }
 dependencies = [
     { name = "click" },
