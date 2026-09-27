@@ -93,8 +93,6 @@ ENDPOINT_SCOPES = {
     # insight
     ("POST", "/api/v1/insight/*"): "insight:read",
     ("GET", "/api/v1/insight/*"): "insight:read",
-    ("POST", "/api/v1/ee/insight/*"): "insight:read",
-    ("GET", "/api/v1/ee/insight/*"): "insight:read",
     # runtime
     ("GET", "/api/v1/runtime/*"): "runtime:read",
 }
