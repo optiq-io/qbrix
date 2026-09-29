@@ -50,6 +50,9 @@ class RedisStreamConsumer:
     a decode failure is a *policy* question (retry forever, or quarantine the
     entry and keep going) and only the loop that owns the batch can answer it.
     decoding here would mean one bad entry raising for the whole read.
+
+    connect() only builds the client; the group is created by ensure_group(),
+    which the worker drives.
     """
 
     def __init__(
@@ -85,6 +88,15 @@ class RedisStreamConsumer:
 
     async def connect(self) -> None:
         self._client = redis.from_url(self._settings.url, decode_responses=True)
+
+    async def ensure_group(self) -> None:
+        """create the group if it does not exist.
+
+        kept out of connect() because it is the first call that needs redis to
+        be up; StreamWorker retries it, so a service can start before redis does.
+        """
+        if self._client is None:
+            raise RuntimeError("consumer not connected. call connect() first.")
         try:
             await self._client.xgroup_create(
                 self._spec.name,

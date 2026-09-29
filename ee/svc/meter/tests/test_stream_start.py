@@ -41,6 +41,7 @@ async def _connected_consumer(fake, monkeypatch, group: str) -> RedisStreamConsu
         consumer_name="w0",
     )
     await consumer.connect()
+    await consumer.ensure_group()
     return consumer
 
 

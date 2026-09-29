@@ -9,6 +9,8 @@ from typing import Generic
 from typing import Sequence
 from typing import TypeVar
 
+import redis.asyncio as redis
+
 from qbrixstore.event import Event
 from qbrixstore.event import EventDecodeError
 from qbrixstore.redis.streams import RedisStreamConsumer
@@ -28,12 +30,17 @@ _STOP_TIMEOUT_SEC = 30.0
 _MAX_RECOVERY_SWEEPS = 1_000
 
 
+def _is_nogroup(error: Exception) -> bool:
+    return isinstance(error, redis.ResponseError) and str(error).startswith("NOGROUP")
+
+
 class StreamWorker(Generic[EventT]):
     """the consumer loop that every stream consumer shares.
 
-    connect, reclaim the PEL, then read → batch → hand to a handler → ack what
-    the handler says to ack. the services differ only in *when* an entry may be
-    acked, and that difference is the handler's return value rather than a flag:
+    create the group, reclaim the PEL, then read → batch → hand to a handler →
+    ack what the handler says to ack. the services differ only in *when* an
+    entry may be acked, and that difference is the handler's return value
+    rather than a flag:
 
         return the ids -> ack them now (trace: the rows are in clickhouse)
         return []      -> the handler owns the ack (cortex acks after training,
@@ -52,6 +59,10 @@ class StreamWorker(Generic[EventT]):
     in. an entry that cannot be decoded will never decode, so redelivering it
     forever turns one bad publish into a stalled consumer — which is what all
     five hand-rolled loops did.
+
+    setup (group, then PEL) is retried with the same backoff as reads until it
+    succeeds, and redone when redis reports the group gone, so a service can
+    start before redis is reachable and survives losing the stream key.
     """
 
     def __init__(
@@ -73,7 +84,9 @@ class StreamWorker(Generic[EventT]):
         self._name = f"{consumer.spec.name}/{consumer.group}"
         self._batch: list[tuple[str, EventT]] = []
         self._quarantined = 0
+        self._recovered: set[str] = set()
         self._running = False
+        self._wake = asyncio.Event()
         self._task: asyncio.Task | None = None
 
     @property
@@ -93,6 +106,7 @@ class StreamWorker(Generic[EventT]):
         if self._task is not None:
             return
         self._running = True
+        self._wake.clear()
         self._task = asyncio.create_task(
             self._run(), name=f"stream-worker:{self._name}"
         )
@@ -107,6 +121,7 @@ class StreamWorker(Generic[EventT]):
         by cortex's ack, making this flush their last chance to be persisted.
         """
         self._running = False
+        self._wake.set()
         task, self._task = self._task, None
         if task is None:
             return
@@ -127,18 +142,17 @@ class StreamWorker(Generic[EventT]):
         logger.info("%s: worker stopped", self._name)
 
     async def _run(self) -> None:
-        try:
-            await self._recover_pending()
-        except Exception as e:  # noqa
-            # the entries stay in the PEL and are reclaimed on the next start;
-            # failing to recover must not stop the worker from reading new ones.
-            logger.error("%s: pending recovery failed: %s", self._name, e)
-
         backoff = _BACKOFF_START_SEC
         last_flush = time.monotonic()
+        ready = False
 
         while self._running:
             try:
+                if not ready:
+                    await self._setup()
+                    ready = True
+                    last_flush = time.monotonic()
+
                 entries = await self._consumer.consume(
                     batch_size=max(1, self._batch_size - len(self._batch)),
                     block_ms=self._block_ms,
@@ -153,11 +167,34 @@ class StreamWorker(Generic[EventT]):
             except asyncio.CancelledError:
                 raise
             except Exception as e:  # noqa
-                logger.error("%s: %s", self._name, e)
-                await asyncio.sleep(backoff)
+                if ready and _is_nogroup(e):
+                    logger.error("%s: consumer group lost, recreating", self._name)
+                    ready = False
+                    continue
+                await self._fail(e, ready, backoff)
                 backoff = min(backoff * 2, _BACKOFF_MAX_SEC)
 
         await self._drain()
+
+    async def _setup(self) -> None:
+        await self._consumer.ensure_group()
+        await self._recover_pending()
+
+    async def _fail(self, error: Exception, ready: bool, backoff: float) -> None:
+        if ready:
+            logger.error("%s: %s", self._name, error)
+        else:
+            logger.error(
+                "%s: setup failed, retrying in %ss: %s", self._name, backoff, error
+            )
+        await self._pause(backoff)
+
+    async def _pause(self, delay: float) -> None:
+        """sleep for ``delay``, cut short by stop() so shutdown never waits it out."""
+        try:
+            await asyncio.wait_for(self._wake.wait(), timeout=delay)
+        except asyncio.TimeoutError:
+            pass
 
     def _should_flush(self, last_flush: float) -> bool:
         if self._flush_interval_sec <= 0:
@@ -231,8 +268,13 @@ class StreamWorker(Generic[EventT]):
         meter), so a rescan can legitimately return them again — and fakeredis's
         cursor is inclusive and never resets at all. tracking ids terminates
         correctly under both.
+
+        the ids outlive a single call because setup is retried: a sweep that
+        failed halfway has already handed entries to a handler that may defer
+        their ack, and claiming them again would train or bill them twice.
         """
         seen: set[str] = set()
+        before = len(self._recovered)
         cursor = "0-0"
 
         for _ in range(_MAX_RECOVERY_SWEEPS):
@@ -242,8 +284,10 @@ class StreamWorker(Generic[EventT]):
             fresh = [(mid, data) for mid, data in entries if mid not in seen]
             seen.update(mid for mid, _ in entries)
 
-            if fresh:
-                self._batch.extend(await self._decode(fresh))
+            owed = [(mid, data) for mid, data in fresh if mid not in self._recovered]
+            if owed:
+                self._batch.extend(await self._decode(owed))
+                self._recovered.update(mid for mid, _ in owed)
                 if len(self._batch) >= self._batch_size:
                     await self._flush()
 
@@ -255,5 +299,6 @@ class StreamWorker(Generic[EventT]):
         if self._batch:
             await self._flush()
 
-        if seen:
-            logger.info("%s: recovered %d pending entries", self._name, len(seen))
+        recovered = len(self._recovered) - before
+        if recovered:
+            logger.info("%s: recovered %d pending entries", self._name, recovered)
