@@ -5,12 +5,14 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+import redis.asyncio as redis
 
 from qbrixstore.config import RedisSettings
 from qbrixstore.event import AuditEvent
 from qbrixstore.event import SelectionEvent
 from qbrixstore.redis.streams import RedisStreamConsumer
 from qbrixstore.stream import topology
+from qbrixstore.stream import worker as worker_module
 from qbrixstore.stream.worker import StreamWorker
 
 pytestmark = pytest.mark.integration
@@ -82,8 +84,13 @@ async def make_worker(
         spec, group, settings=RedisSettings(), consumer_name="w0"
     )
     await consumer.connect()
+    await consumer.ensure_group()
     handler = handler or Handler()
     return StreamWorker(consumer, handler, **kwargs), handler
+
+
+def tenants_of(handler: Handler) -> list[str]:
+    return [event.tenant_id for batch in handler.batches for _, event in batch]
 
 
 async def wait_for(predicate, timeout: float = 5.0) -> None:
@@ -388,6 +395,123 @@ class TestPendingRecovery:
 
         await asyncio.wait_for(worker._recover_pending(), timeout=2.0)
 
+        assert handler.calls == 0
+
+
+class TestSetup:
+    """the group and the PEL are set up by the worker, not before it.
+
+    a service's start() runs before redis may be reachable (a cold node is
+    still pulling its image), so setup has to be retried rather than raised.
+    """
+
+    async def test_the_worker_creates_a_missing_group(self, redis_server, control):
+        consumer = RedisStreamConsumer(
+            topology.SELECTION, "trace", settings=RedisSettings(), consumer_name="w0"
+        )
+        await consumer.connect()
+        handler = Handler()
+        worker = StreamWorker(consumer, handler, flush_interval_sec=0)
+        await control.xadd(topology.SELECTION.name, make_selection().to_dict())
+
+        await run_until(worker, lambda: handler.batches)
+
+        groups = await control.xinfo_groups(topology.SELECTION.name)
+        assert [g["name"] for g in groups] == ["trace"]
+
+    async def test_setup_is_retried_until_redis_answers(
+        self, redis_server, control, monkeypatch
+    ):
+        monkeypatch.setattr(worker_module, "_BACKOFF_START_SEC", 0.01)
+        worker, handler = await make_worker(flush_interval_sec=0)
+        ensure_group = worker._consumer.ensure_group
+        failures = {"left": 3}
+
+        async def flaky() -> None:
+            if failures["left"]:
+                failures["left"] -= 1
+                raise redis.ConnectionError("connection refused")
+            await ensure_group()
+
+        monkeypatch.setattr(worker._consumer, "ensure_group", flaky)
+        await control.xadd(topology.SELECTION.name, make_selection().to_dict())
+
+        await run_until(worker, lambda: handler.batches)
+
+        assert failures["left"] == 0
+
+    async def test_failed_recovery_is_retried_before_new_reads(
+        self, redis_server, control, monkeypatch
+    ):
+        monkeypatch.setattr(worker_module, "_BACKOFF_START_SEC", 0.01)
+        worker, handler = await make_worker(
+            handler=Handler(mode="none"), batch_size=1, flush_interval_sec=0
+        )
+        await control.xadd(
+            topology.SELECTION.name, make_selection("stranded").to_dict()
+        )
+        await control.xadd(
+            topology.SELECTION.name, make_selection("stranded-2").to_dict()
+        )
+        await control.xreadgroup("trace", "w0", {topology.SELECTION.name: ">"})
+        await control.xadd(topology.SELECTION.name, make_selection("new").to_dict())
+
+        # the sweep hands over the first entry, then redis drops mid-recovery
+        claim_pending = worker._consumer.claim_pending
+        calls = {"n": 0}
+
+        async def flaky(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise redis.ConnectionError("connection reset")
+            return await claim_pending(*args, **kwargs)
+
+        monkeypatch.setattr(worker._consumer, "claim_pending", flaky)
+
+        await run_until(worker, lambda: len(handler.seen_ids) == 3)
+
+        # the deferred ack leaves "stranded" pending, yet the retried sweep
+        # does not hand it over a second time
+        assert tenants_of(handler) == ["stranded", "stranded-2", "new"]
+
+    async def test_a_lost_group_is_recreated(self, redis_server, control):
+        worker, handler = await make_worker(flush_interval_sec=0)
+        await control.xadd(topology.SELECTION.name, make_selection("before").to_dict())
+        await worker.start()
+        try:
+            await wait_for(lambda: len(handler.seen_ids) == 1)
+
+            await control.xgroup_destroy(topology.SELECTION.name, "trace")
+            await control.xadd(
+                topology.SELECTION.name, make_selection("after").to_dict()
+            )
+
+            await wait_for(lambda: "after" in tenants_of(handler))
+        finally:
+            await worker.stop()
+
+        # the group is recreated at the registry's start id, which for trace is
+        # the head of the stream, so what the stream still holds is redelivered
+        assert tenants_of(handler) == ["before", "before", "after"]
+
+    async def test_stop_cuts_a_setup_backoff_short(self, redis_server, monkeypatch):
+        monkeypatch.setattr(worker_module, "_BACKOFF_START_SEC", 30.0)
+        worker, handler = await make_worker(flush_interval_sec=0)
+        attempts = {"n": 0}
+
+        async def unreachable() -> None:
+            attempts["n"] += 1
+            raise redis.ConnectionError("connection refused")
+
+        monkeypatch.setattr(worker._consumer, "ensure_group", unreachable)
+        await worker.start()
+        await wait_for(lambda: attempts["n"] == 1)
+
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        await worker.stop()
+
+        assert loop.time() - started < 1.0
         assert handler.calls == 0
 
 

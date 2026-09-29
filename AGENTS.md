@@ -227,9 +227,9 @@ connection only; which stream a publisher or consumer uses is passed explicitly.
   fail. Only `*_CONSUMER_NAME` (replica identity) is.
 
 **Consumer loop** (`qbrixstore/stream/worker.py`): `StreamWorker` is the one loop
-(connect → reclaim the PEL → read → batch → handler → ack) that cortex, trace and
-meter all run on. Import it from `qbrixstore.stream.worker`; it is not re-exported
-from `qbrixstore.stream`, to avoid an import cycle.
+(create the group → reclaim the PEL → read → batch → handler → ack) that cortex,
+trace and meter all run on. Import it from `qbrixstore.stream.worker`; it is not
+re-exported from `qbrixstore.stream`, to avoid an import cycle.
 - The handler's return value decides the ack: return the ids to ack now, or `[]` to
   defer it (cortex until training completes, meter until Stripe accepts).
 - `flush_interval_sec <= 0` hands over every non-empty read. `> 0` buffers to
@@ -242,6 +242,11 @@ from `qbrixstore.stream`, to avoid an import cycle.
   worker; never cancel its task.
 - PEL recovery stops when it stops seeing new ids, not when `XAUTOCLAIM`'s cursor
   resets, since deferred acks keep entries pending.
+- The worker, not the service, creates the group (`ensure_group()`), and retries
+  that and PEL recovery with backoff until Redis answers. `consumer.connect()`
+  touches no network, so a service's `start()` must not need Redis to be up. A
+  `NOGROUP` read recreates the group at the registry's start id. A retried
+  recovery never hands the same entry over twice.
 
 **Events** (`qbrixstore/event/`): `FeedbackEvent`, `SelectionEvent`, `AuditEvent`.
 The `Event` base derives encode and decode from the dataclass fields. Decoding is
