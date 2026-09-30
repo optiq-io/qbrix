@@ -133,9 +133,9 @@ ANALYTICS_ENABLED=true
 The chart runs the same images on Kubernetes 1.25+ with Helm 3.10+. You need an ingress controller and a default StorageClass for the in-cluster databases.
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/optiq-io/qbrix/main/helm/qbrix/examples/values-selfhost.yaml
-# set your host (qbrix.example.com) in values-selfhost.yaml, then
-helm install qbrix oci://ghcr.io/optiq-io/charts/qbrix -f values-selfhost.yaml
+curl -fsSL -o values.yaml https://raw.githubusercontent.com/optiq-io/qbrix/main/helm/qbrix/examples/values-selfhost.yaml
+# set your host (qbrix.example.com) in values.yaml, then
+helm install qbrix oci://ghcr.io/optiq-io/charts/qbrix -f values.yaml
 ```
 
 Any release name works. By default the chart runs Postgres and Redis in the cluster and generates the secrets on first install, keeping them across upgrades. The console and the API must share one host: the chart routes `/api` to the API and everything else to the console.
@@ -165,7 +165,7 @@ The `migrate` service applies any database migrations before you use the new ver
 **Helm.**
 
 ```bash
-helm upgrade qbrix oci://ghcr.io/optiq-io/charts/qbrix --version 0.2.0 -f values-selfhost.yaml
+helm upgrade qbrix oci://ghcr.io/optiq-io/charts/qbrix --version 0.2.0 -f values.yaml
 ```
 
 Migrations run as a hook before the new pods roll out, and a failed migration fails the upgrade instead of starting new code on an old schema.

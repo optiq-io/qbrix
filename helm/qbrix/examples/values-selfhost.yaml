@@ -1,7 +1,8 @@
 # a single-cluster install behind ingress-nginx: in-cluster postgres and redis,
-# generated secrets, console and api on one host.
+# generated secrets, console and api on one host. the self-hosting guide saves
+# this file as values.yaml:
 #
-#   helm install qbrix oci://ghcr.io/optiq-io/charts/qbrix -f values-selfhost.yaml
+#   helm install qbrix oci://ghcr.io/optiq-io/charts/qbrix -f values.yaml
 #
 # replace qbrix.example.com with your host. the console calls /api on its own
 # origin, so both ingresses must serve the same host.
