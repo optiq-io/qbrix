@@ -36,8 +36,8 @@ cd bin && uv run python -m loadtest.cli -n 3 --no-auto -u 30 -r 5 -t 60s
 # web interface
 cd bin && uv run python -m loadtest.cli -n 3 --web
 
-# connect to cloud
-LOADTEST_API_KEY=optiq_xxx uv run python -m loadtest.cli -h cloud.qbrix.io -p 443 --scheme https --web
+# connect to a remote deployment
+LOADTEST_API_KEY=optiq_xxx uv run python -m loadtest.cli -h qbrix.example.com -p 443 --scheme https --web
 ```
 
 ### CLI Options

@@ -10,7 +10,7 @@ web/
   packages/
     ui/               @qbrix/ui — shared components, styles, fonts, utils
   apps/
-    console/          @qbrix/console — app console (cloud.qbrix.io)
+    console/          @qbrix/console — app console
 ```
 
 ## Applications
@@ -19,7 +19,6 @@ web/
 
 | Property | Value |
 |---|---|
-| **Domain** | `cloud.qbrix.io` |
 | **Purpose** | Login, register, dashboard, experiments, pools, settings |
 | **Next.js output** | `standalone` (Node.js server) |
 | **Docker image** | `qbrix-console` — Node.js standalone server |
@@ -38,35 +37,29 @@ The console app is the EE (Enterprise Edition) web console. It authenticates use
 ## Architecture
 
 ```
-                    Internet
-                       │
-          ┌────────────┼────────────┐
-          │                         │
-          ▼                         ▼
-    ┌───────────┐            ┌─────────────┐
-    │  qbrix.io │            │cloud.qbrix.io│
-    │   (www)   │            │   (cloud)    │
-    │  Static   │            │  Next.js SSR │
-    │  S3+CDN   │            │    on EKS    │
-    └───────────┘            └──────┬───────┘
-                                    │ /api (same origin)
-                                    ▼
-                             ┌─────────────┐
-                             │  proxysvc   │
-                             │  HTTP :8080 │
-                             └──────┬──────┘
-                                    │ gRPC
-                        ┌───────────┼───────────┐
-                        ▼           ▼           ▼
-                    motorsvc    cortexsvc     Redis
+                  Browser
+                     │
+                     ▼
+            ┌─────────────────┐
+            │ gateway/ingress │
+            └───┬─────────┬───┘
+            /   │         │ /api
+                ▼         ▼
+        ┌────────────┐ ┌─────────────┐
+        │  console   │ │  proxysvc   │
+        │Next.js SSR │ │  HTTP :8080 │
+        └────────────┘ └──────┬──────┘
+                              │ gRPC
+                  ┌───────────┼───────────┐
+                  ▼           ▼           ▼
+              motorsvc    cortexsvc     Redis
 ```
 
 ### User flow
 
-1. User visits `qbrix.io` → sees marketing homepage (static, CDN-served)
-2. Clicks "Get Started" or "Log in" → redirects to `cloud.qbrix.io/login`
-3. Authenticates against proxysvc → JWT tokens stored client-side
-4. Lands on `cloud.qbrix.io/dashboard` → all API calls go to proxysvc
+1. User opens the console's `/login` on the deployment's host
+2. Authenticates against proxysvc → JWT tokens stored client-side
+3. Lands on `/dashboard` → all API calls go to proxysvc under `/api` on the same host
 
 ### Backend interaction
 
@@ -83,20 +76,12 @@ Key API paths:
 
 ## Deployment Targets
 
-### Production (AWS EKS + CloudFront)
+### Kubernetes (Helm)
 
-**console (app):**
-- Build Docker image from `web/apps/console/Dockerfile` (context: `web/`)
-- Deploy to EKS as a Kubernetes Deployment + Service
-- Helm subchart at `helm/qbrix/charts/console/`
-- Sits behind the same ALB/Ingress as proxysvc
-- CloudFront CDN in front with `cloud.qbrix.io` custom domain
-- ACM certificate for `cloud.qbrix.io`
-- Built with no API build arg: the console calls `/api` on its own host, and the ingress routes `/api` to proxysvc
-
-**DNS (Route53):**
-- `qbrix.io` → CloudFront distribution (www static)
-- `cloud.qbrix.io` → CloudFront distribution (console app on EKS origin)
+- The chart at `helm/qbrix/` deploys the console as a Deployment + Service (`helm/qbrix/charts/console/`), using the published image `ghcr.io/optiq-io/qbrix/console`
+- With ingress enabled on both subcharts and a shared host, `/` routes to the console and `/api` to proxysvc
+- The image is built with no API build arg, so it runs on any host
+- Chart values and installation are in [`helm/README.md`](../helm/README.md)
 
 ### Local / Self-hosted (Docker Compose)
 
@@ -134,59 +119,3 @@ The console depends on `@qbrix/ui` (workspace dependency). It contains:
 - Utility functions (`src/lib/utils.ts`)
 
 This package is NOT published — it's consumed via pnpm workspace protocol (`workspace:*`). The console Dockerfile copies the package into the build context.
-
-## Helm Chart Integration
-
-The console app should be added as a subchart under `helm/qbrix/charts/console/`:
-
-```
-helm/qbrix/charts/
-  proxy/          # HPA enabled
-  motor/          # HPA enabled
-  cortex/         # single instance
-  console/        # HPA enabled (new)
-```
-
-Key Helm values for the cloud subchart:
-
-```yaml
-console:
-  replicaCount: 2
-  image:
-    repository: <ecr-registry>/qbrix-console
-    tag: latest
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
-  autoscaling:
-    enabled: true
-    minReplicas: 2
-    maxReplicas: 10
-```
-
-## Terraform Resources Needed
-
-For the IAC engineer, these AWS resources are required:
-
-### S3 + CloudFront (www)
-- S3 bucket for static site hosting
-- CloudFront distribution with S3 origin
-- ACM certificate for `qbrix.io`
-- Route53 A record → CloudFront
-
-### CloudFront + ALB origin (cloud)
-- CloudFront distribution with ALB origin (EKS ingress)
-- ACM certificate for `cloud.qbrix.io`
-- Route53 A record → CloudFront
-- Cache behavior: bypass cache for all paths (dynamic app)
-
-### ECR
-- ECR repository for `qbrix-console` image
-
-### CI/CD considerations
-- www: built, uploaded to S3 and invalidated from its own repository
-- console: build Docker image → push to ECR → update EKS deployment
