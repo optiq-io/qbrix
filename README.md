@@ -111,11 +111,11 @@ event streams.
 This repository is the whole product. Self-hosted, it has no usage limits, seat
 caps or license keys.
 
-The same code also runs **qbrix cloud**, our managed service. Its billing and plan
+If you'd rather not operate qbrix yourself, we host it for you: write to
+[info@optiqio.com](mailto:info@optiqio.com) about managed hosting. Its billing and plan
 code lives in the `ee` directories listed in [`bin/ee-paths.txt`](bin/ee-paths.txt).
 That code is off unless `PROXY_EE_ENABLED` is set, and CI proves on every push that
-the product runs with those directories deleted. If you'd rather not operate qbrix
-yourself, write to [info@optiqio.com](mailto:info@optiqio.com) about managed hosting.
+the product runs with those directories deleted.
 
 ## Contributing
 
