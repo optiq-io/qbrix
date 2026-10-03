@@ -2,8 +2,8 @@ apiVersion: v2
 name: qbrix
 description: Distributed Multi-Armed Bandit System for low-latency decisions with eventual consistency
 type: application
-version: 0.2.0  # x-release-please-version
-appVersion: "0.2.0"  # x-release-please-version
+version: 0.2.1  # x-release-please-version
+appVersion: "0.2.1"  # x-release-please-version
 
 home: https://qbrix.io
 sources:
@@ -21,26 +21,26 @@ maintainers:
 
 dependencies:
   - name: proxy
-    version: "0.2.0"  # x-release-please-version
+    version: "0.2.1"  # x-release-please-version
     repository: "file://charts/proxy"
     condition: proxy.enabled
   - name: motor
-    version: "0.2.0"  # x-release-please-version
+    version: "0.2.1"  # x-release-please-version
     repository: "file://charts/motor"
     condition: motor.enabled
   - name: cortex
-    version: "0.2.0"  # x-release-please-version
+    version: "0.2.1"  # x-release-please-version
     repository: "file://charts/cortex"
     condition: cortex.enabled
   - name: console
-    version: "0.2.0"  # x-release-please-version
+    version: "0.2.1"  # x-release-please-version
     repository: "file://charts/console"
     condition: console.enabled
   - name: trace
-    version: "0.2.0"  # x-release-please-version
+    version: "0.2.1"  # x-release-please-version
     repository: "file://charts/trace"
     condition: trace.enabled
   - name: meter
-    version: "0.2.0"  # x-release-please-version
+    version: "0.2.1"  # x-release-please-version
     repository: "file://charts/meter"
     condition: ee.meter.enabled

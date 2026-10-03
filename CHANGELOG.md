@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/optiq-io/qbrix/compare/v0.2.0...v0.2.1) (2026-10-03)
+
+
+### Bug Fixes
+
+* **store:** stream workers set up their consumer group in the retry loop ([#16](https://github.com/optiq-io/qbrix/issues/16)) ([20aec13](https://github.com/optiq-io/qbrix/commit/20aec138d20e890717e67297e4343a4d0e77422e))
+
 ## [0.2.0](https://github.com/optiq-io/qbrix/compare/v0.1.0...v0.2.0) (2026-09-27)
 
 
