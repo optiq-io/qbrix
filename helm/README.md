@@ -9,9 +9,9 @@ For a single machine, the Docker Compose quickstart at the repository root is si
 Requirements: Kubernetes 1.25+, Helm 3.10+, an ingress controller (the examples use ingress-nginx) and a default StorageClass for the in-cluster databases.
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/optiq-io/qbrix/main/helm/qbrix/examples/values-selfhost.yaml
-# edit the host (qbrix.example.com) in values-selfhost.yaml, then
-helm install qbrix oci://ghcr.io/optiq-io/charts/qbrix -f values-selfhost.yaml
+curl -fsSL -o values.yaml https://raw.githubusercontent.com/optiq-io/qbrix/main/helm/qbrix/examples/values-selfhost.yaml
+# edit the host (qbrix.example.com) in values.yaml, then
+helm install qbrix oci://ghcr.io/optiq-io/charts/qbrix -f values.yaml
 ```
 
 Any release name works. The in-cluster Postgres, Redis and ClickHouse services are named after the release (`<release>-postgres`, …), and the services find them there unless `global.*.host` points elsewhere.
@@ -115,7 +115,7 @@ Set `proxy.migrations.enabled: false` to migrate out of band.
 ## Upgrade and uninstall
 
 ```bash
-helm upgrade qbrix oci://ghcr.io/optiq-io/charts/qbrix --version <version> -f values-selfhost.yaml
+helm upgrade qbrix oci://ghcr.io/optiq-io/charts/qbrix --version <version> -f values.yaml
 helm uninstall qbrix
 kubectl delete pvc -l app.kubernetes.io/instance=qbrix   # deletes the data
 kubectl delete secret qbrix-postgres                     # the kept, generated password

@@ -1,8 +1,9 @@
 # managed postgres, redis and (with analytics) clickhouse instead of the
-# in-cluster ones. layer it on top of values-selfhost.yaml:
+# in-cluster ones. layer it on top of values-selfhost.yaml (saved as
+# values.yaml by the self-hosting guide):
 #
 #   helm install qbrix oci://ghcr.io/optiq-io/charts/qbrix \
-#     -f values-selfhost.yaml -f values-external-services.yaml
+#     -f values.yaml -f values-external-services.yaml
 #
 # create the secrets first, e.g.
 #   kubectl create secret generic qbrix-postgres \

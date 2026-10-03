@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <strong>Adaptive experiments that shift traffic to what works, while they run.</strong>
+  <strong>The open-source decision engine. Your best variant, on every request.</strong>
 </p>
 
 <p align="center">
@@ -16,10 +16,10 @@
 
 ---
 
-qbrix is a self-hostable engine for multi-armed bandit experiments. You give it the
-variants, it picks one per request, you report the outcome, and it moves traffic
-toward the variants that perform. Use it where an A/B test would make you wait for
-a winner: headlines, recommendations, pricing, onboarding flows, ranking.
+qbrix is the open-source decision engine. You give it the variants, it picks one per
+request, you report the outcome, and it moves traffic toward the variants that
+perform, using multi-armed bandit policies. Use it where an A/B test would make you
+wait for a winner: headlines, recommendations, pricing, onboarding flows, ranking.
 
 Selection and learning are separate paths. Selection is a stateless, low-latency
 service that scales horizontally; learning consumes feedback from a stream and
@@ -85,8 +85,9 @@ and analytics.
 ### Kubernetes
 
 ```bash
-helm install qbrix oci://ghcr.io/optiq-io/charts/qbrix \
-  -f https://raw.githubusercontent.com/optiq-io/qbrix/main/helm/qbrix/examples/values-selfhost.yaml
+curl -fsSL -o values.yaml https://raw.githubusercontent.com/optiq-io/qbrix/main/helm/qbrix/examples/values-selfhost.yaml
+# set your host (qbrix.example.com) in values.yaml, then
+helm install qbrix oci://ghcr.io/optiq-io/charts/qbrix -f values.yaml
 ```
 
 See [`helm/README.md`](helm/README.md) for routing, secrets, external databases,
@@ -110,11 +111,11 @@ event streams.
 This repository is the whole product. Self-hosted, it has no usage limits, seat
 caps or license keys.
 
-The same code also runs **qbrix cloud**, our managed service. Its billing and plan
+If you'd rather not operate qbrix yourself, we host it for you: write to
+[info@optiqio.com](mailto:info@optiqio.com) about managed hosting. Its billing and plan
 code lives in the `ee` directories listed in [`bin/ee-paths.txt`](bin/ee-paths.txt).
 That code is off unless `PROXY_EE_ENABLED` is set, and CI proves on every push that
-the product runs with those directories deleted. If you'd rather not operate qbrix
-yourself, write to [info@optiqio.com](mailto:info@optiqio.com) about managed hosting.
+the product runs with those directories deleted.
 
 ## Contributing
 
