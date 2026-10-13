@@ -11,6 +11,8 @@ wheels/
 *.egg-info
 .coverage
 .cov
+# the workspace has one lockfile, at the root
+lib/*/uv.lock
 
 # Virtual environments
 .venv
