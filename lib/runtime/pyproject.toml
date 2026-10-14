@@ -1,6 +1,6 @@
 [project]
 name = "qbrixruntime"
-version = "0.2.0"  # x-release-please-version
+version = "0.2.1"  # x-release-please-version
 description = "process lifecycle and grpc serving skeleton shared by qbrix services"
 readme = "README.md"
 requires-python = ">=3.10"

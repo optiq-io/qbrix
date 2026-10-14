@@ -2,8 +2,8 @@ apiVersion: v2
 name: proxy
 description: Qbrix Proxy Service - Gateway and control plane for routing requests
 type: application
-version: 0.2.0  # x-release-please-version
-appVersion: "0.2.0"  # x-release-please-version
+version: 0.2.1  # x-release-please-version
+appVersion: "0.2.1"  # x-release-please-version
 
 keywords:
   - qbrix
