@@ -30,8 +30,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/ui
       '@sentry/nextjs':
-        specifier: ^10.76.1
-        version: 10.76.1(@opentelemetry/core@2.12.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.9.1))(next@15.5.27(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@types/node@22.20.5)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)(webpack@5.105.0)
+        specifier: ^10.76.2
+        version: 10.76.2(@opentelemetry/core@2.12.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.9.1))(next@15.5.27(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@types/node@22.20.5)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)(webpack@5.105.0)
       '@tanstack/query-sync-storage-persister':
         specifier: ^5.104.1
         version: 5.104.1
@@ -673,146 +673,138 @@ packages:
       rollup:
         optional: true
 
-  '@rollup/rollup-android-arm-eabi@4.64.5':
-    resolution: {integrity: sha512-MrfgRQSpD5hkkRg6XI16B6EDLb+6+xp8xje6bpdSwkYw+qxrBKbUVrRAQu9h82UT+QumSIVQ8HXsXjPd2dlhqw==}
+  '@rollup/rollup-android-arm-eabi@4.64.6':
+    resolution: {integrity: sha512-FkO19Fowv/OQeJZPVfdetJaI3/VpbZmBsnmAlR/rQ+b3QwfiGQiOpVegpSRH331kelvHTVw9hXYG3DwjAaRzyQ==}
     cpu: [arm]
     os: [android]
 
-  '@rollup/rollup-android-arm64@4.64.5':
-    resolution: {integrity: sha512-+uu2p/R9Tzn8GpoQyX1pAo5dmKT1DhXevfaCzqzmPFhnLjHLWw7uWkaVGlxmhwYoRiYYhsGfRcD5cTBpL7rgSw==}
+  '@rollup/rollup-android-arm64@4.64.6':
+    resolution: {integrity: sha512-si5/Etm6MphPc2xYHnk455Shls/hoMjTy3mhXge4OPmvCw7TwC4KP4fKokAlKLV4XaQvLvgSHfafPcblLMYYdQ==}
     cpu: [arm64]
     os: [android]
 
-  '@rollup/rollup-darwin-arm64@4.64.5':
-    resolution: {integrity: sha512-17dys+YEmzwzzFVHQAVDONg5FALXY9kd99HFEpfk4gJVHYxoh5bGea3D4t1fXXnwkTcOe25wPyd6nWS0I8IdLQ==}
+  '@rollup/rollup-darwin-arm64@4.64.6':
+    resolution: {integrity: sha512-PQCl3q7b0BgvVt72i2xrWM6I5KliwwVe4GpWW5QDGyUQawDS9aPZss/aGyFqBmxdRxlE8wDc9CaxiQ5DHRSp/Q==}
     cpu: [arm64]
     os: [darwin]
 
-  '@rollup/rollup-darwin-x64@4.64.5':
-    resolution: {integrity: sha512-wg0zQEKkEvFZf1UaaX1UELOoPs//OSKUG7D+yITuqOsAvza7LvHTv5Wu4nmMfzNG7EYI2jp2PJC7Id6OETmsYQ==}
+  '@rollup/rollup-darwin-x64@4.64.6':
+    resolution: {integrity: sha512-l9DFl1Itb1YYdSrP1K3U8ih44AOHa/p+Q4WMMDfGvH5qVWp+ajfgS1DlYo4yCRh8wJ2ZJv0Fqccf+ULAmMFjmg==}
     cpu: [x64]
     os: [darwin]
 
-  '@rollup/rollup-freebsd-arm64@4.64.5':
-    resolution: {integrity: sha512-CoJmWcpEMuwin+TZ/ev/H9uDyF/uxUKQSWXdmIPn/UBx/uGV9+4ebMp0FwnlhWR9PE1AdzYsKf3bZevhif38+A==}
+  '@rollup/rollup-freebsd-arm64@4.64.6':
+    resolution: {integrity: sha512-bR4GR3205N9+od0+l5Dd9/iZTDpJkIe6d6Ydp2qbcQZJLmKBdYQQRp8gbWpbMt92twKJY66o1vK4NkoKQODIrA==}
     cpu: [arm64]
     os: [freebsd]
 
-  '@rollup/rollup-freebsd-x64@4.64.5':
-    resolution: {integrity: sha512-PxZnLAaTUAL5xG0W2BXLeYPKrK2b3LIASV2/e/Kf7PZvSLI1iAQIm9B9aJD+YyFIT7hc6qaMV3+OOO35R28LfA==}
+  '@rollup/rollup-freebsd-x64@4.64.6':
+    resolution: {integrity: sha512-XTVNaDzcFl2TeBglvxdGgsCv9JGtAGRAoJENmGBR/XvDH2mA2K0IXc2aMfP0dR8mexSXSKifJ85FixoXX1wfTw==}
     cpu: [x64]
     os: [freebsd]
 
-  '@rollup/rollup-linux-arm-gnueabihf@4.64.5':
-    resolution: {integrity: sha512-uPo3IvnONjhbFXwWgroBeFwOicuhT7ZwQrnzkzmOtBJzeQbkUJUE1SJDfDI31ijQ5+ZUIA6sPrdUMxTSnxUWAg==}
+  '@rollup/rollup-linux-arm-gnueabihf@4.64.6':
+    resolution: {integrity: sha512-qWc6qbc+25ugG9vqPR9P422KJBbVfZ05mjcMggoq8tsfWP+eRfC+/tiDdIlRF5VL2pDVZWN9zAhWsmu7R1+7Dw==}
     cpu: [arm]
     os: [linux]
 
-  '@rollup/rollup-linux-arm-musleabihf@4.64.5':
-    resolution: {integrity: sha512-ywI8Jyuc4LyHYTjC0mw4yA1ulvZBkHusdpWnoiEBsmBuHvSnt90btTBGCZ+s/2y+YNNfVAEKy33nPo5UI9zTmg==}
+  '@rollup/rollup-linux-arm-musleabihf@4.64.6':
+    resolution: {integrity: sha512-V4Nwkp8844X/Xnww3PI1LYS0YPei8XQEVG70R+5MPZGO7AhYoun4hCN7Svs4U3wbQLZbwiz+9xRFhUZZdRl8Ww==}
     cpu: [arm]
     os: [linux]
 
-  '@rollup/rollup-linux-arm64-gnu@4.64.5':
-    resolution: {integrity: sha512-tmuXJoQ/3ovSr637aykZMdQteU/CB2APAz2CrvsbibuoHZi1BS1Db13cVViBdEARGwXCLn1DSJ8wsjoThLJPGA==}
+  '@rollup/rollup-linux-arm64-gnu@4.64.6':
+    resolution: {integrity: sha512-xb72A1aPaaIsp+a88VtRae/ovIEXislbUMyp7b9AQQU7ZkP2m/+ik6DW9TQcJyw5R8/RIailF9zExYwkjR++UA==}
     cpu: [arm64]
     os: [linux]
 
-  '@rollup/rollup-linux-arm64-musl@4.64.5':
-    resolution: {integrity: sha512-5FMjSYNcUOHx7oW8Qu9KB6jGPpvF/8sG7+BDHwU/Ihh1/6FMJ9ySmsFG4tJ1qbNRuP8OLzCBDso4sF0mQaLuFQ==}
+  '@rollup/rollup-linux-arm64-musl@4.64.6':
+    resolution: {integrity: sha512-pbcs1BVBwC43hZkjhjlF8Rx8m5G0KnhLZs9Azy/gqccP6UsNSzJr0hKGIAVPqzAH1O/NdPxxC9GVGb4msQg/aw==}
     cpu: [arm64]
     os: [linux]
 
-  '@rollup/rollup-linux-loong64-gnu@4.64.5':
-    resolution: {integrity: sha512-K8ZJ+neLDbUkIrL8dqF/5LtuVCrKwo27kREgOlxjBEjlOXwHvDnHLU8Z/UKv/B49qi7e8hsSDOyoJwhwqhvX4w==}
+  '@rollup/rollup-linux-loong64-gnu@4.64.6':
+    resolution: {integrity: sha512-EKOC8os6Vsg487ZLKUqzLF99Jsmnq6tu7O7mAELakNpcA+8KadktFf/JYdRuHe/DzCUXmN38pUKu4XBcKlqGbQ==}
     cpu: [loong64]
     os: [linux]
 
-  '@rollup/rollup-linux-loong64-musl@4.64.5':
-    resolution: {integrity: sha512-NlVxsq7PFPv0DBKGuNWRDKixQYQCjM53zl04mxEcKMBmJbCBIUm1JdPfIWDRHyOOFzzYPmLQzfeEwh4716ayQg==}
+  '@rollup/rollup-linux-loong64-musl@4.64.6':
+    resolution: {integrity: sha512-v/SQ68GnSlr/HyjB79sNXesGDwkOPu9JjbHfmWaymCiM+nZsQ9TstG1KfA4MuEvTr2d3PoY8PhFxj9bt0e32JA==}
     cpu: [loong64]
     os: [linux]
 
-  '@rollup/rollup-linux-ppc64-gnu@4.64.5':
-    resolution: {integrity: sha512-ARhRHJYs5eCFet5azfrHD97vOkD8OzNW2RSMlvo5CcBqXaTOLfp0OHDtUQh7/K5AL5fUYoFp2fgC9KDg4vVYMQ==}
+  '@rollup/rollup-linux-ppc64-gnu@4.64.6':
+    resolution: {integrity: sha512-G3pmliMQ7r15zFFNwBlaT/xTdSLi4lfgI7CUrQueyKYheNVhrd8JrWCE6Ll8xf4AA1RZFqq+mNJYntiElsVOyA==}
     cpu: [ppc64]
     os: [linux]
 
-  '@rollup/rollup-linux-ppc64-musl@4.64.5':
-    resolution: {integrity: sha512-atSgreM5C7jpxd9aEXN+6vJ5wTd05iYw+S3FiQpw7VsoEl8B90llbq35ARON+GOHj5QlVQEq2vOKWCHTob/BSQ==}
+  '@rollup/rollup-linux-ppc64-musl@4.64.6':
+    resolution: {integrity: sha512-XQTB/IPoB/wG6x/wu9uomAt8YH61IAr5iZTubMiad/lu88sotq2ocz9hJd556+Jz2kIkF7ZQZIsUuWE3OWqtcA==}
     cpu: [ppc64]
     os: [linux]
 
-  '@rollup/rollup-linux-riscv64-gnu@4.64.5':
-    resolution: {integrity: sha512-vmlmwBFGnjVWxSRoVabNkyYuscSmg52Pd0fM8jEbNT3Jmka4A6HcB84x4uAmuumznWfBVaxKOqU6jbEgomWKCA==}
+  '@rollup/rollup-linux-riscv64-gnu@4.64.6':
+    resolution: {integrity: sha512-O5mpokth6+ydMuwiGtY8fIjvOBfH7u6SzmDNmZ3k6GK5C6iEAC2q2ZN/T5L9jYILx0IcCT0KnfMDihQ5yQFSBw==}
     cpu: [riscv64]
     os: [linux]
 
-  '@rollup/rollup-linux-riscv64-musl@4.64.5':
-    resolution: {integrity: sha512-hhJrP6S9WkbsbcHgUkvCBS5Cn8IdsG8XjlLZyxjnv9+NdoYfbbZE4TWJYr8apdaj1M5t5Y1id2StnEslxpNFyA==}
+  '@rollup/rollup-linux-riscv64-musl@4.64.6':
+    resolution: {integrity: sha512-aIFxbAD9v3TvIaEDsKmukjcDg1JS4/tFXw8SHyQQgzOwzWCQ4cyDK7Ju1pQKqUXDFkEu/BZCFDCDATsKhQcB/Q==}
     cpu: [riscv64]
     os: [linux]
 
-  '@rollup/rollup-linux-s390x-gnu@4.64.5':
-    resolution: {integrity: sha512-NNVCyN9pGrwFmQa4bf+Cnf5aVH3g6ZpnlOg1Cs/H9swIHT9bRixijfzUqyEIWm1WtiAuR1LJ+rJH6zpBm8kgQA==}
+  '@rollup/rollup-linux-s390x-gnu@4.64.6':
+    resolution: {integrity: sha512-fuNo1UwBc6BxnHDOxxguQL/InhheMN3RJcJMb0b4xP8r5Q3CNCrJbVg0eCIFuJ4e/zAfjR2gYbOfbzO/G7CIyw==}
     cpu: [s390x]
     os: [linux]
 
-  '@rollup/rollup-linux-x64-gnu@4.64.5':
-    resolution: {integrity: sha512-dR9nd6OKnvSS60Ifz/L7Mj5zzYyoqyRn2NwTuaOONKaa3xsVGXyp8YusMbvFyEOR94DxnwgcbgsFqkHd29ZSzQ==}
+  '@rollup/rollup-linux-x64-gnu@4.64.6':
+    resolution: {integrity: sha512-05v6wFKDKJPZs9xlytVrrRu6IbRuoSvlH9xNwEOafXsKyjBFZPvAcZz2VIAB/M+lblYeKa9iOYC4RDVdfcAAaw==}
     cpu: [x64]
     os: [linux]
 
-  '@rollup/rollup-linux-x64-musl@4.64.5':
-    resolution: {integrity: sha512-1tzsMjaqhsh3bAO6SJiJqh8hIr9sSPRd+i2vPPxJHod8/XYnf9TEnK0z/u3r1z1AkI347X0KbRSg9dWcxeGahw==}
+  '@rollup/rollup-linux-x64-musl@4.64.6':
+    resolution: {integrity: sha512-wJXKcdMjvkc/FaavZXNP1yW4i0pfOmhZAIWRSLG2yJ0PB0TWi7dkLErhX0u0vptDcXKKO/m1Y/YTeuyvb2MXwg==}
     cpu: [x64]
     os: [linux]
 
-  '@rollup/rollup-openbsd-x64@4.64.5':
-    resolution: {integrity: sha512-01mWMQblKoXXsmk28KXtpbA96w7g/aOWUoV3AC16fdHdqkykGalqyyM+5u8M7uP5/MEMiiPv69Hv7iv/hEH/dA==}
+  '@rollup/rollup-openbsd-x64@4.64.6':
+    resolution: {integrity: sha512-cwg7/h0ThvJwy8CBkmACdiHAxRWpbsCmIsjOt+Zzx0hTnIcSUmKYEV03bGg+hD827OnwUsbKh1ZZDW754xWyBA==}
     cpu: [x64]
     os: [openbsd]
 
-  '@rollup/rollup-openharmony-arm64@4.64.5':
-    resolution: {integrity: sha512-trdnMPb/DNm4V/CgsaoGgr90HfQQ071wfK0KoIs4YpLvjBgVQGXhGabg2Z6nK4EcYNilrb9ZZPcsP6+zpJIdxQ==}
+  '@rollup/rollup-openharmony-arm64@4.64.6':
+    resolution: {integrity: sha512-T0RkYIJbdYXJEQFw+tMBO09KDFdgmNxkHsof3wWAABrvnx15Yh8RytmrgYy9+q9cBeBNZF66MMQZC+5nzEz6vg==}
     cpu: [arm64]
     os: [openharmony]
 
-  '@rollup/rollup-win32-arm64-msvc@4.64.5':
-    resolution: {integrity: sha512-x2LxZlfdfsw99T6/qb9EqE/Qi84JWzibjyOJyhJsgFJy6CafaTiqIXCCnslCGrV5XWNh7fwrS3FbRENcuKnooA==}
+  '@rollup/rollup-win32-arm64-msvc@4.64.6':
+    resolution: {integrity: sha512-KlfpmF1AAIdAWxt8QQNClbpLFlAUfYOzqIuJ7IXEStMHpFRuH78RG6FjqPb3Rqhh0K89F5npvG+/i3Fjl6IveQ==}
     cpu: [arm64]
     os: [win32]
 
-  '@rollup/rollup-win32-ia32-msvc@4.64.5':
-    resolution: {integrity: sha512-/Qd/9aDQIo0+jmItgBmPIs8195YVbDxRRApn47GyufgbutCDOh7eP5vSKKlI4QNFeaI+wKQAkSMsPnF3EuMpaA==}
+  '@rollup/rollup-win32-ia32-msvc@4.64.6':
+    resolution: {integrity: sha512-MrTLjd7Jlt9/ZavJZYG61KQv9Iy9bzbY+yXy73Xvwoa2uP66wvDShkyBr5Chz/yrE6lbD/zHMuTmKQVNQqBApg==}
     cpu: [ia32]
     os: [win32]
 
-  '@rollup/rollup-win32-x64-gnu@4.64.5':
-    resolution: {integrity: sha512-ngUJ/XvOWrqbd2IMsfXfh2xXFLTP3sY7sCKvxbGvYdBZ1KmXFd3ewDZ9n3/GNzAUgzRuhLT/UvJRivbNoAQRBw==}
+  '@rollup/rollup-win32-x64-gnu@4.64.6':
+    resolution: {integrity: sha512-8fWDH1CkPI8GdBKAxzHDza7UmgficsKo2+MVbvUgOGhB0629w5sHMg3Qu5y7TZsrYKHHWpz8fla4KvoT7WsO3Q==}
     cpu: [x64]
     os: [win32]
 
-  '@rollup/rollup-win32-x64-msvc@4.64.5':
-    resolution: {integrity: sha512-IhV6ew/DuzUWwHaYmlh7MrPCV3lKFUq/amTEwysi4r/mwNPAEfAMh5dYWeTSPTeMy2pFHGMEWYtPkHzfX3tG5A==}
+  '@rollup/rollup-win32-x64-msvc@4.64.6':
+    resolution: {integrity: sha512-9/c9PWdr5GCIHkkxiHM1HjNBQMVdftP4O8QTcoUAaRza2FSqJ4axbf8QAnBuE6BIGQDl71SaRPeDdDYid5ecTw==}
     cpu: [x64]
     os: [win32]
 
-  '@sentry/babel-plugin-component-annotate@5.3.0':
-    resolution: {integrity: sha512-p4q8gn8wcFqZGP/s2MnJCAAd8fTikaU6A0mM97RDHQgStcrYiaS0Sc5zUNfb1V+UOLPuvdEdL6MwyxfzjYJQTA==}
-    engines: {node: '>= 18'}
-
-  '@sentry/browser-utils@10.76.1':
-    resolution: {integrity: sha512-Z7f0YyONonexnyjVIpfd2U2z73Tc8YmDrDWGt7ylHjzCtu6R+zW7k0jxl3uGUntjR+rIlFVqEAHIAVogZc0eaQ==}
+  '@sentry/browser-utils@10.76.2':
+    resolution: {integrity: sha512-onALxAdvLWyK+0erbrv7LVzh1zX9sErOM21eCz1dpNUIQadrR9tmd5J1kL9a2Wagq1RyIWRmy/YtpwOK4myZaQ==}
     engines: {node: '>=18'}
 
-  '@sentry/browser@10.76.1':
-    resolution: {integrity: sha512-Lz6YFVXaouOVKnv2WzYbUgxvtnWNwTwFwgQ7CBex98k5EaGzmuGtFL3A4n0Qfyns4/un7xdZk4Bw7DsiiaQtew==}
+  '@sentry/browser@10.76.2':
+    resolution: {integrity: sha512-dFyuWYjDs0/LetQZqK5IHj0/wIC8sBYADyMjU5Fo0nt2vzT11CPPG2AKeITIQcoRRs9IZ8ahtDMqWMvBPfDs1w==}
     engines: {node: '>=18'}
-
-  '@sentry/bundler-plugin-core@5.3.0':
-    resolution: {integrity: sha512-L5T60sWdAI3qWwdg3Ptwek/0TY59PERrxyqp4XMUkroayQvGd9r5dIW9Q1kSeXX9iJ442nXbFZKAOyCKV4Z13Q==}
-    engines: {node: '>= 18'}
 
   '@sentry/bundler-plugins@10.76.2':
     resolution: {integrity: sha512-5ovSYkHaTTDwe6p9vq0AzE+W9likkINBpzCv7VychGqYUfBGNzr+0YVkAt9//saJI9BKs+lWud5qX5iASf6wkw==}
@@ -882,26 +874,22 @@ packages:
     resolution: {integrity: sha512-fO9PLmHdVURcSPUpWCItWAtgKiMwGdJHbovoSEyLplX5sxs2ugvI4CBPTrkkgqhObnZOD0CnWBKDzSVQYBKEyQ==}
     engines: {node: '>=14'}
 
-  '@sentry/core@10.76.1':
-    resolution: {integrity: sha512-WZ1D30FDrvZPWcEgbCgaVHROBOaVGxNUcEeF5O5xRAdGu6UB7Epg+CQBeoatw/SxEctQq0BPbMIwtBgbe1QK3g==}
-    engines: {node: '>=18'}
-
   '@sentry/core@10.76.2':
     resolution: {integrity: sha512-vndrQalRiwYatTkjlLWvyf69KocXIb9TKJ4A9oiyWguL8PJYtqIRTlRe4OpkpjLrxS18fvRdV0jEm29c/9p3hQ==}
     engines: {node: '>=18'}
 
-  '@sentry/feedback@10.76.1':
-    resolution: {integrity: sha512-GwJdYLH5jaVAml0ld0QC6LGRIDTbvu5n/mNzs8Xku7eDRiUZVdlWi79+W0uzCAyP08xknBPXWUBaEBmCG0SFag==}
+  '@sentry/feedback@10.76.2':
+    resolution: {integrity: sha512-w8T7+LfAXjPPg/CpIcXHzPfeMHXR+61WhfYCwKNFK4mUQknYK4m0Kbt28dte9fSsijo4hKvHZ+tJc591SaD4ig==}
     engines: {node: '>=18'}
 
-  '@sentry/nextjs@10.76.1':
-    resolution: {integrity: sha512-iHgxsK3V6738Ybb0R/8sDxXT/gFpti7mpfXTGxcZ6yRTkLcXalMbzKF9j1B8i6/7EnKmQvSR4PLcayo1s9HGDA==}
+  '@sentry/nextjs@10.76.2':
+    resolution: {integrity: sha512-vedglq2uOGfb29sv5K8k/xbcCZzGgMVVuZju1jslQafNYxmjyUVky1TAYr5Hc1YgMyweLP8ZCYlI/bp5bivNEw==}
     engines: {node: '>=18'}
     peerDependencies:
       next: ^13.2.0 || ^14.0 || ^15.0.0-rc.0 || ^16.0.0-0
 
-  '@sentry/node-core@10.76.1':
-    resolution: {integrity: sha512-5IPAqITJle2wFn+7nkCiWchC9TfdEU2GrH0uS/WmTC7vc64YGAyPK/UZ0qzCU0MUPNH5anYGtUK4EMzlpdmWGQ==}
+  '@sentry/node-core@10.76.2':
+    resolution: {integrity: sha512-TrgAc/SvU5kQfjw8pz6I8LLIUiblOSf9BPPNkTbS0Dzcqa4yQLVbmsbS3rvGT7ot64m9Vjzn327ZRy63MlI6/w==}
     engines: {node: '>=18'}
     peerDependencies:
       '@opentelemetry/api': ^1.9.0
@@ -921,38 +909,38 @@ packages:
       '@opentelemetry/sdk-trace-base':
         optional: true
 
-  '@sentry/node@10.76.1':
-    resolution: {integrity: sha512-caXHUb8pI7Gd9FIwe3soqGWpnTxVVaV15iYk+rueKsBBeUNETLCU6PzwTyD6tQ3WbkhTGYbSGYYLINtj2IroEA==}
+  '@sentry/node@10.76.2':
+    resolution: {integrity: sha512-LSwGGE/GceTbkDHRoQQr3lq/dpxxA6RdooBbuGTJ/S6BdqKX2kw2FdV7Se9eJzZJJJ5AxCZum37+ejYS7N2pJg==}
     engines: {node: '>=18'}
 
-  '@sentry/opentelemetry@10.76.1':
-    resolution: {integrity: sha512-nfEQ4ALfEXGpYulXTPIOxE4QL3wsXPhlcCBbkgWmkozIT6D3s3vpjtRJsF//xrIkrAMm4OdV25fVqMhEkbJTGA==}
+  '@sentry/opentelemetry@10.76.2':
+    resolution: {integrity: sha512-deqWrKJGaku3nhiZchg34z8W9v6kUwtzoQ4cmEq6CeT8/4X93X4YfeJgoh1dhbswFRpwor4pQ6kj0KttagKtfA==}
     engines: {node: '>=18'}
     peerDependencies:
       '@opentelemetry/api': ^1.9.0
       '@opentelemetry/core': ^1.30.1 || ^2.1.0
       '@opentelemetry/sdk-trace-base': ^1.30.1 || ^2.1.0
 
-  '@sentry/react@10.76.1':
-    resolution: {integrity: sha512-9/X4GDXa5GYIRI5wKsk5skb9BuqjGWaVJ3c5H0Ov9lHBOp6gajX8qDFnGAS8pGcbL9hPZ3tVzvusqezyZaVqyA==}
+  '@sentry/react@10.76.2':
+    resolution: {integrity: sha512-ylW0pGg6LA8iPEPjoLXi/6IxzPSTo92pqwVMPAGRhS04he904jsIV4oMt97irDfyGEUUdZFdm/tpWO40Xuu4RQ==}
     engines: {node: '>=18'}
     peerDependencies:
       react: ^16.14.0 || 17.x || 18.x || 19.x
 
-  '@sentry/replay-canvas@10.76.1':
-    resolution: {integrity: sha512-YtsCtGcYKk78AlQCPgdVMZPYmfn73yREFCC9lutilayRHr16cLyF7v1oISLIxjaDQF3d8BpgcvFNg/iws05lyg==}
+  '@sentry/replay-canvas@10.76.2':
+    resolution: {integrity: sha512-mx7/pXIS7CpuduN5TFI36pBoe62CeTQ4IMQJ+MEJXAhxMmYFZQunc24dNltcs6hjzrhtZqGBYSAV1J+iCKFwdg==}
     engines: {node: '>=18'}
 
-  '@sentry/replay@10.76.1':
-    resolution: {integrity: sha512-k2nHnQSDYEFhwbNmSeDFcV9Np//bGJI7HS0uoHVLKrbic1Dp0ezehu6I4i9cRUpbPVt3KF71eUh6C7I/PPAROw==}
+  '@sentry/replay@10.76.2':
+    resolution: {integrity: sha512-xMNFEZ7KuEvfj9j1cKmcH+p6u5t3NZs1vcrj+sBW5+S9C327ASOAvcR23ZoM0UhTXr9j7j+Dozs/NYHW2EYjpw==}
     engines: {node: '>=18'}
 
-  '@sentry/server-utils@10.76.1':
-    resolution: {integrity: sha512-E4BHBU2F975eQW/eo4w73DvxN2LNac3wqWzd8lvk4A6jXt8nJwtGSxxdPaTM0Il82aJkbZXJ3IIO/Px6rlX+lQ==}
+  '@sentry/server-utils@10.76.2':
+    resolution: {integrity: sha512-wogj6Trj8fAu+aD7HbpvHEBlyANMOvvO9MP5NFJaiQbprLKugtCdE6rFTxDhofXvRo4nswL9m4Cvysg3k5KcvQ==}
     engines: {node: '>=18'}
 
-  '@sentry/vercel-edge@10.76.1':
-    resolution: {integrity: sha512-2DQ3F1m9vu4VJFuL1MasVTuonc0Ev5xc+wp192hh4/+pFI+bbM+FsQEQ+U4deMd/hIynDbvlYX+p/BhapFgoAg==}
+  '@sentry/vercel-edge@10.76.2':
+    resolution: {integrity: sha512-M+dHjBTMgPOMeuIL2LNwXcc95NNKgAEHL0YeNYUAQHLiwAdITItrEwQXTzBfjuwyctZ1W8L4a6eaKzOnXNCReQ==}
     engines: {node: '>=18'}
 
   '@sentry/webpack-plugin@5.4.1':
@@ -1253,6 +1241,9 @@ packages:
   caniuse-lite@1.0.30001815:
     resolution: {integrity: sha512-uDybUEyfgbyJJ93J1vikTylBX31AkdVYeVPeffMQpf8XN7hSfr0oZOn4VFOIMNvtU5+rHvC5Udg2TgtJKHm23Q==}
 
+  caniuse-lite@1.0.30001816:
+    resolution: {integrity: sha512-+8Yx7BXCoqk6IF8yTicjfUR6D/ldJzdlsodlEOiOSPmhK844WIgk67/zIQaGAOxNkZyyvBlrRFnLvqKIoqbAFw==}
+
   ccount@2.0.1:
     resolution: {integrity: sha512-eyrF0jiFpY+3drT6383f1qhkbGsLSifNAjA61IUjZjmLCWjItY6LB9ft9YhoDgwfmclB2zhu51Lc7+95b8NRAg==}
 
@@ -1338,16 +1329,12 @@ packages:
   devlop@1.1.0:
     resolution: {integrity: sha512-RWmIqhcFf1lRYBvNmr7qTNuyCt/7/ns2jbpp1+PalgE/rDQcBT0fioSMUpJ93irlUhC5hrg4cYqe6U+0ImW0rA==}
 
-  dotenv@16.6.1:
-    resolution: {integrity: sha512-uBq4egWHTcTt33a72vpSG0z3HnPuIl6NqYcTrKEg2azoEyl2hpW0zqlxysq2pK9HlDIHyHyakeYaYnSAwd8bow==}
-    engines: {node: '>=12'}
-
   dotenv@17.4.2:
     resolution: {integrity: sha512-nI4U3TottKAcAD9LLud4Cb7b2QztQMUEfHbvhTH09bqXTxnSie8WnjPALV/WMCrJZ6UV/qHJ6L03OqO3LcdYZw==}
     engines: {node: '>=12'}
 
-  electron-to-chromium@1.5.452:
-    resolution: {integrity: sha512-cVvk1YBSj6571VmV6hdJTqj94Y79xSu8cj6Y9t6ae4Y4431z8/7EJFvu3rVp90xhfuv9BpPKUmaLfTo4+FOGBg==}
+  electron-to-chromium@1.5.456:
+    resolution: {integrity: sha512-8hboqI6xesozteFb8aa7OGknvxUtTeRJLz0FoePysUEh/oWbddykIGdgpEJRbPRg/nIMfBf2DFos+H2MtvJl2A==}
 
   enhanced-resolve@5.25.1:
     resolution: {integrity: sha512-nGXts5znJzmWPu+mIE9izCOzdg63oJca2mDzGWWTth7sr4aCToKcoyFVBQwN75Ij5Pf6p510EwkTqViTRzDV+w==}
@@ -2023,8 +2010,8 @@ packages:
     resolution: {integrity: sha512-QT7FVMXfWOYFbeRBF6nu+I6tr2Tf3u0q8RIEjNob/heKY/nh7drD/k7eeMFmSQgnTtCzLDcCu/XEnpW2wk4xCQ==}
     engines: {node: '>=9.3.0 || >=8.10.0 <9.0.0'}
 
-  rollup@4.64.5:
-    resolution: {integrity: sha512-EAP5ZHcz2ijbgCWwPkpI7zh6bfsri2Ez5FtCy2dCp1k62duXzfG7DLGGh7RU2QQXWwavT+u4qpvDF/TWOiiGTw==}
+  rollup@4.64.6:
+    resolution: {integrity: sha512-fX1Vy+UNKdXn+xKDnu/HBXbHVr1AY8cSdQj9BU4kLv5aFCMqGpvrVbyUMmjN3DdzWhSAuTbcX8PCNEVaumthYA==}
     engines: {node: '>=18.0.0', npm: '>=8.0.0'}
     hasBin: true
 
@@ -2251,8 +2238,8 @@ packages:
   vfile@6.0.3:
     resolution: {integrity: sha512-KzIbH/9tXat2u30jf+smMwFCsno4wHVdNmzFyL+T/L3UGqqk6JKfVqOFOZEpZSHADH1k40ab6NUIXZq422ov3Q==}
 
-  watchpack@2.5.2:
-    resolution: {integrity: sha512-6i/00NBjP4yGPs+caKSyRfpTF/8Torsu0MOW3mMzIbhgISFder8i7xbqgHlLMwJrdiN8ndBV3UA1/AfzPSr+jg==}
+  watchpack@2.6.1:
+    resolution: {integrity: sha512-8mk/LnXpQAiM2xKZhTkxikwly5GhL2Z+DWiLTkMa/E1Nfv9zURhHgiFyWvM4BWqW+LjIgL2AIS7JntEUx6v3vQ==}
     engines: {node: '>=10.13.0'}
 
   webidl-conversions@3.0.1:
@@ -2791,9 +2778,9 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.3.0
 
-  '@rollup/plugin-commonjs@28.0.1(rollup@4.64.5)':
+  '@rollup/plugin-commonjs@28.0.1(rollup@4.64.6)':
     dependencies:
-      '@rollup/pluginutils': 5.4.0(rollup@4.64.5)
+      '@rollup/pluginutils': 5.4.0(rollup@4.64.6)
       commondir: 1.0.1
       estree-walker: 2.0.2
       fdir: 6.5.0(picomatch@4.0.7)
@@ -2801,121 +2788,106 @@ snapshots:
       magic-string: 0.30.21
       picomatch: 4.0.7
     optionalDependencies:
-      rollup: 4.64.5
+      rollup: 4.64.6
 
-  '@rollup/pluginutils@5.4.0(rollup@4.64.5)':
+  '@rollup/pluginutils@5.4.0(rollup@4.64.6)':
     dependencies:
       '@types/estree': 1.0.9
       estree-walker: 2.0.2
       picomatch: 4.0.7
     optionalDependencies:
-      rollup: 4.64.5
+      rollup: 4.64.6
 
-  '@rollup/rollup-android-arm-eabi@4.64.5':
+  '@rollup/rollup-android-arm-eabi@4.64.6':
     optional: true
 
-  '@rollup/rollup-android-arm64@4.64.5':
+  '@rollup/rollup-android-arm64@4.64.6':
     optional: true
 
-  '@rollup/rollup-darwin-arm64@4.64.5':
+  '@rollup/rollup-darwin-arm64@4.64.6':
     optional: true
 
-  '@rollup/rollup-darwin-x64@4.64.5':
+  '@rollup/rollup-darwin-x64@4.64.6':
     optional: true
 
-  '@rollup/rollup-freebsd-arm64@4.64.5':
+  '@rollup/rollup-freebsd-arm64@4.64.6':
     optional: true
 
-  '@rollup/rollup-freebsd-x64@4.64.5':
+  '@rollup/rollup-freebsd-x64@4.64.6':
     optional: true
 
-  '@rollup/rollup-linux-arm-gnueabihf@4.64.5':
+  '@rollup/rollup-linux-arm-gnueabihf@4.64.6':
     optional: true
 
-  '@rollup/rollup-linux-arm-musleabihf@4.64.5':
+  '@rollup/rollup-linux-arm-musleabihf@4.64.6':
     optional: true
 
-  '@rollup/rollup-linux-arm64-gnu@4.64.5':
+  '@rollup/rollup-linux-arm64-gnu@4.64.6':
     optional: true
 
-  '@rollup/rollup-linux-arm64-musl@4.64.5':
+  '@rollup/rollup-linux-arm64-musl@4.64.6':
     optional: true
 
-  '@rollup/rollup-linux-loong64-gnu@4.64.5':
+  '@rollup/rollup-linux-loong64-gnu@4.64.6':
     optional: true
 
-  '@rollup/rollup-linux-loong64-musl@4.64.5':
+  '@rollup/rollup-linux-loong64-musl@4.64.6':
     optional: true
 
-  '@rollup/rollup-linux-ppc64-gnu@4.64.5':
+  '@rollup/rollup-linux-ppc64-gnu@4.64.6':
     optional: true
 
-  '@rollup/rollup-linux-ppc64-musl@4.64.5':
+  '@rollup/rollup-linux-ppc64-musl@4.64.6':
     optional: true
 
-  '@rollup/rollup-linux-riscv64-gnu@4.64.5':
+  '@rollup/rollup-linux-riscv64-gnu@4.64.6':
     optional: true
 
-  '@rollup/rollup-linux-riscv64-musl@4.64.5':
+  '@rollup/rollup-linux-riscv64-musl@4.64.6':
     optional: true
 
-  '@rollup/rollup-linux-s390x-gnu@4.64.5':
+  '@rollup/rollup-linux-s390x-gnu@4.64.6':
     optional: true
 
-  '@rollup/rollup-linux-x64-gnu@4.64.5':
+  '@rollup/rollup-linux-x64-gnu@4.64.6':
     optional: true
 
-  '@rollup/rollup-linux-x64-musl@4.64.5':
+  '@rollup/rollup-linux-x64-musl@4.64.6':
     optional: true
 
-  '@rollup/rollup-openbsd-x64@4.64.5':
+  '@rollup/rollup-openbsd-x64@4.64.6':
     optional: true
 
-  '@rollup/rollup-openharmony-arm64@4.64.5':
+  '@rollup/rollup-openharmony-arm64@4.64.6':
     optional: true
 
-  '@rollup/rollup-win32-arm64-msvc@4.64.5':
+  '@rollup/rollup-win32-arm64-msvc@4.64.6':
     optional: true
 
-  '@rollup/rollup-win32-ia32-msvc@4.64.5':
+  '@rollup/rollup-win32-ia32-msvc@4.64.6':
     optional: true
 
-  '@rollup/rollup-win32-x64-gnu@4.64.5':
+  '@rollup/rollup-win32-x64-gnu@4.64.6':
     optional: true
 
-  '@rollup/rollup-win32-x64-msvc@4.64.5':
+  '@rollup/rollup-win32-x64-msvc@4.64.6':
     optional: true
 
-  '@sentry/babel-plugin-component-annotate@5.3.0': {}
-
-  '@sentry/browser-utils@10.76.1':
+  '@sentry/browser-utils@10.76.2':
     dependencies:
       '@sentry/conventions': 0.16.0
-      '@sentry/core': 10.76.1
+      '@sentry/core': 10.76.2
 
-  '@sentry/browser@10.76.1':
+  '@sentry/browser@10.76.2':
     dependencies:
-      '@sentry/browser-utils': 10.76.1
+      '@sentry/browser-utils': 10.76.2
       '@sentry/conventions': 0.16.0
-      '@sentry/core': 10.76.1
-      '@sentry/feedback': 10.76.1
-      '@sentry/replay': 10.76.1
-      '@sentry/replay-canvas': 10.76.1
+      '@sentry/core': 10.76.2
+      '@sentry/feedback': 10.76.2
+      '@sentry/replay': 10.76.2
+      '@sentry/replay-canvas': 10.76.2
 
-  '@sentry/bundler-plugin-core@5.3.0':
-    dependencies:
-      '@babel/core': 7.29.7
-      '@sentry/babel-plugin-component-annotate': 5.3.0
-      '@sentry/cli': 2.58.6
-      dotenv: 16.6.1
-      find-up: 5.0.0
-      glob: 13.0.6
-      magic-string: 0.30.21
-    transitivePeerDependencies:
-      - encoding
-      - supports-color
-
-  '@sentry/bundler-plugins@10.76.2(rollup@4.64.5)(webpack@5.105.0)':
+  '@sentry/bundler-plugins@10.76.2(rollup@4.64.6)(webpack@5.105.0)':
     dependencies:
       '@babel/core': 7.29.7
       '@sentry/cli': 2.58.6
@@ -2925,7 +2897,7 @@ snapshots:
       glob: 13.0.6
       magic-string: 0.30.21
     optionalDependencies:
-      rollup: 4.64.5
+      rollup: 4.64.6
       webpack: 5.105.0
     transitivePeerDependencies:
       - encoding
@@ -2977,34 +2949,30 @@ snapshots:
 
   '@sentry/conventions@0.16.0': {}
 
-  '@sentry/core@10.76.1':
-    dependencies:
-      '@sentry/conventions': 0.16.0
-
   '@sentry/core@10.76.2':
     dependencies:
       '@sentry/conventions': 0.16.0
 
-  '@sentry/feedback@10.76.1':
+  '@sentry/feedback@10.76.2':
     dependencies:
-      '@sentry/core': 10.76.1
+      '@sentry/core': 10.76.2
 
-  '@sentry/nextjs@10.76.1(@opentelemetry/core@2.12.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.9.1))(next@15.5.27(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@types/node@22.20.5)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)(webpack@5.105.0)':
+  '@sentry/nextjs@10.76.2(@opentelemetry/core@2.12.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.9.1))(next@15.5.27(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@types/node@22.20.5)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react@19.3.0)(webpack@5.105.0)':
     dependencies:
       '@opentelemetry/api': 1.9.1
-      '@rollup/plugin-commonjs': 28.0.1(rollup@4.64.5)
-      '@sentry/browser-utils': 10.76.1
-      '@sentry/bundler-plugin-core': 5.3.0
+      '@rollup/plugin-commonjs': 28.0.1(rollup@4.64.6)
+      '@sentry/browser-utils': 10.76.2
+      '@sentry/bundler-plugins': 10.76.2(rollup@4.64.6)(webpack@5.105.0)
       '@sentry/conventions': 0.16.0
-      '@sentry/core': 10.76.1
-      '@sentry/node': 10.76.1(@opentelemetry/core@2.12.0(@opentelemetry/api@1.9.1))
-      '@sentry/opentelemetry': 10.76.1(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.12.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.9.1))
-      '@sentry/react': 10.76.1(react@19.3.0)
-      '@sentry/server-utils': 10.76.1
-      '@sentry/vercel-edge': 10.76.1
-      '@sentry/webpack-plugin': 5.4.1(rollup@4.64.5)(webpack@5.105.0)
+      '@sentry/core': 10.76.2
+      '@sentry/node': 10.76.2(@opentelemetry/core@2.12.0(@opentelemetry/api@1.9.1))
+      '@sentry/opentelemetry': 10.76.2(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.12.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.9.1))
+      '@sentry/react': 10.76.2(react@19.3.0)
+      '@sentry/server-utils': 10.76.2
+      '@sentry/vercel-edge': 10.76.2
+      '@sentry/webpack-plugin': 5.4.1(rollup@4.64.6)(webpack@5.105.0)
       next: 15.5.27(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@types/node@22.20.5)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      rollup: 4.64.5
+      rollup: 4.64.6
       stacktrace-parser: 0.1.11
     transitivePeerDependencies:
       - '@opentelemetry/core'
@@ -3015,11 +2983,11 @@ snapshots:
       - supports-color
       - webpack
 
-  '@sentry/node-core@10.76.1(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.12.0(@opentelemetry/api@1.9.1))(@opentelemetry/instrumentation@0.220.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.9.1))':
+  '@sentry/node-core@10.76.2(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.12.0(@opentelemetry/api@1.9.1))(@opentelemetry/instrumentation@0.220.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.9.1))':
     dependencies:
       '@sentry/conventions': 0.16.0
-      '@sentry/core': 10.76.1
-      '@sentry/opentelemetry': 10.76.1(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.12.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.9.1))
+      '@sentry/core': 10.76.2
+      '@sentry/opentelemetry': 10.76.2(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.12.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.9.1))
       import-in-the-middle: 3.5.2
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
@@ -3027,60 +2995,60 @@ snapshots:
       '@opentelemetry/instrumentation': 0.220.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/sdk-trace-base': 2.12.0(@opentelemetry/api@1.9.1)
 
-  '@sentry/node@10.76.1(@opentelemetry/core@2.12.0(@opentelemetry/api@1.9.1))':
+  '@sentry/node@10.76.2(@opentelemetry/core@2.12.0(@opentelemetry/api@1.9.1))':
     dependencies:
       '@opentelemetry/api': 1.9.1
       '@opentelemetry/instrumentation': 0.220.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/sdk-trace-base': 2.12.0(@opentelemetry/api@1.9.1)
       '@sentry/conventions': 0.16.0
-      '@sentry/core': 10.76.1
-      '@sentry/node-core': 10.76.1(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.12.0(@opentelemetry/api@1.9.1))(@opentelemetry/instrumentation@0.220.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.9.1))
-      '@sentry/opentelemetry': 10.76.1(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.12.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.9.1))
-      '@sentry/server-utils': 10.76.1
+      '@sentry/core': 10.76.2
+      '@sentry/node-core': 10.76.2(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.12.0(@opentelemetry/api@1.9.1))(@opentelemetry/instrumentation@0.220.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.9.1))
+      '@sentry/opentelemetry': 10.76.2(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.12.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.9.1))
+      '@sentry/server-utils': 10.76.2
       import-in-the-middle: 3.5.2
     transitivePeerDependencies:
       - '@opentelemetry/core'
       - '@opentelemetry/exporter-trace-otlp-http'
       - supports-color
 
-  '@sentry/opentelemetry@10.76.1(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.12.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.9.1))':
+  '@sentry/opentelemetry@10.76.2(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.12.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.9.1))':
     dependencies:
       '@opentelemetry/api': 1.9.1
       '@opentelemetry/core': 2.12.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/sdk-trace-base': 2.12.0(@opentelemetry/api@1.9.1)
       '@sentry/conventions': 0.16.0
-      '@sentry/core': 10.76.1
+      '@sentry/core': 10.76.2
 
-  '@sentry/react@10.76.1(react@19.3.0)':
+  '@sentry/react@10.76.2(react@19.3.0)':
     dependencies:
-      '@sentry/browser': 10.76.1
+      '@sentry/browser': 10.76.2
       '@sentry/conventions': 0.16.0
-      '@sentry/core': 10.76.1
+      '@sentry/core': 10.76.2
       react: 19.3.0
 
-  '@sentry/replay-canvas@10.76.1':
+  '@sentry/replay-canvas@10.76.2':
     dependencies:
-      '@sentry/core': 10.76.1
-      '@sentry/replay': 10.76.1
+      '@sentry/core': 10.76.2
+      '@sentry/replay': 10.76.2
 
-  '@sentry/replay@10.76.1':
+  '@sentry/replay@10.76.2':
     dependencies:
-      '@sentry/browser-utils': 10.76.1
-      '@sentry/core': 10.76.1
+      '@sentry/browser-utils': 10.76.2
+      '@sentry/core': 10.76.2
 
-  '@sentry/server-utils@10.76.1':
+  '@sentry/server-utils@10.76.2':
     dependencies:
       '@sentry/conventions': 0.16.0
-      '@sentry/core': 10.76.1
+      '@sentry/core': 10.76.2
 
-  '@sentry/vercel-edge@10.76.1':
+  '@sentry/vercel-edge@10.76.2':
     dependencies:
       '@opentelemetry/api': 1.9.1
-      '@sentry/core': 10.76.1
+      '@sentry/core': 10.76.2
 
-  '@sentry/webpack-plugin@5.4.1(rollup@4.64.5)(webpack@5.105.0)':
+  '@sentry/webpack-plugin@5.4.1(rollup@4.64.6)(webpack@5.105.0)':
     dependencies:
-      '@sentry/bundler-plugins': 10.76.2(rollup@4.64.5)(webpack@5.105.0)
+      '@sentry/bundler-plugins': 10.76.2(rollup@4.64.6)(webpack@5.105.0)
       webpack: 5.105.0
     transitivePeerDependencies:
       - encoding
@@ -3371,14 +3339,16 @@ snapshots:
   browserslist@4.29.3:
     dependencies:
       baseline-browser-mapping: 2.11.28
-      caniuse-lite: 1.0.30001815
-      electron-to-chromium: 1.5.452
+      caniuse-lite: 1.0.30001816
+      electron-to-chromium: 1.5.456
       node-releases: 2.0.58
       update-browserslist-db: 1.3.4(browserslist@4.29.3)
 
   buffer-from@1.1.2: {}
 
   caniuse-lite@1.0.30001815: {}
+
+  caniuse-lite@1.0.30001816: {}
 
   ccount@2.0.1: {}
 
@@ -3446,11 +3416,9 @@ snapshots:
     dependencies:
       dequal: 2.0.3
 
-  dotenv@16.6.1: {}
-
   dotenv@17.4.2: {}
 
-  electron-to-chromium@1.5.452: {}
+  electron-to-chromium@1.5.456: {}
 
   enhanced-resolve@5.25.1:
     dependencies:
@@ -4418,36 +4386,36 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  rollup@4.64.5:
+  rollup@4.64.6:
     dependencies:
       '@types/estree': 1.0.9
     optionalDependencies:
       '@napi-rs/lzma-linux-x64-gnu': 1.5.1
-      '@rollup/rollup-android-arm-eabi': 4.64.5
-      '@rollup/rollup-android-arm64': 4.64.5
-      '@rollup/rollup-darwin-arm64': 4.64.5
-      '@rollup/rollup-darwin-x64': 4.64.5
-      '@rollup/rollup-freebsd-arm64': 4.64.5
-      '@rollup/rollup-freebsd-x64': 4.64.5
-      '@rollup/rollup-linux-arm-gnueabihf': 4.64.5
-      '@rollup/rollup-linux-arm-musleabihf': 4.64.5
-      '@rollup/rollup-linux-arm64-gnu': 4.64.5
-      '@rollup/rollup-linux-arm64-musl': 4.64.5
-      '@rollup/rollup-linux-loong64-gnu': 4.64.5
-      '@rollup/rollup-linux-loong64-musl': 4.64.5
-      '@rollup/rollup-linux-ppc64-gnu': 4.64.5
-      '@rollup/rollup-linux-ppc64-musl': 4.64.5
-      '@rollup/rollup-linux-riscv64-gnu': 4.64.5
-      '@rollup/rollup-linux-riscv64-musl': 4.64.5
-      '@rollup/rollup-linux-s390x-gnu': 4.64.5
-      '@rollup/rollup-linux-x64-gnu': 4.64.5
-      '@rollup/rollup-linux-x64-musl': 4.64.5
-      '@rollup/rollup-openbsd-x64': 4.64.5
-      '@rollup/rollup-openharmony-arm64': 4.64.5
-      '@rollup/rollup-win32-arm64-msvc': 4.64.5
-      '@rollup/rollup-win32-ia32-msvc': 4.64.5
-      '@rollup/rollup-win32-x64-gnu': 4.64.5
-      '@rollup/rollup-win32-x64-msvc': 4.64.5
+      '@rollup/rollup-android-arm-eabi': 4.64.6
+      '@rollup/rollup-android-arm64': 4.64.6
+      '@rollup/rollup-darwin-arm64': 4.64.6
+      '@rollup/rollup-darwin-x64': 4.64.6
+      '@rollup/rollup-freebsd-arm64': 4.64.6
+      '@rollup/rollup-freebsd-x64': 4.64.6
+      '@rollup/rollup-linux-arm-gnueabihf': 4.64.6
+      '@rollup/rollup-linux-arm-musleabihf': 4.64.6
+      '@rollup/rollup-linux-arm64-gnu': 4.64.6
+      '@rollup/rollup-linux-arm64-musl': 4.64.6
+      '@rollup/rollup-linux-loong64-gnu': 4.64.6
+      '@rollup/rollup-linux-loong64-musl': 4.64.6
+      '@rollup/rollup-linux-ppc64-gnu': 4.64.6
+      '@rollup/rollup-linux-ppc64-musl': 4.64.6
+      '@rollup/rollup-linux-riscv64-gnu': 4.64.6
+      '@rollup/rollup-linux-riscv64-musl': 4.64.6
+      '@rollup/rollup-linux-s390x-gnu': 4.64.6
+      '@rollup/rollup-linux-x64-gnu': 4.64.6
+      '@rollup/rollup-linux-x64-musl': 4.64.6
+      '@rollup/rollup-openbsd-x64': 4.64.6
+      '@rollup/rollup-openharmony-arm64': 4.64.6
+      '@rollup/rollup-win32-arm64-msvc': 4.64.6
+      '@rollup/rollup-win32-ia32-msvc': 4.64.6
+      '@rollup/rollup-win32-x64-gnu': 4.64.6
+      '@rollup/rollup-win32-x64-msvc': 4.64.6
       fsevents: 2.3.3
 
   scheduler@0.28.0: {}
@@ -4653,7 +4621,7 @@ snapshots:
       '@types/unist': 3.0.3
       vfile-message: 4.0.3
 
-  watchpack@2.5.2:
+  watchpack@2.6.1:
     dependencies:
       graceful-fs: 4.2.11
 
@@ -4686,7 +4654,7 @@ snapshots:
       schema-utils: 4.5.0
       tapable: 2.3.3
       terser-webpack-plugin: 5.6.1(webpack@5.105.0)
-      watchpack: 2.5.2
+      watchpack: 2.6.1
       webpack-sources: 3.6.0
     transitivePeerDependencies:
       - '@minify-html/node'
