@@ -7,6 +7,7 @@ import { Mail, Lock, EyeOff, Eye, KeyRound, Loader2 } from "lucide-react";
 import { Button } from "@qbrix/ui/components/button";
 import { InlineBanner } from "@qbrix/ui/components/inline-banner";
 import { useAuth } from "@/lib/auth/context";
+import { safeRedirect, withRedirect } from "@/lib/auth/redirect";
 import { auth } from "@/lib/api/auth";
 import { ApiError } from "@/lib/api/types";
 import { resolveApiError } from "@/lib/api/handle-error";
@@ -34,7 +35,7 @@ export function LoginForm() {
 
   const limit = useRetryAfter();
 
-  const redirect = searchParams.get("redirect") ?? "/";
+  const redirect = safeRedirect(searchParams.get("redirect"));
   const registered = searchParams.get("registered");
   const invited = searchParams.get("invited");
   const verified = searchParams.get("verified");
@@ -70,7 +71,7 @@ export function LoginForm() {
   async function handleResend() {
     setResending(true);
     try {
-      await auth.resendVerification(email);
+      await auth.resendVerification(email, redirect);
     } catch (err) {
       // enumeration-safe: always confirm, but a rate limit still has to show
       limit.capture(err);
@@ -253,7 +254,7 @@ export function LoginForm() {
       <div className="mt-7 flex items-center gap-1.5">
         <span className="text-[13.5px] text-text-dim">No account yet?</span>
         <Link
-          href="/register"
+          href={withRedirect("/register", redirect)}
           className="text-[13.5px] font-medium text-text-primary transition-opacity hover:opacity-70"
         >
           Create one

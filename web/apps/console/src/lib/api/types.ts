@@ -79,6 +79,7 @@ export interface RegisterRequest {
   password: string;
   workspace_name?: string;
   workspace_slug?: string;
+  redirect?: string;
 }
 
 // Invites

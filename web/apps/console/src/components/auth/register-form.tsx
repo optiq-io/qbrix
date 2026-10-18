@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import {
   Mail,
@@ -16,6 +16,7 @@ import {
 import { Button } from "@qbrix/ui/components/button";
 import { InlineBanner } from "@qbrix/ui/components/inline-banner";
 import { useAuth } from "@/lib/auth/context";
+import { safeRedirect, withRedirect } from "@/lib/auth/redirect";
 import { useDeployment } from "@/lib/deployment";
 import { auth } from "@/lib/api/auth";
 import { resolveApiError } from "@/lib/api/handle-error";
@@ -35,6 +36,7 @@ function toSlug(value: string): string {
 
 export function RegisterForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { register } = useAuth();
   const { isCloud, signupOpen, isLoading: loadingConfig } = useDeployment();
 
@@ -50,6 +52,9 @@ export function RegisterForm() {
   const [registered, setRegistered] = useState(false);
 
   const limit = useRetryAfter();
+
+  const redirect = safeRedirect(searchParams.get("redirect"));
+  const loginHref = withRedirect("/login", redirect);
 
   function handleWorkspaceNameChange(value: string) {
     setWorkspaceName(value);
@@ -70,11 +75,12 @@ export function RegisterForm() {
         password,
         workspaceName || undefined,
         workspaceSlug || undefined,
+        redirect,
       );
       // dev/invite flows return already-verified users who can sign in now;
       // otherwise the user must confirm their email first.
       if (user.email_verified) {
-        router.replace("/login?registered=true");
+        router.replace(withRedirect("/login?registered=true", redirect));
       } else {
         setRegistered(true);
       }
@@ -87,7 +93,12 @@ export function RegisterForm() {
   }
 
   if (registered) {
-    return <RegisterSentCard email={email} onResend={auth.resendVerification} />;
+    return (
+      <RegisterSentCard
+        email={email}
+        onResend={(to) => auth.resendVerification(to, redirect)}
+      />
+    );
   }
 
   if (!loadingConfig && !signupOpen) {
@@ -99,7 +110,7 @@ export function RegisterForm() {
         body="This qbrix instance does not accept public sign-ups. Ask an administrator to invite you."
       >
         <Link
-          href="/login"
+          href={loginHref}
           className="text-[13.5px] font-medium text-text-primary transition-opacity hover:opacity-70"
         >
           Back to sign in
@@ -244,7 +255,7 @@ export function RegisterForm() {
           Already have an account?
         </span>
         <Link
-          href="/login"
+          href={loginHref}
           className="text-[13.5px] font-medium text-text-primary transition-opacity hover:opacity-70"
         >
           Sign in

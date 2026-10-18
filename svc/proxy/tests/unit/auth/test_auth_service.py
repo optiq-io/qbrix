@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import html
+import re
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.parse import parse_qs
+from urllib.parse import urlsplit
 
 import bcrypt
 import pytest
@@ -1106,6 +1110,58 @@ class TestAuthServiceEmailVerification:
         assert mock_redis_client.client.set.call_args.args[0].startswith(
             "qbrix:email_verify:"
         )
+
+
+class TestVerificationLinkRedirect:
+    @pytest.fixture
+    def service(self, mock_redis_client, recording_sender):
+        return AuthService(
+            mock_redis_client,
+            EmailService(recording_sender),
+            edition.entitlements(ProxySettings(), mock_redis_client),
+        )
+
+    @staticmethod
+    def _link_query(recording_sender) -> dict[str, list[str]]:
+        _, _, body = recording_sender.sent[-1]
+        href = html.unescape(re.search(r'href="([^"]+)"', body).group(1))
+        return parse_qs(urlsplit(href).query)
+
+    @pytest.mark.asyncio
+    async def test_a_console_path_rides_along_encoded(self, service, recording_sender):
+        await service._issue_email_verification(
+            "u-1", "a@example.com", "/experiments/abc?tab=arms&x=1"
+        )
+
+        query = self._link_query(recording_sender)
+        assert query["redirect"] == ["/experiments/abc?tab=arms&x=1"]
+        assert len(query["token"]) == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("redirect", [None, "/", "https://evil.example", "//e"])
+    async def test_anything_else_leaves_the_link_bare(
+        self, service, recording_sender, redirect
+    ):
+        await service._issue_email_verification("u-1", "a@example.com", redirect)
+
+        assert "redirect" not in self._link_query(recording_sender)
+
+    @pytest.mark.asyncio
+    @patch("proxysvc.mod.auth.service.get_session")
+    async def test_resend_carries_the_redirect(
+        self, mock_get_session, service, recording_sender
+    ):
+        mock_get_session.return_value.__aenter__ = AsyncMock(return_value=AsyncMock())
+        mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
+        mock_repo = AsyncMock()
+        mock_repo.get_by_email = AsyncMock(
+            return_value=_make_user_record(email_verified=False)
+        )
+
+        with patch("proxysvc.mod.auth.service.UserRepository", return_value=mock_repo):
+            await service.resend_verification("test@example.com", "/pools")
+
+        assert self._link_query(recording_sender)["redirect"] == ["/pools"]
 
 
 def _make_invite_record(**overrides):

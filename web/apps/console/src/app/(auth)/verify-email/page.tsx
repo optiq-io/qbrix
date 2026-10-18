@@ -8,6 +8,7 @@ import { Button } from "@qbrix/ui/components/button";
 import { InlineBanner } from "@qbrix/ui/components/inline-banner";
 import { MonoLabel } from "@qbrix/ui/components/mono-label";
 import { auth } from "@/lib/api/auth";
+import { safeRedirect, withRedirect } from "@/lib/auth/redirect";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { Field, fieldInput } from "@/components/auth/field";
 import { TransactionalCard } from "@/components/auth/transactional-card";
@@ -19,6 +20,7 @@ type VerifyState = "verifying" | "success" | "invalid";
 function VerifyEmailContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
+  const redirect = safeRedirect(searchParams.get("redirect"));
 
   const [state, setState] = useState<VerifyState>("verifying");
 
@@ -44,7 +46,7 @@ function VerifyEmailContent() {
     e.preventDefault();
     setResending(true);
     try {
-      await auth.resendVerification(email);
+      await auth.resendVerification(email, redirect);
     } catch (err) {
       // enumeration-safe: always confirm, but a rate limit still has to show
       limit.capture(err);
@@ -78,7 +80,10 @@ function VerifyEmailContent() {
         >
           <Button className="h-12 w-full text-[15.5px]">Choose a plan</Button>
         </Link>
-        <Link href="/login?verified=true" className="w-full">
+        <Link
+          href={withRedirect("/login?verified=true", redirect)}
+          className="w-full"
+        >
           <Button variant="secondary" className="h-12 w-full text-[15.5px]">
             Skip for now
           </Button>
@@ -130,7 +135,7 @@ function VerifyEmailContent() {
           </Button>
         </form>
       )}
-      <Link href="/login" className="w-full">
+      <Link href={withRedirect("/login", redirect)} className="w-full">
         <Button variant="secondary" className="h-12 w-full text-[15.5px]">
           Back to sign in
         </Button>

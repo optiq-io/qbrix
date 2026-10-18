@@ -211,10 +211,10 @@ export const auth = {
     });
   },
 
-  async resendVerification(email: string): Promise<{ message: string }> {
+  async resendVerification(email: string, redirect?: string): Promise<{ message: string }> {
     return apiFetch<{ message: string }>("/auth/resend-verification", {
       method: "POST",
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ email, redirect }),
     });
   },
 };

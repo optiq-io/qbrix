@@ -6,6 +6,7 @@ import secrets
 import time
 from datetime import datetime
 from datetime import timezone
+from urllib.parse import urlencode
 
 import bcrypt
 from cachebox import TTLCache
@@ -30,6 +31,7 @@ from proxysvc.mod.auth.identity import MAX_SLUG_LENGTH
 from proxysvc.mod.auth.identity import clean_name
 from proxysvc.mod.auth.identity import clean_slug
 from proxysvc.mod.auth.identity import slug_from
+from proxysvc.mod.auth.redirect import safe_redirect
 from proxysvc.mod.auth.scope import ROLE_SCOPES
 from proxysvc.mod.auth.scope import ABUSE_RATE_LIMIT_PER_MINUTE
 from proxysvc.mod.auth.scope import INVITES_PER_TENANT_PER_DAY
@@ -94,6 +96,7 @@ class AuthService:
         role: str = "member",
         workspace_name: str | None = None,
         workspace_slug: str | None = None,
+        redirect: str | None = None,
     ) -> dict:
         """register a new user with email and password.
 
@@ -169,7 +172,7 @@ class AuthService:
         # issue verification after the user is committed, so the token never
         # outlives a rolled-back registration.
         if not auto_verify:
-            await self._issue_email_verification(user_dict["id"], email)
+            await self._issue_email_verification(user_dict["id"], email, redirect)
         return user_dict
 
     async def authenticate_user(self, email: str, password: str) -> dict | None:
@@ -412,7 +415,9 @@ class AuthService:
 
     # email verification
 
-    async def _issue_email_verification(self, user_id: str, email: str) -> None:
+    async def _issue_email_verification(
+        self, user_id: str, email: str, redirect: str | None = None
+    ) -> None:
         """generate a single-use email verification token and send the link."""
         token = secrets.token_urlsafe(32)
         redis_key = f"qbrix:email_verify:{token}"
@@ -420,7 +425,10 @@ class AuthService:
             redis_key, user_id, ex=settings.email_verification_ttl_seconds
         )
 
-        verify_url = f"{settings.console_origin}/verify-email?token={token}"
+        query = {"token": token}
+        if destination := safe_redirect(redirect):
+            query["redirect"] = destination
+        verify_url = f"{settings.console_origin}/verify-email?{urlencode(query)}"
         await self._email.send_email_verification(email, verify_url)
         logger.info(f"email verification requested for user {user_id}")
 
@@ -451,7 +459,9 @@ class AuthService:
         logger.info(f"email verified for user {user_id}")
         return True
 
-    async def resend_verification(self, email: str) -> None:
+    async def resend_verification(
+        self, email: str, redirect: str | None = None
+    ) -> None:
         """re-issue a verification token. enumeration-safe: no-op when the email
         is unknown or already verified."""
         async with get_session() as session:
@@ -461,7 +471,7 @@ class AuthService:
         if not user or user.email_verified:
             return
 
-        await self._issue_email_verification(user.id, email)
+        await self._issue_email_verification(user.id, email, redirect)
         logger.info(f"verification email re-sent for user {user.id}")
 
     async def update_user_status(self, user_id: str, is_active: bool) -> dict | None:

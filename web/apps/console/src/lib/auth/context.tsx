@@ -11,7 +11,7 @@ interface AuthContextValue {
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   loginWithApiKey: (apiKey: string) => Promise<void>;
-  register: (name: string, email: string, password: string, workspaceName?: string, workspaceSlug?: string) => Promise<User>;
+  register: (name: string, email: string, password: string, workspaceName?: string, workspaceSlug?: string, redirect?: string) => Promise<User>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
   updateUser: (user: User) => void;
@@ -68,7 +68,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     [queryClient],
   );
 
-  const register = useCallback(async (name: string, email: string, password: string, workspaceName?: string, workspaceSlug?: string) => {
+  const register = useCallback(async (name: string, email: string, password: string, workspaceName?: string, workspaceSlug?: string, redirect?: string) => {
     setLoading(true);
     try {
       return await auth.register({
@@ -77,6 +77,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         password,
         workspace_name: workspaceName,
         workspace_slug: workspaceSlug,
+        redirect,
       });
     } finally {
       setLoading(false);
