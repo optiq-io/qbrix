@@ -72,6 +72,7 @@ class UserRegisterRequest(BaseModel):
     name: str | None = None
     workspace_name: str | None = None
     workspace_slug: str | None = None
+    redirect: str | None = None
 
 
 class UserLoginRequest(BaseModel):
@@ -226,6 +227,7 @@ class VerifyEmailRequest(BaseModel):
 
 class ResendVerificationRequest(BaseModel):
     email: EmailStr
+    redirect: str | None = None
 
 
 class UpdateAPIKeyRequest(BaseModel):
@@ -289,6 +291,7 @@ async def register_user(body: UserRegisterRequest):
             name=body.name,
             workspace_name=body.workspace_name,
             workspace_slug=body.workspace_slug,
+            redirect=body.redirect,
         )
 
         logger.info(f"user registered successfully: {user.email}")
@@ -636,7 +639,7 @@ async def resend_verification(body: ResendVerificationRequest):
         "resend_verification", body.email, constant.RESEND_VERIFICATION_EMAIL_PER_MIN
     )
     try:
-        await operator.auth_operator.resend_verification(body.email)
+        await operator.auth_operator.resend_verification(body.email, body.redirect)
     except Exception as e:
         logger.error(f"resend verification error: {str(e)}")
     return {

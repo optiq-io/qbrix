@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { RegisterForm } from "@/components/auth/register-form";
 import { useDeployment } from "@/lib/deployment";
@@ -13,7 +14,9 @@ export default function RegisterPage() {
 
   return (
     <AuthShell showcase={isCloud ? <ShowcaseFreeTier /> : undefined}>
-      <RegisterForm />
+      <Suspense>
+        <RegisterForm />
+      </Suspense>
     </AuthShell>
   );
 }

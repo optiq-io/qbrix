@@ -49,6 +49,7 @@ class AuthOperator:
         role: str = Role.MEMBER.value,
         workspace_name: str | None = None,
         workspace_slug: str | None = None,
+        redirect: str | None = None,
     ):
         """create a new user."""
         user_dict = await self._service.register_user(
@@ -59,6 +60,7 @@ class AuthOperator:
             role=role,
             workspace_name=workspace_name,
             workspace_slug=workspace_slug,
+            redirect=redirect,
         )
         return _UserWrapper(user_dict)
 
@@ -298,9 +300,11 @@ class AuthOperator:
         """confirm a user's email with a verification token."""
         return await self._service.verify_email(token)
 
-    async def resend_verification(self, email: str) -> None:
+    async def resend_verification(
+        self, email: str, redirect: str | None = None
+    ) -> None:
         """re-issue an email verification token (enumeration-safe)."""
-        await self._service.resend_verification(email)
+        await self._service.resend_verification(email, redirect)
 
     async def user_has_permission(self, user_id: str, required_scope: str) -> bool:
         """check if user has required scope."""
