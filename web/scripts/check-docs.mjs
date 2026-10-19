@@ -6,9 +6,15 @@
 // frontmatter the site reads, and resolves every `/docs/...` link and anchor.
 // anchors are github-slugger slugs of heading text, which is what rehype-slug
 // assigns.
+//
+//   check-docs.mjs [dir] [fallback-dir...]
+//
+// only the first dir is checked. fallback dirs are read to resolve its links, so
+// docs-next/ can link to pages that stay in docs/; a page in the checked dir
+// shadows one with the same slug in a fallback.
 
 import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { compile } from "@mdx-js/mdx";
 import GithubSlugger from "github-slugger";
@@ -16,7 +22,9 @@ import matter from "gray-matter";
 import remarkGfm from "remark-gfm";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const docsDir = resolve(process.argv[2] ?? join(here, "..", "..", "docs"));
+const [docsDir, ...fallbackDirs] = (
+  process.argv.length > 2 ? process.argv.slice(2) : [join(here, "..", "..", "docs")]
+).map((dir) => resolve(dir));
 
 function text(node) {
   if (typeof node.value === "string" && node.type !== "mdxjsEsm") return node.value;
@@ -47,27 +55,32 @@ function collect(page) {
 
 const errors = [];
 const pages = new Map();
+const fallbackPages = new Map();
 
-for (const file of readdirSync(docsDir).filter((f) => f.endsWith(".mdx")).sort()) {
-  const slug = file.replace(/\.mdx$/, "");
-  const raw = readFileSync(join(docsDir, file), "utf-8");
+async function load(dir, into, report) {
+  for (const file of readdirSync(dir).filter((f) => f.endsWith(".mdx")).sort()) {
+    into.set(file.replace(/\.mdx$/, ""), await read(dir, file, report));
+  }
+}
+
+async function read(dir, file, report) {
+  const raw = readFileSync(join(dir, file), "utf-8");
   const page = { anchors: new Set(), links: [] };
-  pages.set(slug, page);
 
   let parsed;
   try {
     parsed = matter(raw);
   } catch (err) {
-    errors.push(`${file}: frontmatter does not parse: ${err.message}`);
-    continue;
+    report(`${file}: frontmatter does not parse: ${err.message}`);
+    return page;
   }
   const { data, content } = parsed;
   for (const key of ["title", "description"]) {
     if (typeof data[key] !== "string" || !data[key].trim()) {
-      errors.push(`${file}: frontmatter \`${key}\` must be a non-empty string`);
+      report(`${file}: frontmatter \`${key}\` must be a non-empty string`);
     }
   }
-  if (typeof data.order !== "number") errors.push(`${file}: frontmatter \`order\` must be a number`);
+  if (typeof data.order !== "number") report(`${file}: frontmatter \`order\` must be a number`);
 
   const frontmatterLines = raw.slice(0, raw.length - content.length).split("\n").length - 1;
   try {
@@ -75,9 +88,15 @@ for (const file of readdirSync(docsDir).filter((f) => f.endsWith(".mdx")).sort()
       remarkPlugins: [remarkGfm, collect(page)],
     });
   } catch (err) {
-    errors.push(`${file}: ${err.reason ?? err.message}`);
+    report(`${file}: ${err.reason ?? err.message}`);
   }
+  return page;
 }
+
+await load(docsDir, pages, (error) => errors.push(error));
+for (const dir of fallbackDirs) await load(dir, fallbackPages, () => {});
+
+const searched = [docsDir, ...fallbackDirs].map((dir) => basename(dir) + "/").join(" or ");
 
 for (const [slug, page] of pages) {
   for (const { url, line } of page.links) {
@@ -89,8 +108,8 @@ for (const [slug, page] of pages) {
       if (!match) continue;
       target = match[1];
     }
-    const targetPage = pages.get(target);
-    if (!targetPage) errors.push(`${where}: link to ${url}: no docs/${target}.mdx`);
+    const targetPage = pages.get(target) ?? fallbackPages.get(target);
+    if (!targetPage) errors.push(`${where}: link to ${url}: no ${target}.mdx in ${searched}`);
     else if (anchor && !targetPage.anchors.has(anchor)) {
       errors.push(`${where}: link to ${url}: no heading #${anchor} in ${target}.mdx`);
     }

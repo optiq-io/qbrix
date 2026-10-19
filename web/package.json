@@ -9,7 +9,8 @@
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "type-check": "pnpm -r type-check",
-    "check-docs": "node scripts/check-docs.mjs"
+    "check-docs": "node scripts/check-docs.mjs",
+    "check-docs:next": "node scripts/check-docs.mjs ../docs-next ../docs"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

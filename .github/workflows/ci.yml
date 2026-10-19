@@ -48,6 +48,18 @@ jobs:
         working-directory: web
         run: pnpm check-docs
 
+      - name: Check the unpublished docs for next
+        working-directory: web
+        run: pnpm check-docs:next
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3.2.4
+        with:
+          version: "0.4.x"
+
+      - name: Check the docs deploy never publishes docs-next
+        run: bin/check-docs-deploy
+
   # the chart renders under a release name other than `qbrix` and every host and
   # secret it references resolves inside that render. unfiltered on purpose: it
   # takes seconds, and a path-gated check is one a chart-only PR can skip.
