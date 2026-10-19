@@ -9,6 +9,8 @@ from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 
 import pytest
+from redis.exceptions import OutOfMemoryError
+from redis.exceptions import ResponseError
 
 from proxysvc.config import ProxySettings
 from proxysvc.core.error import UsageLimitError
@@ -88,6 +90,28 @@ class TestRecordAndEnforce:
     async def test_unlimited_tier_never_blocked(self):
         meter = _meter(_redis(count=10_000), _ctx(tier="enterprise", included=-1))
         assert await meter.record_and_enforce("t-1") == 10_000
+
+    async def test_full_redis_serves_the_selection_uncounted(self, caplog):
+        """redis refuses writes under noeviction when full; the quota must not
+        turn that into a select outage."""
+        redis = _redis()
+        redis.incr_selection_usage = AsyncMock(
+            side_effect=OutOfMemoryError(
+                "command not allowed when used memory > 'maxmemory'"
+            )
+        )
+        meter = _meter(redis, _ctx(tier="free", included=100))
+
+        assert await meter.record_and_enforce("t-1") is None
+        assert "redis is full" in caplog.text
+
+    async def test_other_redis_errors_still_fail(self):
+        redis = _redis()
+        redis.incr_selection_usage = AsyncMock(side_effect=ResponseError("WRONGTYPE"))
+        meter = _meter(redis, _ctx())
+
+        with pytest.raises(ResponseError):
+            await meter.record_and_enforce("t-1")
 
 
 class TestRejectionRecheck:

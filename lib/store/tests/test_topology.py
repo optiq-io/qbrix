@@ -18,7 +18,9 @@ from qbrixstore.stream.topology import StreamSpec
 
 class TestDeleteOnAck:
     def test_single_group_stream_deletes_on_ack(self):
-        spec = StreamSpec(name="s", event=AuditEvent, groups=frozenset({"only"}))
+        spec = StreamSpec(
+            name="s", event=AuditEvent, max_len=10, groups=frozenset({"only"})
+        )
 
         assert spec.delete_on_ack is True
 
@@ -26,8 +28,12 @@ class TestDeleteOnAck:
         """the invariant that motivated the registry: xdel removes an entry for
         every group, so a stream gaining a second consumer must stop deleting —
         and gaining that consumer is the only edit needed to make it so."""
-        one = StreamSpec(name="s", event=AuditEvent, groups=frozenset({"a"}))
-        two = StreamSpec(name="s", event=AuditEvent, groups=frozenset({"a", "b"}))
+        one = StreamSpec(
+            name="s", event=AuditEvent, max_len=10, groups=frozenset({"a"})
+        )
+        two = StreamSpec(
+            name="s", event=AuditEvent, max_len=10, groups=frozenset({"a", "b"})
+        )
 
         assert one.delete_on_ack is True
         assert two.delete_on_ack is False
@@ -36,6 +42,7 @@ class TestDeleteOnAck:
         spec = StreamSpec(
             name="s",
             event=AuditEvent,
+            max_len=10,
             groups=frozenset({"a", "b"}),
             delete_on_ack_override=True,
         )
@@ -45,7 +52,9 @@ class TestDeleteOnAck:
 
 class TestStartIds:
     def test_default_start_id_drains_history(self):
-        spec = StreamSpec(name="s", event=AuditEvent, groups=frozenset({"a"}))
+        spec = StreamSpec(
+            name="s", event=AuditEvent, max_len=10, groups=frozenset({"a"})
+        )
 
         assert spec.start_id("a") == "0"
 
@@ -53,6 +62,7 @@ class TestStartIds:
         spec = StreamSpec(
             name="s",
             event=AuditEvent,
+            max_len=10,
             groups=frozenset({"a", "b"}),
             start_ids={"b": "$"},
         )
@@ -66,6 +76,7 @@ class TestStartIds:
             StreamSpec(
                 name="s",
                 event=AuditEvent,
+                max_len=10,
                 groups=frozenset({"a"}),
                 start_ids={"typo": "$"},
             )
@@ -81,7 +92,7 @@ class TestGroupMembership:
 
     def test_a_stream_needs_at_least_one_group(self):
         with pytest.raises(ValueError, match="at least one group"):
-            StreamSpec(name="s", event=AuditEvent, groups=frozenset())
+            StreamSpec(name="s", event=AuditEvent, max_len=10, groups=frozenset())
 
 
 class TestDeployedTopology:
@@ -97,7 +108,7 @@ class TestDeployedTopology:
         assert spec.name == "qbrix:feedback"
         assert spec.event is FeedbackEvent
         assert spec.groups == frozenset({"cortex", "trace"})
-        assert spec.max_len == 1_000_000
+        assert spec.max_len == 200_000
         assert spec.start_id("cortex") == "0"
         assert spec.start_id("trace") == "0"
 
@@ -114,7 +125,7 @@ class TestDeployedTopology:
         assert spec.name == "qbrix:selection"
         assert spec.event is SelectionEvent
         assert spec.groups == frozenset({"trace", "metering"})
-        assert spec.max_len == 1_000_000
+        assert spec.max_len == 200_000
         assert spec.delete_on_ack is False
         assert spec.start_id("metering") == "$"
         assert spec.start_id("trace") == "0"
@@ -124,7 +135,7 @@ class TestDeployedTopology:
         assert spec.name == "qbrix:audit"
         assert spec.event is AuditEvent
         assert spec.groups == frozenset({"trace"})
-        assert spec.max_len == 1_000_000
+        assert spec.max_len == 100_000
         assert spec.delete_on_ack is True
         assert spec.start_id("trace") == "0"
 
@@ -134,3 +145,26 @@ class TestDeployedTopology:
             topology.SELECTION,
             topology.AUDIT,
         }
+
+
+class TestMemoryBudget:
+    """redis runs noeviction, so a stream at its cap that doesn't fit refuses
+    every write instead of trimming. bytes per entry are redis MEMORY USAGE at
+    the widest context (64 dims), measured on redis 7.4; audit carries headroom
+    for larger payloads."""
+
+    MAXMEMORY = 1024**3
+    WORST_BYTES_PER_ENTRY = {
+        topology.FEEDBACK: 1_930,
+        topology.SELECTION: 1_930,
+        topology.AUDIT: 600,
+    }
+
+    def test_every_stream_has_a_measured_size(self):
+        assert set(self.WORST_BYTES_PER_ENTRY) == set(topology.ALL)
+
+    def test_all_streams_full_fit_with_room_for_learning(self):
+        full = sum(
+            spec.max_len * self.WORST_BYTES_PER_ENTRY[spec] for spec in topology.ALL
+        )
+        assert full <= 0.8 * self.MAXMEMORY

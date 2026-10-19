@@ -50,6 +50,8 @@ Generated values are read back from the cluster, which render-only tools cannot 
 
 For anything beyond a single-node install, point the chart at managed Postgres and Redis. `examples/values-external-services.yaml` shows how; layer it on top of the self-host values. With in-cluster Postgres disabled, a Postgres secret (or password) is required, and rendering fails without one.
 
+Redis is not a cache here: it holds what every experiment has learned, and nothing else has a copy. Your own Redis must run `maxmemory-policy noeviction` with `appendonly yes` and `appendfsync everysec`, the settings the in-cluster one uses, and needs at least 1 GB of `maxmemory`, which the event streams are sized to fit. An eviction policy silently resets learning and takes experiments offline. When Redis is full, writes fail loudly instead, learning pauses, and selection keeps working.
+
 ## Analytics
 
 Insights and the event log need the trace service and ClickHouse:
@@ -81,6 +83,7 @@ Without an email provider, new accounts are verified automatically, and reset an
 | `global.logging.format` / `level` | `json` or `text` / log level | `json` / `WARNING` |
 | `infrastructure.postgres.enabled` | In-cluster Postgres | `true` |
 | `infrastructure.redis.enabled` | In-cluster Redis | `true` |
+| `infrastructure.redis.maxmemory` | Redis memory ceiling; it never evicts, so keep it at 1gb or more and the memory limit above it | `1gb` |
 | `infrastructure.clickhouse.enabled` | In-cluster ClickHouse | `false` |
 | `trace.enabled` | Trace service (analytics) | `false` |
 | `proxy.config.signupMode` | `first-user`, `invite-only` or `open` | `first-user` |

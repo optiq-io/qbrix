@@ -12,8 +12,6 @@ from qbrixstore.event import SelectionEvent
 # a group that is not listed on its stream's spec cannot be joined, so the
 # registry below is the complete set of consumers in the system.
 
-DEFAULT_MAX_LEN = 1_000_000
-
 # a newly created group starts here unless its stream overrides it: "0" drains
 # whatever history the stream still holds. only applies at group creation; an
 # existing group keeps its own position.
@@ -35,7 +33,7 @@ class StreamSpec:
     name: str
     event: type[Event]
     groups: frozenset[str]
-    max_len: int = DEFAULT_MAX_LEN
+    max_len: int
     start_ids: Mapping[str, str] = field(default_factory=dict)
     delete_on_ack_override: bool | None = None
 
@@ -70,12 +68,17 @@ class StreamSpec:
             )
 
 
+# redis runs noeviction, and a stream at its cap that doesn't fit maxmemory
+# refuses every write, trimming included. the caps are sized so all three full,
+# at the widest context, fit the chart's 1gb; test_topology holds them to it.
+
 FEEDBACK = StreamSpec(
     name="qbrix:feedback",
     event=FeedbackEvent,
     groups=frozenset({"cortex", "trace"}),
-    # fanned out, so this should derive to False. pinned True until the stream
-    # has the MAXLEN sizing that the flip requires.
+    max_len=200_000,
+    # fanned out, so this should derive to False. pinned True until trimming a
+    # fanned-out stream can't drop entries a lagging group hasn't read.
     delete_on_ack_override=True,
 )
 
@@ -83,6 +86,7 @@ SELECTION = StreamSpec(
     name="qbrix:selection",
     event=SelectionEvent,
     groups=frozenset({"trace", "metering"}),
+    max_len=200_000,
     # a fresh metering group starts at the tail: pre-subscription backlog is
     # unbillable, and stripe rejects events >35 days old, which would wedge the
     # ack-after-emit consumer.
@@ -93,6 +97,7 @@ AUDIT = StreamSpec(
     name="qbrix:audit",
     event=AuditEvent,
     groups=frozenset({"trace"}),
+    max_len=100_000,
 )
 
 ALL: tuple[StreamSpec, ...] = (FEEDBACK, SELECTION, AUDIT)

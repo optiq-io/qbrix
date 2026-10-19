@@ -11,6 +11,8 @@ from urllib.parse import urlsplit
 
 import bcrypt
 import pytest
+from redis.exceptions import OutOfMemoryError
+from redis.exceptions import ResponseError
 
 from proxysvc.config import ProxySettings
 from proxysvc.mod.auth.scope import ABUSE_RATE_LIMIT_PER_MINUTE
@@ -895,6 +897,58 @@ class TestAuthServiceRateLimit:
             )
 
         assert allowed is True
+
+    @pytest.mark.asyncio
+    @patch("proxysvc.mod.auth.service.get_session")
+    async def test_full_redis_lets_selection_through(
+        self, mock_get_session, auth_service, caplog
+    ):
+        """redis refuses writes under noeviction when full; the abuse guard must
+        not turn that into a select outage."""
+        mock_get_session.return_value.__aenter__ = AsyncMock(return_value=AsyncMock())
+        mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
+        mock_repo = AsyncMock()
+        mock_repo.get = AsyncMock(
+            return_value=_make_api_key_record(rate_limit_per_minute=100)
+        )
+        mock_user_repo = AsyncMock()
+        mock_user_repo.get = AsyncMock(return_value=_make_user_record())
+        pipe = _make_mock_pipeline()
+        pipe.execute = AsyncMock(
+            side_effect=OutOfMemoryError(
+                "command not allowed when used memory > 'maxmemory'"
+            )
+        )
+        auth_service._redis.client.pipeline = MagicMock(return_value=pipe)
+
+        with (
+            patch("proxysvc.mod.auth.service.APIKeyRepository", return_value=mock_repo),
+            patch(
+                "proxysvc.mod.auth.service.UserRepository", return_value=mock_user_repo
+            ),
+        ):
+            allowed, _, limit = await auth_service.check_api_key_rate_limit("key-1")
+
+        assert allowed is True
+        assert limit == 100
+        assert "redis is full" in caplog.text
+
+    @pytest.mark.asyncio
+    @patch("proxysvc.mod.auth.service.get_session")
+    async def test_other_redis_errors_still_fail(self, mock_get_session, auth_service):
+        mock_get_session.return_value.__aenter__ = AsyncMock(return_value=AsyncMock())
+        mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
+        mock_user_repo = AsyncMock()
+        mock_user_repo.get = AsyncMock(return_value=_make_user_record())
+        pipe = _make_mock_pipeline()
+        pipe.execute = AsyncMock(side_effect=ResponseError("WRONGTYPE"))
+        auth_service._redis.client.pipeline = MagicMock(return_value=pipe)
+
+        with patch(
+            "proxysvc.mod.auth.service.UserRepository", return_value=mock_user_repo
+        ):
+            with pytest.raises(ResponseError):
+                await auth_service.check_user_rate_limit("u-1")
 
 
 class TestAuthServiceEmailVerification:
