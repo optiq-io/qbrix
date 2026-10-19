@@ -25,6 +25,7 @@ from proxysvc.transport.http.cors import DEFAULT_CORS_POLICY
 from proxysvc.transport.http.auth.seed import seed_dev_user
 from proxysvc import edition
 from proxysvc.config import settings
+from proxysvc.next import next_routes
 
 __all__ = ["app"]
 
@@ -173,6 +174,7 @@ if settings.analytics_enabled:
     logger.info("analytics endpoints registered")
 
 edition.register_routes(app, settings)
+next_routes(app, settings)
 
 
 @app.exception_handler(BaseAPIException)

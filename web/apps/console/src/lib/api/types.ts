@@ -39,6 +39,7 @@ export type AuthConfig = {
   signup_open: boolean;
   edition: Edition;
   email_enabled: boolean;
+  next: boolean;
 };
 
 // Authentication

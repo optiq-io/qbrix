@@ -30,5 +30,18 @@ class RecordingSender:
 
 
 @pytest.fixture
+def next_enabled(monkeypatch) -> None:
+    """switch qbrix next on for one test; the suite otherwise runs today's product.
+
+    it flips the setting only: routes mount while the app module imports, so a
+    test of a next route boots its own process, as integration/test_oss_boot.py
+    does.
+    """
+    import proxysvc.config
+
+    monkeypatch.setattr(proxysvc.config.settings, "next_enabled", True)
+
+
+@pytest.fixture
 def recording_sender() -> RecordingSender:
     return RecordingSender()

@@ -20,6 +20,8 @@ type Deployment = {
   signupOpen: boolean;
   /** a mail provider is configured; without one, accounts are auto-verified */
   emailEnabled: boolean;
+  /** the server has next switched on; a console built with the next shell needs it */
+  next: boolean;
   isLoading: boolean;
 };
 
@@ -40,6 +42,7 @@ export function useDeployment(): Deployment {
     // state on a healthy cloud while the config is in flight
     signupOpen: data?.signup_open ?? true,
     emailEnabled: data?.email_enabled ?? true,
+    next: data?.next ?? false,
     isLoading,
   };
 }

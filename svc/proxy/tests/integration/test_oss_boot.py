@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -20,8 +21,87 @@ PROBE = Path(__file__).resolve().parents[1] / "probe" / "oss_boot.py"
 BILLING_PREFIX = "/api/v1/ee/billing"
 ANALYTICS_PREFIXES = ("/api/v1/insight", "/api/v1/event")
 
+# today's product, with next off. a route or grpc service that appears here
+# without a deliberate edit was mounted outside proxysvc/next.py.
+TODAY_ROUTES = frozenset(
+    {
+        "/api/auth/account",
+        "/api/auth/api-keys",
+        "/api/auth/api-keys/{api_key_id}",
+        "/api/auth/api-keys/{api_key_id}/rotate",
+        "/api/auth/api-keys/{api_key_id}/usage",
+        "/api/auth/change-password",
+        "/api/auth/config",
+        "/api/auth/forgot-password",
+        "/api/auth/invites/{token}",
+        "/api/auth/invites/{token}/accept",
+        "/api/auth/login",
+        "/api/auth/profile",
+        "/api/auth/refresh",
+        "/api/auth/register",
+        "/api/auth/resend-verification",
+        "/api/auth/reset-password",
+        "/api/auth/roles",
+        "/api/auth/users",
+        "/api/auth/users/stats",
+        "/api/auth/users/{user_id}/role",
+        "/api/auth/users/{user_id}/status",
+        "/api/auth/verify-email",
+        "/api/auth/workspace",
+        "/api/auth/workspace/invites",
+        "/api/auth/workspace/invites/{invite_id}",
+        "/api/auth/workspace/members",
+        "/api/health",
+        "/api/v1/agent/feedback",
+        "/api/v1/agent/select",
+        "/api/v1/event",
+        "/api/v1/event/audit",
+        "/api/v1/event/experiment/{experiment_id}/activity",
+        "/api/v1/event/feedback",
+        "/api/v1/event/selection",
+        "/api/v1/event/selection/{request_id}",
+        "/api/v1/experiments",
+        "/api/v1/experiments/{experiment_id}",
+        "/api/v1/experiments/{experiment_id}/reset",
+        "/api/v1/gates/{experiment_id}",
+        "/api/v1/gates/{experiment_id}/evaluate",
+        "/api/v1/insight/experiment/{experiment_id}",
+        "/api/v1/insight/experiment/{experiment_id}/arms",
+        "/api/v1/insight/experiment/{experiment_id}/cumulative",
+        "/api/v1/insight/experiment/{experiment_id}/funnel",
+        "/api/v1/insight/experiment/{experiment_id}/timeseries",
+        "/api/v1/insight/experiment/{experiment_id}/timeseries/arms",
+        "/api/v1/insight/experiment/{experiment_id}/timeseries/rewards",
+        "/api/v1/insight/workspace/arms",
+        "/api/v1/policies",
+        "/api/v1/pools",
+        "/api/v1/pools/{pool_id}",
+        "/api/v1/pools/{pool_id}/experiments",
+        "/api/v1/runtime/cortex/health",
+        "/api/v1/runtime/motor/health",
+        "/api/v1/runtime/redis/health",
+        "/api/v1/runtime/redis/stream/size",
+        "/health",
+        "/info",
+    }
+)
 
-def boot(*, ee: bool = False, analytics: bool) -> dict:
+TODAY_GRPC_SERVICES = frozenset(
+    {
+        "grpc.reflection.v1alpha.ServerReflection",
+        "qbrix.auth.AuthService",
+        "qbrix.proxy.ProxyService",
+    }
+)
+
+
+def free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def boot(*, ee: bool = False, analytics: bool, next_: bool = False) -> dict:
     """boot one proxy process under the given switches and return its report."""
     result = subprocess.run(
         [sys.executable, str(PROBE)],
@@ -33,6 +113,9 @@ def boot(*, ee: bool = False, analytics: bool) -> dict:
             "PATH": os.environ["PATH"],
             "PROXY_EE_ENABLED": "true" if ee else "false",
             "PROXY_ANALYTICS_ENABLED": "true" if analytics else "false",
+            "PROXY_NEXT_ENABLED": "true" if next_ else "false",
+            "PROXY_GRPC_HOST": "127.0.0.1",
+            "PROXY_GRPC_PORT": str(free_port()),
             "PROXY_JWT_SECRET_KEY": "probe-jwt-secret",
             "PROXY_TOKEN_SECRET": "probe-token-secret",
         },
@@ -54,6 +137,11 @@ def oss() -> dict:
 @pytest.fixture(scope="module")
 def oss_without_analytics() -> dict:
     return boot(analytics=False)
+
+
+@pytest.fixture(scope="module")
+def oss_with_next() -> dict:
+    return boot(analytics=True, next_=True)
 
 
 class TestBoot:
@@ -82,3 +170,15 @@ class TestAnalyticsSwitch:
 
         assert mounted(routes, *ANALYTICS_PREFIXES) == []
         assert oss_without_analytics["loaded"] == []
+
+
+class TestNextSwitch:
+    def test_off_mounts_exactly_todays_routes(self, oss):
+        assert set(oss["routes"]) == TODAY_ROUTES
+
+    def test_off_serves_exactly_todays_grpc_services(self, oss):
+        assert set(oss["grpc_services"]) == TODAY_GRPC_SERVICES
+
+    def test_on_keeps_todays_surface(self, oss_with_next):
+        assert set(oss_with_next["routes"]) >= TODAY_ROUTES
+        assert set(oss_with_next["grpc_services"]) >= TODAY_GRPC_SERVICES

@@ -267,6 +267,7 @@ class AuthConfigResponse(BaseModel):
     signup_open: bool
     edition: str
     email_enabled: bool
+    next: bool
 
 
 @router.get(
@@ -277,6 +278,7 @@ async def auth_config():
         signup_open=await operator.auth_operator.signup_open(),
         edition=operator.auth_operator.entitlements.edition,
         email_enabled=operator.auth_operator.email_enabled,
+        next=settings.next_enabled,
     )
 
 

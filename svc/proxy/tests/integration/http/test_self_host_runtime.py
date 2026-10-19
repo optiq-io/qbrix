@@ -105,7 +105,7 @@ class TestSignupMode:
 
 
 class TestAuthConfig:
-    async def test_needs_no_auth_and_answers_three_fields(
+    async def test_needs_no_auth_and_answers_four_fields(
         self, public_client, monkeypatch
     ):
         _signup_mode(monkeypatch, "open")
@@ -117,7 +117,11 @@ class TestAuthConfig:
             "signup_open": True,
             "edition": _op_module.auth_operator.entitlements.edition,
             "email_enabled": True,
+            "next": False,
         }
+
+    async def test_reports_next_switched_on(self, public_client, next_enabled):
+        assert (await public_client.get("/api/auth/config")).json()["next"] is True
 
     async def test_tracks_first_user_closing_signup(self, public_client, monkeypatch):
         _signup_mode(monkeypatch, "first-user")

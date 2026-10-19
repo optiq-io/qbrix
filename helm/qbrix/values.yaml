@@ -75,6 +75,9 @@ global:
 # subcharts
 proxy:
   enabled: true
+  # qbrix next, off until the release
+  next:
+    enabled: false
 motor:
   enabled: true
 cortex:

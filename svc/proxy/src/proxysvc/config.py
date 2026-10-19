@@ -80,6 +80,7 @@ class ProxySettings(GrpcSettings):
 
     ee_enabled: bool = False
     analytics_enabled: bool = False
+    next_enabled: bool = False
 
     # clickhouse, read by the analytics endpoints
     clickhouse_host: str = "localhost"

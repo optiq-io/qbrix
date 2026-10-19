@@ -100,7 +100,7 @@ low-latency while parameter updates are eventually consistent.
 
 ### Editions
 
-Two independent switches:
+Three independent switches:
 
 - **`PROXY_EE_ENABLED`** loads the cloud plugin `proxysvc/ee/`: billing, plan tiers
   (`ee/plans.py`), the selection quota (`ee/metering/`), `PlanEntitlements`. Core
@@ -108,6 +108,13 @@ Two independent switches:
   `UnlimitedEntitlements` (no caps, no quota).
 - **`PROXY_ANALYTICS_ENABLED`** mounts the insight and event routes and turns on
   the selection and audit streams. Needs trace and ClickHouse.
+- **`PROXY_NEXT_ENABLED`** turns qbrix next on, off until the release. Next routes
+  and gRPC services mount only through `proxysvc/next.py` (`next_routes`,
+  `next_servicers`), and `/api/auth/config` reports it as `next`. With it off, the
+  proxy's route table and gRPC services are frozen in
+  `tests/integration/test_oss_boot.py`, so anything mounted elsewhere fails CI.
+  The suite runs with it off; the `next_enabled` fixture turns it on for one test.
+  `make dev-next` runs the proxy with it on.
 
 `proxysvc/edition.py` is the only core module that may name `proxysvc.ee`. It
 imports nothing from it when EE is off, and fails at boot if EE is on but the
@@ -344,7 +351,8 @@ PROXY_EE_ENABLED=false uv run pytest svc/proxy   # self-hosted edition
 make infra                          # postgres + redis (docker-compose.dev.yml)
 make infra-ee                       # plus clickhouse
 make dev                            # infra, migrations, then all services locally
-make dev-proxy                      # or one service: dev-motor, dev-cortex, dev-trace
+make dev-proxy                      # or one service: dev-motor, dev-cortex, dev-trace, dev-meter
+make dev-next                       # the proxy with qbrix next switched on
 
 make docker                         # full stack in containers, built from source
 make docker-ee                      # plus analytics and the cloud edition
@@ -355,6 +363,17 @@ make fmt                            # black
 make migrate                        # alembic upgrade head against localhost
 make db-reset                       # reset postgres and re-apply migrations
 make loadtest                       # headless load test (60s)
+```
+
+Frontend, from `web/` (what CI runs on the console):
+
+```bash
+pnpm install
+pnpm dev:console                                  # next dev on 3001
+pnpm --filter @qbrix/console check-boundary       # core must not import src/ee or (ee)
+pnpm --filter @qbrix/console type-check
+pnpm --filter @qbrix/console build
+pnpm check-docs
 ```
 
 Test config: `asyncio_mode = "auto"`, `--import-mode=importlib`,
@@ -449,6 +468,7 @@ are the reference. The ones that change behaviour most:
 | `PROXY_RUNENV` | `dev` bypasses auth (default `dev`) |
 | `PROXY_EE_ENABLED` | cloud edition (default `false`) |
 | `PROXY_ANALYTICS_ENABLED` | analytics routes and streams (default `false`) |
+| `PROXY_NEXT_ENABLED` | qbrix next routes and services (default `false`, until the release) |
 | `PROXY_SIGNUP_MODE` | `open`, `first-user` (default) or `invite-only` |
 | `PROXY_EMAIL_PROVIDER` | `auto` (default), `resend`, `smtp` or `none`; with no provider, new accounts are auto-verified |
 | `PROXY_CONSOLE_URL` | the console origin used in email links |

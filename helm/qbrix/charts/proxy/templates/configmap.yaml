@@ -39,6 +39,9 @@ data:
   PROXY_EE_ENABLED: {{ .Values.global.ee.enabled | default false | quote }}
   PROXY_ANALYTICS_ENABLED: {{ .Values.global.analytics.enabled | default false | quote }}
 
+  # qbrix next, off until the release
+  PROXY_NEXT_ENABLED: {{ .Values.next.enabled | default false | quote }}
+
   # stripe billing (ee) — 5-tier usage model: base price per tier + a single
   # selections meter + a metered price per self-serve tier (no enterprise metered)
   {{- if .Values.global.ee.enabled }}
