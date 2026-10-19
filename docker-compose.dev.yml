@@ -81,6 +81,8 @@ services:
       # analytics: needs the trace + clickhouse services
       PROXY_ANALYTICS_ENABLED: "${QBRIX_ANALYTICS_ENABLED:-false}"
       PROXY_CLICKHOUSE_HOST: ${CLICKHOUSE_HOST:-clickhouse}
+      # qbrix next, off until the release
+      PROXY_NEXT_ENABLED: "${QBRIX_NEXT_ENABLED:-false}"
       PROXY_STRIPE_SECRET_KEY: "${STRIPE_SECRET_KEY:-}"
       PROXY_STRIPE_WEBHOOK_SECRET: "${STRIPE_WEBHOOK_SECRET:-}"
       PROXY_STRIPE_PRICE_ID_STARTER: "${STRIPE_PRICE_ID_STARTER:-}"

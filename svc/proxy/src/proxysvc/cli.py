@@ -16,6 +16,7 @@ from qbrixruntime.shutdown import shutdown_signal
 from qbrixruntime.task import drain
 
 from proxysvc.config import ProxySettings
+from proxysvc.next import next_servicers
 from proxysvc.runtime import ProxyRuntime
 from proxysvc.server import ProxyGRPCServicer
 from proxysvc.transport.grpc.auth.server import AuthGRPCServicer
@@ -44,6 +45,7 @@ def build_grpc_server(
         server,
         proxy_pb2.DESCRIPTOR.services_by_name["ProxyService"].full_name,
         auth_pb2.DESCRIPTOR.services_by_name["AuthService"].full_name,
+        *next_servicers(server, settings),
     )
 
     bind(server, settings)

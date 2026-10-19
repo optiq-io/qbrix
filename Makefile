@@ -7,7 +7,7 @@ COMPOSE_DEV := docker compose -f docker-compose.dev.yml
 
 .PHONY: help proto install test lint fmt clean \
         infra infra-down infra-ee infra-ee-down \
-        dev dev-proxy dev-motor dev-cortex dev-trace dev-meter \
+        dev dev-proxy dev-next dev-motor dev-cortex dev-trace dev-meter \
         docker docker-build docker-build-no-cache docker-up docker-down docker-logs docker-ps \
         docker-ee docker-ee-build docker-ee-build-no-cache docker-ee-up docker-ee-down docker-ee-logs \
         migrate db-reset clickhouse-reset \
@@ -30,6 +30,7 @@ help:
 	@echo "  make infra-ee-down        Stop infrastructure with analytics"
 	@echo "  make dev                  Start all services locally (requires infra)"
 	@echo "  make dev-proxy            Start proxy service only"
+	@echo "  make dev-next             Start proxy service with qbrix next switched on"
 	@echo "  make dev-motor            Start motor service only"
 	@echo "  make dev-cortex           Start cortex service only"
 	@echo "  make dev-trace            Start trace service only (analytics)"
@@ -117,6 +118,9 @@ dev: infra migrate
 dev-proxy:
 	PROXY_POSTGRES_HOST=localhost PROXY_REDIS_HOST=localhost PROXY_MOTOR_HOST=localhost PROXY_RUNENV=dev \
 	uv run python -m proxysvc.cli serve
+
+dev-next:
+	PROXY_NEXT_ENABLED=true $(MAKE) dev-proxy
 
 dev-motor:
 	MOTOR_REDIS_HOST=localhost \
