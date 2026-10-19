@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 
 import bcrypt
 from cachebox import TTLCache
+from redis.exceptions import OutOfMemoryError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1023,19 +1024,15 @@ class AuthService:
                 return True, -1, -1
 
             current_minute = int(time.time() // 60)
-            rate_key = f"rate_limit:{api_key_id}:{current_minute}"
-
-            pipe = self._redis.client.pipeline()
-            # noinspection PyAsyncCall
-            pipe.get(rate_key)
-            # noinspection PyAsyncCall
-            pipe.incr(rate_key)
-            # noinspection PyAsyncCall
-            pipe.expire(rate_key, 120)
-
-            response = await pipe.execute()
-
-            current_count = int(response[0]) if response[0] else 0
+            current_count = await self._count_this_minute(
+                f"rate_limit:{api_key_id}:{current_minute}"
+            )
+            if current_count is None:
+                return (
+                    True,
+                    api_key.rate_limit_per_minute,
+                    api_key.rate_limit_per_minute,
+                )
             if current_count >= api_key.rate_limit_per_minute:
                 return False, 0, api_key.rate_limit_per_minute
 
@@ -1066,8 +1063,25 @@ class AuthService:
             return True, -1, -1
 
         current_minute = int(time.time() // 60)
-        rate_key = f"rate_limit:user:{user_id}:{current_minute}"
+        current_count = await self._count_this_minute(
+            f"rate_limit:user:{user_id}:{current_minute}"
+        )
+        if current_count is None:
+            return True, rate_limit, rate_limit
+        if current_count >= rate_limit:
+            return False, 0, rate_limit
 
+        remaining = rate_limit - current_count - 1
+        return True, remaining, rate_limit
+
+    async def _count_this_minute(self, rate_key: str) -> int | None:
+        """count one request in this minute's window and return the count before
+        it, or None when redis is full.
+
+        a full redis refuses the increment. the abuse guard then lets the
+        request through rather than failing selection, which keeps serving
+        from motor's cached parameters while learning is stalled.
+        """
         pipe = self._redis.client.pipeline()
         # noinspection PyAsyncCall
         pipe.get(rate_key)
@@ -1075,15 +1089,12 @@ class AuthService:
         pipe.incr(rate_key)
         # noinspection PyAsyncCall
         pipe.expire(rate_key, 120)
-
-        response = await pipe.execute()
-
-        current_count = int(response[0]) if response[0] else 0
-        if current_count >= rate_limit:
-            return False, 0, rate_limit
-
-        remaining = rate_limit - current_count - 1
-        return True, remaining, rate_limit
+        try:
+            response = await pipe.execute()
+        except OutOfMemoryError as e:
+            logger.error("redis is full, rate limit not applied: %s", e)
+            return None
+        return int(response[0]) if response[0] else 0
 
     # permissions
     @staticmethod

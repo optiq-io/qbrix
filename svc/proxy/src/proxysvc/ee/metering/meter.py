@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from datetime import timezone
 
 from cachebox import TTLCache
 from qbrixstore.redis.client import RedisClient
+from redis.exceptions import OutOfMemoryError
 
 from proxysvc.config import ProxySettings
 from proxysvc.core.error import UsageLimitError
 from proxysvc.ee.metering.model import UsageContext
 from proxysvc.ee.metering.resolver import UsageResolver
+
+logger = logging.getLogger(__name__)
 
 # keep the period counter alive past period end so a slightly late read still
 # sees it before redis reclaims the key
@@ -41,14 +45,21 @@ class SelectionMeter:
             ttl=settings.usage_recheck_cooldown_sec,
         )
 
-    async def record_and_enforce(self, tenant_id: str) -> int:
+    async def record_and_enforce(self, tenant_id: str) -> int | None:
         """count one selection and reject free tenants over their included quota
-        with UsageLimitError. returns the new period count.
+        with UsageLimitError. returns the new period count, or None when redis
+        is full: the selection goes uncounted rather than failing.
         """
         ctx = await self._resolver.resolve(tenant_id)
-        count = await self._redis.incr_selection_usage(
-            tenant_id, ctx.period_key, self._ttl_for(ctx)
-        )
+        try:
+            count = await self._redis.incr_selection_usage(
+                tenant_id, ctx.period_key, self._ttl_for(ctx)
+            )
+        except OutOfMemoryError as e:
+            logger.error(
+                "redis is full, selection not counted for %s: %s", tenant_id, e
+            )
+            return None
         if not self._over_quota(ctx, count):
             return count
 

@@ -52,7 +52,11 @@ spec:
             - --maxmemory
             - {{ .Values.infrastructure.redis.maxmemory | quote }}
             - --maxmemory-policy
-            - {{ .Values.infrastructure.redis.maxmemoryPolicy | quote }}
+            - noeviction
+            - --appendonly
+            - "yes"
+            - --appendfsync
+            - everysec
             {{- if or .Values.global.redis.password .Values.global.redis.existingSecret }}
             - --requirepass
             - $(REDIS_PASSWORD)
