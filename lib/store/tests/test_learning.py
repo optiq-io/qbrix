@@ -108,7 +108,6 @@ class TestApplyLearning:
         learning = await store.read_learning(TENANT, EXPERIMENT)
         assert learning == Learning(params={"n": 3}, applied=3, last_id=ids[-1])
         assert await pending(control, cortex) == 0
-        assert await control.xlen(topology.FEEDBACK.name) == 0
 
     async def test_acks_without_writing_when_nothing_was_learned(
         self, store, cortex, control

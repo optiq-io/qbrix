@@ -86,9 +86,9 @@ low-latency while parameter updates are eventually consistent.
   event endpoints.
 - Scales horizontally: writes are append-only, and the `trace` consumer group
   delivers each entry to one replica. `TRACE_CONSUMER_NAME` must differ per replica.
-- Batches live in memory until flushed, and on `qbrix:feedback` cortex's ack may
-  already have deleted the entries from the stream, so the drain on `stop()` is
-  their last copy.
+- Batches live in memory until flushed, and once every other group has acked an
+  entry it may already be trimmed from the stream, so the drain on `stop()` is
+  the last copy.
 
 **meter** (`ee/svc/meter`): gRPC 50054, cloud edition only
 - Consumes `qbrix:selection` under its own `metering` group, sums selections per
@@ -232,7 +232,14 @@ connection only; which stream a publisher or consumer uses is passed explicitly.
   complete set.
 - `delete_on_ack` is derived, never passed. `XDEL` on ack removes the entry for
   every group, so it is only safe with exactly one group; adding a group turns it
-  off for all consumers. `FEEDBACK` overrides it explicitly.
+  off for all consumers.
+- A fanned-out stream is trimmed instead: every worker periodically runs
+  `XTRIM MINID` to the oldest entry any existing group still needs (its oldest
+  pending, else its last delivered). `max_len` on `XADD` stays as the memory
+  ceiling and binds only when a group lags that far, dropping entries it hasn't
+  read. Each worker logs its own group's backlog against the cap: a warning past
+  half, an error at the cap. Raising a cap means raising `TestMemoryBudget`
+  with it.
 - Joining a group not declared on the spec fails at construction.
 - Stream names, groups and start positions are not configurable, because a
   publisher and consumer configured separately drift into silence rather than

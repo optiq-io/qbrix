@@ -6,9 +6,8 @@ batch/flush/ack mechanics are asserted to be unchanged. two behaviours are new a
 deliberate: the PEL is recovered on startup, and an undecodable entry is
 quarantined instead of stalling its batch forever.
 
-what is still *not* asserted is that every feedback event reaches clickhouse.
-cortex consumes qbrix:feedback with delete_on_ack=True, so it can XDEL entries
-trace has not read. that is a known durability hole, not covered here.
+qbrix:feedback is shared with cortex, whose ack must not cost trace an entry; that
+is asserted here too.
 """
 
 from __future__ import annotations
@@ -17,6 +16,7 @@ import asyncio
 
 import pytest
 
+from qbrixstore.redis.streams import RedisStreamConsumer
 from qbrixstore.stream import topology
 
 from trace_factories import make_audit
@@ -99,6 +99,20 @@ class TestAcking:
 
         assert await control.xlen(topology.SELECTION.name) == 1
 
+    async def test_feedback_cortex_has_acked_still_reaches_clickhouse(
+        self, make_service, control, clickhouse
+    ):
+        cortex = RedisStreamConsumer(topology.FEEDBACK, "cortex")
+        await cortex.connect()
+        await cortex.ensure_group()
+        for _ in range(3):
+            await control.xadd(topology.FEEDBACK.name, make_feedback().to_dict())
+        await cortex.ack([mid for mid, _ in await cortex.consume(block_ms=0)])
+
+        await make_service()
+
+        await wait_for(lambda: len(clickhouse.feedback) == 3)
+
     async def test_single_group_stream_deletes_the_entry_on_ack(
         self, service, control, clickhouse
     ):
@@ -162,8 +176,8 @@ class TestStopDrainsBufferedRows:
     """the buffer moved from TraceService into StreamWorker; the guarantee did not.
 
     this is the only unrecoverable loss in the system: the rows
-    exist in memory only, and on qbrix:feedback cortex's ack may already have
-    deleted them from the stream.
+    exist in memory only, and once every other group has acked them they may
+    already have been trimmed from the stream.
     """
 
     async def test_stop_flushes_rows_still_buffered(

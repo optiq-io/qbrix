@@ -7,8 +7,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
+from fakeredis.aioredis import FakeRedis
 
 from qbrixstore.config import RedisSettings
+from qbrixstore.stream import topology
 
 from proxysvc.core.events import EventEmitter
 from proxysvc.service import ProxyService
@@ -374,6 +376,22 @@ class TestProxyServiceHealth:
     async def test_cortex_health_delegates(self, service):
         service._cortex_client.health = AsyncMock(return_value=True)
         assert await service.cortex_health() is True
+
+    @pytest.mark.asyncio
+    async def test_stream_len_counts_what_cortex_has_not_learned(self, service):
+        """trace keeps the entries cortex has acked, so the stream's length is
+        not the queue."""
+        client = FakeRedis(decode_responses=True)
+        service._redis.client = client
+        stream = topology.FEEDBACK.name
+        for group in ("cortex", "trace"):
+            await client.xgroup_create(stream, group, id="0", mkstream=True)
+        for i in range(5):
+            await client.xadd(stream, {"i": str(i)})
+        read = await client.xreadgroup("cortex", "c", {stream: ">"}, count=3)
+        await client.xack(stream, "cortex", *[mid for mid, _ in read[0][1]])
+
+        assert await service.get_cortex_stream_len() == 2
 
 
 class TestProxyServicePoolCRUD:

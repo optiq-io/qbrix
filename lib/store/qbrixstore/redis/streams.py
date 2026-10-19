@@ -8,6 +8,37 @@ from qbrixstore.event import Event
 from qbrixstore.stream.topology import StreamSpec
 
 
+def _parse_id(entry_id: str) -> tuple[int, int]:
+    ms, _, seq = entry_id.partition("-")
+    return int(ms), int(seq or 0)
+
+
+async def _group_infos(client: redis.Redis, spec: StreamSpec) -> list[dict]:
+    try:
+        return await client.xinfo_groups(spec.name)
+    except redis.ResponseError as e:
+        if "no such key" in str(e).lower():
+            return []
+        raise
+
+
+async def group_backlog(client: redis.Redis, spec: StreamSpec, group: str) -> int:
+    """entries this group has not acked yet: undelivered plus pending.
+
+    redis reports a group's lag as null once it can no longer count it, e.g.
+    after the cap trimmed past the group; the stream's length bounds it then. a
+    group that does not exist yet is owed whatever its start id will drain.
+    """
+    for info in await _group_infos(client, spec):
+        if info["name"] == group:
+            if info.get("lag") is None:
+                return int(await client.xlen(spec.name))
+            return int(info["lag"]) + int(info["pending"])
+    if spec.start_id(group) == "$":
+        return 0
+    return int(await client.xlen(spec.name))
+
+
 class RedisStreamPublisher:
     def __init__(self, spec: StreamSpec, settings: RedisSettings | None = None):
         self._spec = spec
@@ -149,6 +180,40 @@ class RedisStreamConsumer:
             # noinspection PyAsyncCall
             pipe.xdel(self._spec.name, *message_ids)
 
+    async def backlog(self) -> int:
+        if self._client is None:
+            raise RuntimeError("consumer not connected. call connect() first.")
+        return await group_backlog(self._client, self._spec, self._group)
+
+    async def trim_acked(self) -> int:
+        """trim the stream to the oldest entry any of its groups still needs.
+
+        a group needs its oldest pending entry, or, with nothing pending,
+        everything after its last delivered one. positions only move forward,
+        so a group read before another advances can only make the trim smaller.
+        only groups that exist protect entries: one that has never been created
+        is not owed the history before it joins. returns the number trimmed.
+        """
+        if self._client is None:
+            raise RuntimeError("consumer not connected. call connect() first.")
+
+        floor: tuple[int, int] | None = None
+        floor_id = "0-0"
+        for info in await _group_infos(self._client, self._spec):
+            needed = info["last-delivered-id"]
+            if info["pending"]:
+                summary = await self._client.xpending(self._spec.name, info["name"])
+                needed = summary["min"] or needed
+            parsed = _parse_id(needed)
+            if floor is None or parsed < floor:
+                floor, floor_id = parsed, needed
+
+        if floor is None or floor == (0, 0):
+            return 0
+        return await self._client.xtrim(
+            self._spec.name, minid=floor_id, approximate=False
+        )
+
     async def claim_pending(
         self, count: int = 100, min_idle_ms: int = 0, start_id: str = "0-0"
     ) -> tuple[str, list[tuple[str, dict]]]:
@@ -175,9 +240,9 @@ class RedisStreamConsumer:
         )
 
         # [next_start_id, [(id, data), ...], [deleted_ids]] — the third element
-        # is redis >= 7.0, which drops ids whose entry has been XDEL'd from the
-        # PEL for us. that matters on qbrix:feedback, where cortex deletes on ack
-        # and trace can hold pending ids for entries that no longer exist.
+        # is redis >= 7.0, which drops ids whose entry no longer exists from the
+        # PEL for us. on a fanned-out stream that happens only when the cap has
+        # trimmed past a group that lagged by more than max_len.
         if not results:
             return "0-0", []
         if len(results) < 2:
