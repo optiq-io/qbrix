@@ -53,7 +53,7 @@ def mock_redis() -> AsyncMock:
     redis.get_experiment = AsyncMock(return_value=None)
     redis.set_experiment = AsyncMock()
     redis.delete_experiment = AsyncMock()
-    redis.delete_params = AsyncMock()
+    redis.reset_learning = AsyncMock()
     redis.get_gate_config = AsyncMock(return_value=None)
     redis.set_gate_config = AsyncMock()
     redis.delete_gate_config = AsyncMock()

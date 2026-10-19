@@ -2,6 +2,7 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock
 
+from cortexsvc import dispatcher as dispatcher_module
 from cortexsvc.dispatcher import TrainingDispatcher
 from qbrixstore.event import FeedbackEvent
 
@@ -30,19 +31,13 @@ def mock_trainer():
 
 
 @pytest.fixture
-def mock_consumer():
-    consumer = AsyncMock()
-    consumer.ack = AsyncMock()
-    return consumer
+def dispatcher(mock_trainer):
+    return TrainingDispatcher(trainer=mock_trainer, num_workers=2)
 
 
 @pytest.fixture
-def dispatcher(mock_trainer, mock_consumer):
-    return TrainingDispatcher(
-        trainer=mock_trainer,
-        consumer=mock_consumer,
-        num_workers=2,
-    )
+def fast_retry(monkeypatch):
+    monkeypatch.setattr(dispatcher_module, "_RETRY_START_SEC", 0.05)
 
 
 class TestDispatcherDispatch:
@@ -54,7 +49,7 @@ class TestDispatcherDispatch:
 
         key = ("tenant-001", "exp-001")
         assert key in dispatcher._experiment_queues
-        assert dispatcher._experiment_queues[key].qsize() == 1
+        assert len(dispatcher._experiment_queues[key]) == 1
 
     def test_dispatch_routes_to_correct_queues(self, dispatcher):
         event1 = _make_event(experiment_id="exp-001")
@@ -62,8 +57,8 @@ class TestDispatcherDispatch:
 
         dispatcher.dispatch([("msg-1", event1), ("msg-2", event2)])
 
-        assert dispatcher._experiment_queues[("tenant-001", "exp-001")].qsize() == 1
-        assert dispatcher._experiment_queues[("tenant-001", "exp-002")].qsize() == 1
+        assert len(dispatcher._experiment_queues[("tenant-001", "exp-001")]) == 1
+        assert len(dispatcher._experiment_queues[("tenant-001", "exp-002")]) == 1
 
     def test_dispatch_accumulates_events_for_same_experiment(self, dispatcher):
         event1 = _make_event()
@@ -71,7 +66,7 @@ class TestDispatcherDispatch:
 
         dispatcher.dispatch([("msg-1", event1), ("msg-2", event2)])
 
-        assert dispatcher._experiment_queues[("tenant-001", "exp-001")].qsize() == 2
+        assert len(dispatcher._experiment_queues[("tenant-001", "exp-001")]) == 2
 
     def test_dispatch_signals_work_queue(self, dispatcher):
         event = _make_event()
@@ -99,9 +94,7 @@ class TestDispatcherWorker:
     """test worker training and ACK behavior."""
 
     @pytest.mark.asyncio
-    async def test_worker_trains_and_acks(
-        self, dispatcher, mock_trainer, mock_consumer
-    ):
+    async def test_worker_trains_the_queued_messages(self, dispatcher, mock_trainer):
         event = _make_event()
         dispatcher.dispatch([("msg-1", event)])
 
@@ -111,19 +104,12 @@ class TestDispatcherWorker:
         await dispatcher.stop()
 
         mock_trainer.train_experiment.assert_called_once_with(
-            "tenant-001", "exp-001", [event]
+            "tenant-001", "exp-001", [("msg-1", event)]
         )
-        mock_consumer.ack.assert_called_once_with(["msg-1"])
 
     @pytest.mark.asyncio
-    async def test_worker_trains_multiple_experiments_in_parallel(
-        self, mock_trainer, mock_consumer
-    ):
-        dispatcher = TrainingDispatcher(
-            trainer=mock_trainer,
-            consumer=mock_consumer,
-            num_workers=2,
-        )
+    async def test_worker_trains_multiple_experiments_in_parallel(self, mock_trainer):
+        dispatcher = TrainingDispatcher(trainer=mock_trainer, num_workers=2)
 
         # use an event to synchronize: both experiments should start before either finishes
         training_started = asyncio.Event()
@@ -151,9 +137,7 @@ class TestDispatcherWorker:
         assert mock_trainer.train_experiment.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_worker_updates_stats_after_training(
-        self, dispatcher, mock_trainer, mock_consumer
-    ):
+    async def test_worker_updates_stats_after_training(self, dispatcher, mock_trainer):
         mock_trainer.train_experiment.return_value = 3
 
         events = [_make_event() for _ in range(3)]
@@ -170,24 +154,75 @@ class TestDispatcherWorker:
         assert stats[0]["last_train"] > 0
 
     @pytest.mark.asyncio
-    async def test_worker_handles_training_error(
-        self, dispatcher, mock_trainer, mock_consumer
+    async def test_a_failed_batch_is_retried_at_the_head_of_its_queue(
+        self, dispatcher, mock_trainer, fast_retry
     ):
-        mock_trainer.train_experiment.side_effect = Exception("training failed")
+        """later entries must never be applied before a failed batch, or the
+        learning record's last_id would pass ids that were never learned."""
+        batches = []
 
-        event = _make_event()
-        dispatcher.dispatch([("msg-1", event)])
+        async def flaky(tenant_id, experiment_id, messages):
+            batches.append([mid for mid, _ in messages])
+            if len(batches) == 1:
+                dispatcher.dispatch([("msg-2", _make_event())])
+                raise ConnectionError("redis went away")
+            return len(messages)
+
+        mock_trainer.train_experiment.side_effect = flaky
+        dispatcher.dispatch([("msg-1", _make_event())])
 
         await dispatcher.start()
+        await asyncio.sleep(0.2)
+        await dispatcher.stop()
+
+        assert batches == [["msg-1"], ["msg-1", "msg-2"]]
+        stats = dispatcher.get_stats(tenant_id="tenant-001", experiment_id="exp-001")
+        assert stats[0]["pending"] == 0
+
+    @pytest.mark.asyncio
+    async def test_new_entries_do_not_cut_a_backoff_short(
+        self, dispatcher, mock_trainer, monkeypatch
+    ):
+        monkeypatch.setattr(dispatcher_module, "_RETRY_START_SEC", 10.0)
+        mock_trainer.train_experiment.side_effect = ConnectionError("down")
+        dispatcher.dispatch([("msg-1", _make_event())])
+
+        await dispatcher.start()
+        await asyncio.sleep(0.05)
+        dispatcher.dispatch([("msg-2", _make_event())])
         await asyncio.sleep(0.1)
         await dispatcher.stop()
 
-        # should not crash; ACK should not be called on error
-        mock_consumer.ack.assert_not_called()
+        assert mock_trainer.train_experiment.call_count == 1
+        queued = dispatcher._experiment_queues[("tenant-001", "exp-001")]
+        assert [mid for mid, _ in queued] == ["msg-1", "msg-2"]
+
+    @pytest.mark.asyncio
+    async def test_backoff_resets_after_a_success(
+        self, dispatcher, mock_trainer, fast_retry
+    ):
+        calls = 0
+
+        async def once_down(tenant_id, experiment_id, messages):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise ConnectionError("down")
+            return len(messages)
+
+        mock_trainer.train_experiment.side_effect = once_down
+        dispatcher.dispatch([("msg-1", _make_event())])
+
+        await dispatcher.start()
+        await asyncio.sleep(0.2)
+        await dispatcher.stop()
+
+        assert calls == 2
+        assert dispatcher._retry_delay == {}
 
     @pytest.mark.asyncio
     async def test_worker_requeues_when_more_events_arrive(
-        self, dispatcher, mock_trainer, mock_consumer
+        self, dispatcher, mock_trainer
     ):
         train_call_count = 0
         train_started = asyncio.Event()
@@ -224,9 +259,7 @@ class TestDispatcherFlush:
     """test force flush behavior."""
 
     @pytest.mark.asyncio
-    async def test_flush_trains_all_queued_events(
-        self, dispatcher, mock_trainer, mock_consumer
-    ):
+    async def test_flush_trains_all_queued_events(self, dispatcher, mock_trainer):
         events = [_make_event() for _ in range(3)]
         messages = [(f"msg-{i}", ev) for i, ev in enumerate(events)]
         dispatcher.dispatch(messages)
@@ -236,12 +269,9 @@ class TestDispatcherFlush:
 
         assert count == 3
         mock_trainer.train_experiment.assert_called_once()
-        mock_consumer.ack.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_flush_filters_by_experiment(
-        self, dispatcher, mock_trainer, mock_consumer
-    ):
+    async def test_flush_filters_by_experiment(self, dispatcher, mock_trainer):
         event1 = _make_event(experiment_id="exp-001")
         event2 = _make_event(experiment_id="exp-002")
 
@@ -251,13 +281,11 @@ class TestDispatcherFlush:
 
         assert count == 1
         mock_trainer.train_experiment.assert_called_once_with(
-            "tenant-001", "exp-001", [event1]
+            "tenant-001", "exp-001", [("msg-1", event1)]
         )
 
     @pytest.mark.asyncio
-    async def test_flush_filters_by_tenant(
-        self, dispatcher, mock_trainer, mock_consumer
-    ):
+    async def test_flush_filters_by_tenant(self, dispatcher, mock_trainer):
         event1 = _make_event(tenant_id="tenant-001")
         event2 = _make_event(tenant_id="tenant-002")
 
@@ -266,6 +294,20 @@ class TestDispatcherFlush:
         count = await dispatcher.flush(tenant_id="tenant-001")
 
         assert count == 1
+
+    @pytest.mark.asyncio
+    async def test_a_failed_flush_keeps_the_batch_and_raises(
+        self, dispatcher, mock_trainer
+    ):
+        mock_trainer.train_experiment.side_effect = ConnectionError("down")
+        dispatcher.dispatch([("msg-1", _make_event()), ("msg-2", _make_event())])
+
+        with pytest.raises(ConnectionError):
+            await dispatcher.flush()
+
+        queued = dispatcher._experiment_queues[("tenant-001", "exp-001")]
+        assert [mid for mid, _ in queued] == ["msg-1", "msg-2"]
+        assert ("tenant-001", "exp-001") not in dispatcher._active_experiments
 
     @pytest.mark.asyncio
     async def test_flush_returns_zero_when_empty(self, dispatcher):

@@ -803,7 +803,7 @@ class TestProxyServiceExperimentCRUD:
         assert result is not None
         assert result["id"] == "exp-1"
         service._cortex_client.flush_batch.assert_called_once_with("exp-1")
-        service._redis.delete_params.assert_called_once_with("t-1", "exp-1")
+        service._redis.reset_learning.assert_called_once_with("t-1", "exp-1")
         service._events._feedback.publish.assert_not_called()
 
     @pytest.mark.asyncio
@@ -824,7 +824,7 @@ class TestProxyServiceExperimentCRUD:
             with pytest.raises(ExperimentRunningError):
                 await service.reset_experiment("t-1", "exp-1")
 
-        service._redis.delete_params.assert_not_called()
+        service._redis.reset_learning.assert_not_called()
         service._cortex_client.flush_batch.assert_not_called()
 
     @pytest.mark.asyncio
@@ -846,7 +846,7 @@ class TestProxyServiceExperimentCRUD:
             result = await service.reset_experiment("t-1", "missing")
 
         assert result is None
-        service._redis.delete_params.assert_not_called()
+        service._redis.reset_learning.assert_not_called()
 
     @pytest.mark.asyncio
     @patch("proxysvc.mod.experiment.service.get_session")
@@ -871,7 +871,7 @@ class TestProxyServiceExperimentCRUD:
             result = await service.reset_experiment("t-1", "exp-1")
 
         assert result is not None
-        service._redis.delete_params.assert_called_once_with("t-1", "exp-1")
+        service._redis.reset_learning.assert_called_once_with("t-1", "exp-1")
 
 
 class TestProxyServiceGateConfig:

@@ -60,10 +60,9 @@ class CortexService:
         await self._audit_publisher.connect()
         logger.info("audit publisher connected")
 
-        self._trainer = BatchTrainer(self._redis)
+        self._trainer = BatchTrainer(self._redis, self._consumer)
         self._dispatcher = TrainingDispatcher(
             trainer=self._trainer,
-            consumer=self._consumer,
             num_workers=self._settings.num_workers,
             audit_publisher=self._audit_publisher,
         )
@@ -87,9 +86,9 @@ class CortexService:
     async def _handle(self, batch: list[tuple[str, FeedbackEvent]]) -> Sequence[str]:
         """hand feedback to the dispatcher.
 
-        returns no ids: the dispatcher acks each experiment's messages once their
-        training batch has been applied, so feedback stays redeliverable until it
-        has actually been learned from.
+        returns no ids: the trainer acks each batch in the transaction that stores
+        what it learned, so feedback stays redeliverable until it has actually
+        been learned from.
         """
         self._dispatcher.dispatch(batch)
         return ()
