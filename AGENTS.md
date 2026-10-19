@@ -166,6 +166,11 @@ time, so a docs merge redeploys it (`docs.yml`). Run `pnpm check-docs` in `web/`
 before pushing a docs change: CI runs it, and it catches a page that won't compile,
 bad frontmatter, or a `/docs/...` link or anchor that doesn't resolve.
 
+Docs for qbrix next go in `docs-next/` at the repository root, never in `docs/`,
+until the release PR moves them in. The site never reads that folder, and
+`bin/check-docs-deploy` fails CI if `docs.yml` would deploy it. Check it with
+`pnpm check-docs:next`; its links resolve to `docs-next/` first, then `docs/`.
+
 ### Console routes
 
 | Route | Description |
@@ -374,6 +379,7 @@ pnpm --filter @qbrix/console check-boundary       # core must not import src/ee 
 pnpm --filter @qbrix/console type-check
 pnpm --filter @qbrix/console build
 pnpm check-docs
+pnpm check-docs:next                              # docs-next/, unpublished until the release
 ```
 
 Test config: `asyncio_mode = "auto"`, `--import-mode=importlib`,

@@ -1,0 +1,79 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["pyyaml"]
+# ///
+#
+# checks that the docs workflow, which redeploys qbrix.io, fires on docs/ and
+# never on docs-next/. docs-next/ holds docs for an unreleased product, so a
+# path filter widened to cover both would publish them early.
+#
+#   bin/check-docs-deploy
+
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+import yaml
+
+ROOT = Path(__file__).resolve().parent.parent
+WORKFLOW = ROOT / ".github" / "workflows" / "docs.yml"
+
+DEPLOYS = ["docs/introduction.mdx"]
+NEVER_DEPLOYS = ["docs-next/loops.mdx", "docs-next/README.md"]
+
+
+def pattern(glob: str) -> re.Pattern[str]:
+    """github's path filter glob: ** crosses directories, * and ? do not."""
+    out = ""
+    i = 0
+    while i < len(glob):
+        if glob.startswith("**", i):
+            out += ".*"
+            i += 2
+        elif glob[i] == "*":
+            out += "[^/]*"
+            i += 1
+        elif glob[i] == "?":
+            out += "[^/]"
+            i += 1
+        else:
+            out += re.escape(glob[i])
+            i += 1
+    return re.compile(out + r"\Z")
+
+
+def triggers(globs: list[str], path: str) -> bool:
+    """last matching glob wins, and a leading ! excludes, as github applies them."""
+    matched = False
+    for glob in globs:
+        negated = glob.startswith("!")
+        if pattern(glob.removeprefix("!")).match(path):
+            matched = not negated
+    return matched
+
+
+def main() -> int:
+    workflow = yaml.safe_load(WORKFLOW.read_text())
+    # yaml 1.1 reads a bare `on:` key as the boolean true
+    on = workflow.get("on", workflow.get(True)) or {}
+    globs = (on.get("push") or {}).get("paths")
+    if not globs:
+        print(f"{WORKFLOW.name}: on.push.paths is missing, so every push deploys")
+        return 1
+
+    problems = [
+        f"{path} does not trigger a deploy" for path in DEPLOYS if not triggers(globs, path)
+    ] + [f"{path} triggers a deploy" for path in NEVER_DEPLOYS if triggers(globs, path)]
+
+    for problem in problems:
+        print(f"{WORKFLOW.name}: {problem}")
+    if not problems:
+        print(f"ok  {WORKFLOW.name} deploys docs/ and never docs-next/")
+    return 1 if problems else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
