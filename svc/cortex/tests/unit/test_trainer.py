@@ -1,11 +1,21 @@
+import fakeredis
 import pytest
-from unittest.mock import AsyncMock
+import pytest_asyncio
+from fakeredis.aioredis import FakeRedis
+from redis.asyncio.client import Pipeline
 
 from qbrixcore.policy import POLICIES
 from cortexsvc.trainer import BatchTrainer
 from cortexsvc.trainer import POLICY_MAP
 from cortexsvc.trainer import _build_policy_map
 from qbrixstore.event import FeedbackEvent
+from qbrixstore.redis.client import Learning
+from qbrixstore.redis.client import RedisClient
+from qbrixstore.redis.streams import RedisStreamConsumer
+from qbrixstore.redis.streams import RedisStreamPublisher
+from qbrixstore.stream import topology
+
+EXPERIMENT = "exp-001"
 
 
 class TestPolicyMapBuilding:
@@ -18,425 +28,279 @@ class TestPolicyMapBuilding:
         assert expected == set(POLICY_MAP.keys())
 
     def test_build_policy_map_returns_dict(self):
-        # arrange & act
         policy_map = _build_policy_map()
 
-        # assert
         assert isinstance(policy_map, dict)
         assert len(policy_map) > 0
 
     def test_policy_map_contains_beta_ts(self):
-        # arrange & act
-        # assert
         assert "BetaTSPolicy" in POLICY_MAP
         assert POLICY_MAP["BetaTSPolicy"].name == "BetaTSPolicy"
 
     def test_policy_map_contains_ucb1_tuned(self):
-        # arrange & act
-        # assert
         assert "UCB1TunedPolicy" in POLICY_MAP
         assert POLICY_MAP["UCB1TunedPolicy"].name == "UCB1TunedPolicy"
 
 
-class TestBatchTrainerInit:
-    """test batch trainer initialization."""
+@pytest.fixture
+def redis_server(monkeypatch) -> fakeredis.FakeServer:
+    server = fakeredis.FakeServer()
+    monkeypatch.setattr(
+        "redis.asyncio.from_url",
+        lambda *_a, **_k: FakeRedis(server=server, decode_responses=True),
+    )
+    return server
 
-    def test_init_stores_redis_client(self, mock_redis_client):
-        # arrange & act
-        trainer = BatchTrainer(mock_redis_client)
 
-        # assert
-        assert trainer._redis is mock_redis_client
+@pytest.fixture
+def control(redis_server) -> FakeRedis:
+    return FakeRedis(server=redis_server, decode_responses=True)
 
 
-class TestBatchTrainerTrain:
-    """test batch training orchestration."""
+@pytest_asyncio.fixture
+async def store(redis_server):
+    client = RedisClient()
+    await client.connect()
+    yield client
+    await client.close()
 
-    @pytest.mark.asyncio
-    async def test_train_with_empty_events_returns_empty_ledger(
-        self, mock_redis_client
+
+@pytest_asyncio.fixture
+async def consumer(redis_server):
+    consumer = RedisStreamConsumer(topology.FEEDBACK, "cortex")
+    await consumer.connect()
+    await consumer.ensure_group()
+    yield consumer
+    await consumer.close()
+
+
+@pytest.fixture
+def trainer(store, consumer) -> BatchTrainer:
+    return BatchTrainer(store, consumer)
+
+
+@pytest_asyncio.fixture
+async def experiment(store, tenant_id, sample_experiment_record):
+    await store.set_experiment(tenant_id, EXPERIMENT, sample_experiment_record)
+    return sample_experiment_record
+
+
+def feedback(tenant_id: str, arm_index: int = 0, reward: float = 1.0) -> FeedbackEvent:
+    return FeedbackEvent(
+        tenant_id=tenant_id,
+        experiment_id=EXPERIMENT,
+        request_id="req",
+        arm_index=arm_index,
+        reward=reward,
+        context_id="ctx",
+        context_vector=[0.5, 0.3, 0.2],
+        context_metadata={},
+        timestamp_ms=1234567890,
+    )
+
+
+async def deliver(consumer, events: list[FeedbackEvent]):
+    """publish and read back, so the entries sit in the group's PEL."""
+    publisher = RedisStreamPublisher(topology.FEEDBACK)
+    await publisher.connect()
+    for event in events:
+        await publisher.publish(event)
+    await publisher.close()
+    entries = await consumer.consume(batch_size=len(events), block_ms=0)
+    return [(mid, FeedbackEvent.from_dict(data)) for mid, data in entries]
+
+
+async def pending(control) -> int:
+    return (await control.xpending(topology.FEEDBACK.name, "cortex"))["pending"]
+
+
+@pytest.mark.asyncio
+class TestTrainExperiment:
+
+    async def test_learning_grows_by_the_batch_and_the_batch_is_acked(
+        self, trainer, store, consumer, control, tenant_id, experiment
     ):
-        # arrange
-        trainer = BatchTrainer(mock_redis_client)
-        events = []
-
-        # act
-        ledger = await trainer.train(events)
-
-        # assert
-        assert ledger == {}
-        mock_redis_client.get_experiment.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_train_with_single_event_processes_one_experiment(
-        self,
-        tenant_id,
-        mock_redis_client,
-        sample_feedback_event,
-        sample_experiment_record,
-        sample_beta_ts_params,
-    ):
-        # arrange
-        trainer = BatchTrainer(mock_redis_client)
-        mock_redis_client.get_experiment.return_value = sample_experiment_record
-        mock_redis_client.get_params.return_value = sample_beta_ts_params
-
-        # act
-        ledger = await trainer.train([sample_feedback_event])
-
-        # assert
-        assert (tenant_id, "exp-001") in ledger
-        assert ledger[(tenant_id, "exp-001")] == 1
-        mock_redis_client.get_experiment.assert_called_once_with(tenant_id, "exp-001")
-        mock_redis_client.set_params.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_train_with_multiple_events_same_experiment(
-        self,
-        tenant_id,
-        mock_redis_client,
-        sample_feedback_event,
-        sample_experiment_record,
-        sample_beta_ts_params,
-    ):
-        # arrange
-        trainer = BatchTrainer(mock_redis_client)
-        mock_redis_client.get_experiment.return_value = sample_experiment_record
-        mock_redis_client.get_params.return_value = sample_beta_ts_params
-
-        events = [
-            sample_feedback_event,
-            FeedbackEvent(
-                tenant_id=tenant_id,
-                experiment_id="exp-001",
-                request_id="req-002",
-                arm_index=1,
-                reward=0.0,
-                context_id="ctx-002",
-                context_vector=[0.1, 0.2, 0.3],
-                context_metadata={},
-                timestamp_ms=1234567891,
-            ),
-        ]
-
-        # act
-        ledger = await trainer.train(events)
-
-        # assert
-        assert ledger[(tenant_id, "exp-001")] == 2
-        mock_redis_client.get_experiment.assert_called_once()
-        mock_redis_client.set_params.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_train_with_events_from_different_experiments(
-        self,
-        tenant_id,
-        mock_redis_client,
-        sample_experiment_record,
-        sample_beta_ts_params,
-    ):
-        # arrange
-        trainer = BatchTrainer(mock_redis_client)
-        mock_redis_client.get_experiment.return_value = sample_experiment_record
-        mock_redis_client.get_params.return_value = sample_beta_ts_params
-
-        events = [
-            FeedbackEvent(
-                tenant_id=tenant_id,
-                experiment_id="exp-001",
-                request_id="req-001",
-                arm_index=0,
-                reward=1.0,
-                context_id="ctx-001",
-                context_vector=[0.5, 0.3, 0.2],
-                context_metadata={},
-                timestamp_ms=1234567890,
-            ),
-            FeedbackEvent(
-                tenant_id=tenant_id,
-                experiment_id="exp-002",
-                request_id="req-002",
-                arm_index=1,
-                reward=0.5,
-                context_id="ctx-002",
-                context_vector=[0.1, 0.2, 0.3],
-                context_metadata={},
-                timestamp_ms=1234567891,
-            ),
-        ]
-
-        # act
-        ledger = await trainer.train(events)
-
-        # assert
-        assert (tenant_id, "exp-001") in ledger
-        assert (tenant_id, "exp-002") in ledger
-        assert ledger[(tenant_id, "exp-001")] == 1
-        assert ledger[(tenant_id, "exp-002")] == 1
-        assert mock_redis_client.get_experiment.call_count == 2
-        assert mock_redis_client.set_params.call_count == 2
-
-
-class TestBatchTrainerTrainExperiment:
-    """test single experiment training logic."""
-
-    @pytest.mark.asyncio
-    async def test_train_experiment_with_missing_experiment_returns_zero(
-        self, tenant_id, mock_redis_client, sample_feedback_event
-    ):
-        # arrange
-        trainer = BatchTrainer(mock_redis_client)
-        mock_redis_client.get_experiment.return_value = None
-
-        # act
-        count = await trainer.train_experiment(
-            tenant_id, "exp-001", [sample_feedback_event]
+        messages = await deliver(
+            consumer, [feedback(tenant_id), feedback(tenant_id, 1, 0.0)]
         )
 
-        # assert
-        assert count == 0
-        mock_redis_client.get_params.assert_not_called()
-        mock_redis_client.set_params.assert_not_called()
+        count = await trainer.train_experiment(tenant_id, EXPERIMENT, messages)
 
-    @pytest.mark.asyncio
-    async def test_train_experiment_with_unknown_policy_returns_zero(
-        self, tenant_id, mock_redis_client, sample_feedback_event
+        assert count == 2
+        learning = await store.read_learning(tenant_id, EXPERIMENT)
+        assert learning.applied == 2
+        assert learning.last_id == messages[-1][0]
+        assert learning.params["alpha"] == [2.0, 1.0, 1.0]
+        assert learning.params["beta"] == [1.0, 2.0, 1.0]
+        assert await pending(control) == 0
+
+    async def test_applied_accumulates_across_batches(
+        self, trainer, store, consumer, tenant_id, experiment
     ):
-        # arrange
-        trainer = BatchTrainer(mock_redis_client)
-        mock_redis_client.get_experiment.return_value = {
-            "id": "exp-001",
-            "policy": "unknown_policy",
-            "pool": {"arms": [{"id": "arm-0", "index": 0}]},
-        }
+        await trainer.train_experiment(
+            tenant_id, EXPERIMENT, await deliver(consumer, [feedback(tenant_id)])
+        )
+        second = await deliver(consumer, [feedback(tenant_id), feedback(tenant_id)])
+        await trainer.train_experiment(tenant_id, EXPERIMENT, second)
 
-        # act
-        count = await trainer.train_experiment(
-            tenant_id, "exp-001", [sample_feedback_event]
+        learning = await store.read_learning(tenant_id, EXPERIMENT)
+        assert learning.applied == 3
+        assert learning.last_id == second[-1][0]
+
+    async def test_a_fault_at_the_write_changes_nothing_and_redelivery_applies_once(
+        self, trainer, store, consumer, control, tenant_id, experiment, monkeypatch
+    ):
+        messages = await deliver(
+            consumer, [feedback(tenant_id), feedback(tenant_id, 2, 1.0)]
+        )
+        execute = Pipeline.execute
+
+        async def crash(self, *args, **kwargs):
+            raise ConnectionError("cortex lost redis at exec")
+
+        monkeypatch.setattr(Pipeline, "execute", crash)
+        with pytest.raises(ConnectionError):
+            await trainer.train_experiment(tenant_id, EXPERIMENT, messages)
+        monkeypatch.setattr(Pipeline, "execute", execute)
+
+        assert await store.read_learning(tenant_id, EXPERIMENT) == Learning(params=None)
+        assert await pending(control) == 2
+
+        _, redelivered = await consumer.claim_pending(count=10)
+        assert [mid for mid, _ in redelivered] == [mid for mid, _ in messages]
+        await trainer.train_experiment(
+            tenant_id,
+            EXPERIMENT,
+            [(mid, FeedbackEvent.from_dict(data)) for mid, data in redelivered],
         )
 
-        # assert
-        assert count == 0
-        mock_redis_client.set_params.assert_not_called()
+        learning = await store.read_learning(tenant_id, EXPERIMENT)
+        assert learning.applied == 2
+        assert learning.params["alpha"] == [2.0, 1.0, 2.0]
+        assert await pending(control) == 0
 
-    @pytest.mark.asyncio
-    async def test_train_experiment_skips_disabled_experiment(
-        self,
-        tenant_id,
-        mock_redis_client,
-        sample_feedback_event,
-        sample_experiment_record,
-        sample_beta_ts_params,
+    async def test_a_batch_redelivered_after_its_write_is_acked_not_trained(
+        self, trainer, store, consumer, control, tenant_id, experiment
     ):
-        # arrange: a paused experiment must not learn
-        trainer = BatchTrainer(mock_redis_client)
-        mock_redis_client.get_experiment.return_value = {
-            **sample_experiment_record,
-            "enabled": False,
-        }
-        mock_redis_client.get_params.return_value = sample_beta_ts_params
-
-        # act
-        count = await trainer.train_experiment(
-            tenant_id, "exp-001", [sample_feedback_event]
-        )
-
-        # assert: no params read or written, no events counted as trained
-        assert count == 0
-        mock_redis_client.get_params.assert_not_called()
-        mock_redis_client.set_params.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_train_experiment_trains_when_explicitly_enabled(
-        self,
-        tenant_id,
-        mock_redis_client,
-        sample_feedback_event,
-        sample_experiment_record,
-        sample_beta_ts_params,
-    ):
-        # arrange: an explicitly enabled experiment trains as normal
-        trainer = BatchTrainer(mock_redis_client)
-        mock_redis_client.get_experiment.return_value = {
-            **sample_experiment_record,
-            "enabled": True,
-        }
-        mock_redis_client.get_params.return_value = sample_beta_ts_params
-
-        # act
-        count = await trainer.train_experiment(
-            tenant_id, "exp-001", [sample_feedback_event]
-        )
-
-        # assert
-        assert count == 1
-        mock_redis_client.set_params.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_train_experiment_initializes_params_when_missing(
-        self,
-        tenant_id,
-        mock_redis_client,
-        sample_feedback_event,
-        sample_experiment_record,
-    ):
-        # arrange
-        trainer = BatchTrainer(mock_redis_client)
-        mock_redis_client.get_experiment.return_value = sample_experiment_record
-        mock_redis_client.get_params.return_value = None
-
-        # act
-        count = await trainer.train_experiment(
-            tenant_id, "exp-001", [sample_feedback_event]
-        )
-
-        # assert
-        assert count == 1
-        mock_redis_client.set_params.assert_called_once()
-
-        # verify params were initialized
-        set_params_call = mock_redis_client.set_params.call_args
-        params = set_params_call[0][2]  # tenant_id, experiment_id, params
-        assert "alpha" in params
-        assert "beta" in params
-        assert len(params["alpha"]) == 3
-
-    @pytest.mark.asyncio
-    async def test_train_experiment_uses_existing_params(
-        self,
-        tenant_id,
-        mock_redis_client,
-        sample_feedback_event,
-        sample_experiment_record,
-        sample_beta_ts_params,
-    ):
-        # arrange
-        trainer = BatchTrainer(mock_redis_client)
-        mock_redis_client.get_experiment.return_value = sample_experiment_record
-        mock_redis_client.get_params.return_value = sample_beta_ts_params
-
-        # act
-        count = await trainer.train_experiment(
-            tenant_id, "exp-001", [sample_feedback_event]
-        )
-
-        # assert
-        assert count == 1
-        mock_redis_client.get_params.assert_called_once_with(tenant_id, "exp-001")
-        mock_redis_client.set_params.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_train_experiment_updates_params_correctly(
-        self,
-        tenant_id,
-        mock_redis_client,
-        sample_feedback_event,
-        sample_experiment_record,
-        sample_beta_ts_params,
-    ):
-        # arrange
-        trainer = BatchTrainer(mock_redis_client)
-        mock_redis_client.get_experiment.return_value = sample_experiment_record
-        mock_redis_client.get_params.return_value = sample_beta_ts_params
-
-        # act
-        await trainer.train_experiment(tenant_id, "exp-001", [sample_feedback_event])
-
-        # assert
-        set_params_call = mock_redis_client.set_params.call_args
-        updated_params = set_params_call[0][2]  # tenant_id, experiment_id, params
-
-        # for beta_ts with reward=1.0 on arm 0, alpha[0] should increase
-        assert updated_params["alpha"][0] > sample_beta_ts_params["alpha"][0]
-
-    @pytest.mark.asyncio
-    async def test_train_experiment_processes_multiple_events(
-        self,
-        tenant_id,
-        mock_redis_client,
-        sample_experiment_record,
-        sample_beta_ts_params,
-    ):
-        # arrange
-        trainer = BatchTrainer(mock_redis_client)
-        mock_redis_client.get_experiment.return_value = sample_experiment_record
-        mock_redis_client.get_params.return_value = sample_beta_ts_params
-
-        events = [
-            FeedbackEvent(
-                tenant_id=tenant_id,
-                experiment_id="exp-001",
-                request_id="req-001",
-                arm_index=0,
-                reward=1.0,
-                context_id="ctx-001",
-                context_vector=[0.5, 0.3, 0.2],
-                context_metadata={},
-                timestamp_ms=1234567890,
-            ),
-            FeedbackEvent(
-                tenant_id=tenant_id,
-                experiment_id="exp-001",
-                request_id="req-002",
-                arm_index=1,
-                reward=0.0,
-                context_id="ctx-002",
-                context_vector=[0.1, 0.2, 0.3],
-                context_metadata={},
-                timestamp_ms=1234567891,
-            ),
-            FeedbackEvent(
-                tenant_id=tenant_id,
-                experiment_id="exp-001",
-                request_id="req-003",
-                arm_index=0,
-                reward=1.0,
-                context_id="ctx-003",
-                context_vector=[0.2, 0.4, 0.4],
-                context_metadata={},
-                timestamp_ms=1234567892,
-            ),
-        ]
-
-        # act
-        count = await trainer.train_experiment(tenant_id, "exp-001", events)
-
-        # assert
-        assert count == 3
-        mock_redis_client.set_params.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_train_experiment_with_policy_params(
-        self, tenant_id, mock_redis_client, sample_feedback_event
-    ):
-        # arrange
-        trainer = BatchTrainer(mock_redis_client)
-        experiment_record = {
-            "id": "exp-001",
-            "policy": "BetaTSPolicy",
-            "policy_params": {"alpha_prior": 2.0, "beta_prior": 2.0},
-            "pool": {
-                "arms": [
-                    {"id": "arm-0", "index": 0},
-                    {"id": "arm-1", "index": 1},
-                ]
+        """the write landed but its reply was lost: the entries are still pending."""
+        messages = await deliver(consumer, [feedback(tenant_id), feedback(tenant_id)])
+        applied = Learning(params=None).advance(
+            {
+                "num_arms": 3,
+                "alpha": [3.0, 1.0, 1.0],
+                "beta": [1.0, 1.0, 1.0],
+                "T": [2, 0, 0],
             },
-        }
-        mock_redis_client.get_experiment.return_value = experiment_record
-        mock_redis_client.get_params.return_value = None
-
-        # act
-        count = await trainer.train_experiment(
-            tenant_id, "exp-001", [sample_feedback_event]
+            [mid for mid, _ in messages],
+        )
+        await control.set(store._param_key(tenant_id, EXPERIMENT), '{"marker": 1}')
+        await control.set(
+            store._learning_key(tenant_id, EXPERIMENT), applied.encode_record()
         )
 
-        # assert
-        assert count == 1
+        count = await trainer.train_experiment(tenant_id, EXPERIMENT, messages)
 
-        # verify policy params were passed to init_params
-        set_params_call = mock_redis_client.set_params.call_args
-        params = set_params_call[0][2]  # tenant_id, experiment_id, params
-        # with alpha_prior=2.0, beta_prior=2.0, and reward=1.0 on arm 0
-        # alpha[0] should be 2.0 + 1 = 3.0, beta[0] stays at 2.0
-        assert params["alpha"][0] == 3.0
-        assert params["beta"][0] == 2.0
+        assert count == 0
+        learning = await store.read_learning(tenant_id, EXPERIMENT)
+        assert learning.params == {"marker": 1}
+        assert learning.applied == 2
+        assert await pending(control) == 0
+
+    async def test_only_the_unapplied_tail_of_a_batch_trains(
+        self, trainer, store, consumer, tenant_id, experiment
+    ):
+        first = await deliver(consumer, [feedback(tenant_id)])
+        await trainer.train_experiment(tenant_id, EXPERIMENT, first)
+        rest = await deliver(consumer, [feedback(tenant_id)])
+
+        count = await trainer.train_experiment(tenant_id, EXPERIMENT, first + rest)
+
+        assert count == 1
+        learning = await store.read_learning(tenant_id, EXPERIMENT)
+        assert learning.applied == 2
+        assert learning.params["alpha"][0] == 3.0
+
+    @pytest.mark.parametrize(
+        "record",
+        [
+            None,
+            {"policy": "unknown_policy", "pool": {"arms": [{"id": "a", "index": 0}]}},
+            {"enabled": False},
+        ],
+        ids=["missing", "unknown-policy", "paused"],
+    )
+    async def test_acks_without_learning_when_the_experiment_cannot_learn(
+        self,
+        trainer,
+        store,
+        consumer,
+        control,
+        tenant_id,
+        sample_experiment_record,
+        record,
+    ):
+        if record is not None:
+            await store.set_experiment(
+                tenant_id, EXPERIMENT, {**sample_experiment_record, **record}
+            )
+        messages = await deliver(consumer, [feedback(tenant_id)])
+
+        count = await trainer.train_experiment(tenant_id, EXPERIMENT, messages)
+
+        assert count == 0
+        assert await store.read_learning(tenant_id, EXPERIMENT) == Learning(params=None)
+        assert await pending(control) == 0
+
+    async def test_trains_when_explicitly_enabled(
+        self, trainer, store, consumer, tenant_id, sample_experiment_record
+    ):
+        await store.set_experiment(
+            tenant_id, EXPERIMENT, {**sample_experiment_record, "enabled": True}
+        )
+        messages = await deliver(consumer, [feedback(tenant_id)])
+
+        assert await trainer.train_experiment(tenant_id, EXPERIMENT, messages) == 1
+
+    async def test_initializes_params_from_policy_params(
+        self, trainer, store, consumer, tenant_id
+    ):
+        await store.set_experiment(
+            tenant_id,
+            EXPERIMENT,
+            {
+                "id": EXPERIMENT,
+                "policy": "BetaTSPolicy",
+                "policy_params": {"alpha_prior": 2.0, "beta_prior": 2.0},
+                "pool": {
+                    "arms": [{"id": "arm-0", "index": 0}, {"id": "arm-1", "index": 1}]
+                },
+            },
+        )
+        messages = await deliver(consumer, [feedback(tenant_id)])
+
+        await trainer.train_experiment(tenant_id, EXPERIMENT, messages)
+
+        params = (await store.read_learning(tenant_id, EXPERIMENT)).params
+        assert params["alpha"] == [3.0, 2.0]
+        assert params["beta"] == [2.0, 2.0]
+
+    async def test_trains_on_existing_params(
+        self,
+        trainer,
+        store,
+        consumer,
+        tenant_id,
+        experiment,
+        sample_beta_ts_params,
+    ):
+        await store.set_params(
+            tenant_id,
+            EXPERIMENT,
+            {**sample_beta_ts_params, "alpha": [5.0, 1.0, 1.0]},
+        )
+        messages = await deliver(consumer, [feedback(tenant_id)])
+
+        await trainer.train_experiment(tenant_id, EXPERIMENT, messages)
+
+        params = (await store.read_learning(tenant_id, EXPERIMENT)).params
+        assert params["alpha"][0] == 6.0

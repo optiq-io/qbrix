@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import redis.asyncio as redis
+from redis.asyncio.client import Pipeline
 
 from qbrixstore.config import RedisSettings
 from qbrixstore.event import Event
@@ -133,9 +134,20 @@ class RedisStreamConsumer:
         if self._client is None:
             raise RuntimeError("consumer not connected. call connect() first.")
         if message_ids:
-            await self._client.xack(self._spec.name, self._group, *message_ids)
-            if self._spec.delete_on_ack:
-                await self._client.xdel(self._spec.name, *message_ids)
+            async with self._client.pipeline(transaction=True) as pipe:
+                self.stage_ack(pipe, message_ids)
+                await pipe.execute()
+
+    def stage_ack(self, pipe: Pipeline, message_ids: list[str]) -> None:
+        """queue this group's ack onto a caller's transaction, so the ack lands
+        with whatever else the caller writes, or not at all."""
+        if not message_ids:
+            return
+        # noinspection PyAsyncCall
+        pipe.xack(self._spec.name, self._group, *message_ids)
+        if self._spec.delete_on_ack:
+            # noinspection PyAsyncCall
+            pipe.xdel(self._spec.name, *message_ids)
 
     async def claim_pending(
         self, count: int = 100, min_idle_ms: int = 0, start_id: str = "0-0"

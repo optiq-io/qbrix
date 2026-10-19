@@ -396,8 +396,9 @@ class ExperimentService:
     ) -> dict | None:
         """reset an experiment's learned params back to its configured policy_params.
 
-        clearing the redis params blob is sufficient: motorsvc and cortexsvc lazily
-        re-initialize from the experiment's policy_params (which training never mutates).
+        clearing the params and the learning record is sufficient: motorsvc and
+        cortexsvc lazily re-initialize from the experiment's policy_params (which
+        training never mutates), and cortex's write is fenced against the reset.
         requires the experiment to be paused to avoid an in-flight cortex write clobbering
         the reset.
         """
@@ -419,7 +420,7 @@ class ExperimentService:
             except Exception as e:  # noqa
                 logger.warning("cortex flush before reset failed: %s", e)
 
-        await self._redis.delete_params(tenant_id, experiment_id)
+        await self._redis.reset_learning(tenant_id, experiment_id)
         self._events.emit_audit(
             AuditEvent(
                 name="experiment.reset",

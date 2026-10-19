@@ -22,6 +22,7 @@ from sqlalchemy import select
 
 from qbrixstore.postgres.models import Experiment
 from qbrixstore.event import AuditEvent
+from qbrixstore.redis.client import Learning
 
 import qbrixstore.postgres.session as _session_module
 
@@ -507,17 +508,22 @@ class TestResetExperiment:
     ):
         """
         invariant: POST /experiments/{id}/reset on a paused experiment returns 200,
-        deletes the learned params blob in redis, and emits an experiment.reset audit.
+        deletes the learned params and the learning record in redis, and emits an
+        experiment.reset audit.
         """
         pool_id = await _create_pool(client, name="reset-pool")
         exp = await _create_experiment(client, pool_id, name="reset-exp", enabled=False)
         exp_id = exp["id"]
 
-        # seed a learned params blob in redis
-        await wired_app.svc._redis.set_params(
+        redis = wired_app.svc._redis
+        await redis.set_params(
             "dev-tenant", exp_id, {"num_arms": 2, "alpha": [9, 9], "beta": [1, 1]}
         )
-        assert await wired_app.svc._redis.get_params("dev-tenant", exp_id) is not None
+        await redis.client.set(
+            redis._learning_key("dev-tenant", exp_id),
+            Learning(params=None, applied=8, last_id="5-0").encode_record(),
+        )
+        assert (await redis.read_learning("dev-tenant", exp_id)).applied == 8
 
         wired_app.audit_spy.events.clear()
 
@@ -526,8 +532,7 @@ class TestResetExperiment:
         assert resp.status_code == 200, resp.text
         assert resp.json()["id"] == exp_id
 
-        # params blob removed
-        assert await wired_app.svc._redis.get_params("dev-tenant", exp_id) is None
+        assert await redis.read_learning("dev-tenant", exp_id) == Learning(params=None)
 
         # experiment.reset audit event emitted
         await wired_app.events.drain()
