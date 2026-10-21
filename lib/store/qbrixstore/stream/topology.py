@@ -35,7 +35,6 @@ class StreamSpec:
     groups: frozenset[str]
     max_len: int
     start_ids: Mapping[str, str] = field(default_factory=dict)
-    delete_on_ack_override: bool | None = None
 
     def __post_init__(self) -> None:
         if not self.groups:
@@ -51,10 +50,10 @@ class StreamSpec:
         xdel removes the entry for *every* consumer group, so it is only safe
         when this stream has exactly one. adding a second group to `groups`
         flips this for all existing consumers with no call-site change — which
-        is the entire reason topology is declared in one place.
+        is the entire reason topology is declared in one place. a stream that
+        does not delete on ack is trimmed instead to what all of its groups have
+        acked (`RedisStreamConsumer.trim_acked`).
         """
-        if self.delete_on_ack_override is not None:
-            return self.delete_on_ack_override
         return len(self.groups) == 1
 
     def start_id(self, group: str) -> str:
@@ -71,15 +70,15 @@ class StreamSpec:
 # redis runs noeviction, and a stream at its cap that doesn't fit maxmemory
 # refuses every write, trimming included. the caps are sized so all three full,
 # at the widest context, fit the chart's 1gb; test_topology holds them to it.
+# a stream normally sits far below its cap, trimmed to what its groups have
+# acked; the cap only binds when a group lags by that much, and then drops
+# entries that group has not read.
 
 FEEDBACK = StreamSpec(
     name="qbrix:feedback",
     event=FeedbackEvent,
     groups=frozenset({"cortex", "trace"}),
     max_len=200_000,
-    # fanned out, so this should derive to False. pinned True until trimming a
-    # fanned-out stream can't drop entries a lagging group hasn't read.
-    delete_on_ack_override=True,
 )
 
 SELECTION = StreamSpec(

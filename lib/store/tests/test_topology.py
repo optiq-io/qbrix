@@ -38,17 +38,6 @@ class TestDeleteOnAck:
         assert one.delete_on_ack is True
         assert two.delete_on_ack is False
 
-    def test_override_wins_over_the_derivation(self):
-        spec = StreamSpec(
-            name="s",
-            event=AuditEvent,
-            max_len=10,
-            groups=frozenset({"a", "b"}),
-            delete_on_ack_override=True,
-        )
-
-        assert spec.delete_on_ack is True
-
 
 class TestStartIds:
     def test_default_start_id_drains_history(self):
@@ -112,13 +101,9 @@ class TestDeployedTopology:
         assert spec.start_id("cortex") == "0"
         assert spec.start_id("trace") == "0"
 
-    def test_feedback_pins_delete_on_ack(self):
-        """fanned out, so this would derive to False. pinned True until the stream
-        has the MAXLEN that the flip requires; the pin is explicit so the
-        divergence cannot be mistaken for the derivation misbehaving."""
-        assert len(topology.FEEDBACK.groups) > 1
-        assert topology.FEEDBACK.delete_on_ack_override is True
-        assert topology.FEEDBACK.delete_on_ack is True
+    def test_feedback_does_not_delete_on_ack(self):
+        """a cortex ack must not delete an entry trace has not read yet."""
+        assert topology.FEEDBACK.delete_on_ack is False
 
     def test_selection(self):
         spec = topology.SELECTION

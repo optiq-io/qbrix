@@ -1,6 +1,7 @@
 from qbrixlog import get_logger
 from qbrixstore.postgres.session import init_db
 from qbrixstore.redis.client import RedisClient
+from qbrixstore.redis.streams import consumer_group_backlog
 from qbrixstore.config import PostgresSettings, RedisSettings
 from qbrixstore.stream import topology
 
@@ -335,8 +336,9 @@ class ProxyService:
     # runtime
 
     async def get_cortex_stream_len(self) -> int | None:
-        length = await self._redis.client.xlen(topology.FEEDBACK.name)
-        return int(length)
+        return await consumer_group_backlog(
+            self._redis.client, topology.FEEDBACK, "cortex"
+        )
 
     async def health(self) -> bool:
         try:

@@ -24,6 +24,12 @@ Handler = Callable[[list[tuple[str, EventT]]], Awaitable[Sequence[str]]]
 _BACKOFF_START_SEC = 0.5
 _BACKOFF_MAX_SEC = 30.0
 _STOP_TIMEOUT_SEC = 30.0
+_MAINTAIN_INTERVAL_SEC = 10.0
+_BACKLOG_WARN_FRACTION = 0.5
+
+_BACKLOG_OK = 0
+_BACKLOG_HIGH = 1
+_BACKLOG_AT_CAP = 2
 
 # a recovery sweep is bounded so a redis whose XAUTOCLAIM cursor never reaches
 # "0-0" cannot hang startup. reaching this means something is wrong, not busy.
@@ -63,6 +69,11 @@ class StreamWorker(Generic[EventT]):
     setup (group, then PEL) is retried with the same backoff as reads until it
     succeeds, and redone when redis reports the group gone, so a service can
     start before redis is reachable and survives losing the stream key.
+
+    every ``maintain_interval_sec`` the worker trims a fanned-out stream to what
+    all its groups have acked, and reports its own group's backlog against the
+    stream's cap: a warning past half of it, an error once the cap is trimming
+    entries this group has not read. each is logged once, when the level changes.
     """
 
     def __init__(
@@ -74,6 +85,7 @@ class StreamWorker(Generic[EventT]):
         block_ms: int = 100,
         flush_interval_sec: float = 0.0,
         stop_timeout_sec: float = _STOP_TIMEOUT_SEC,
+        maintain_interval_sec: float = _MAINTAIN_INTERVAL_SEC,
     ) -> None:
         self._consumer = consumer
         self._handler = handler
@@ -81,6 +93,8 @@ class StreamWorker(Generic[EventT]):
         self._block_ms = block_ms
         self._flush_interval_sec = flush_interval_sec
         self._stop_timeout_sec = stop_timeout_sec
+        self._maintain_interval_sec = maintain_interval_sec
+        self._backlog_level = _BACKLOG_OK
         self._name = f"{consumer.spec.name}/{consumer.group}"
         self._batch: list[tuple[str, EventT]] = []
         self._quarantined = 0
@@ -116,9 +130,9 @@ class StreamWorker(Generic[EventT]):
         """stop cooperatively, flushing whatever is still buffered.
 
         the buffer lives in memory only, so cancelling the task loses it — which
-        is why this exists and why nothing should cancel the task directly. for
-        trace the buffered entries may already have been deleted from the stream
-        by cortex's ack, making this flush their last chance to be persisted.
+        is why this exists and why nothing should cancel the task directly. a
+        buffered entry already acked by every other group may have been trimmed
+        from the stream, making this flush its last chance to be persisted.
         """
         self._running = False
         self._wake.set()
@@ -144,6 +158,7 @@ class StreamWorker(Generic[EventT]):
     async def _run(self) -> None:
         backoff = _BACKOFF_START_SEC
         last_flush = time.monotonic()
+        last_maintain = last_flush
         ready = False
 
         while self._running:
@@ -162,6 +177,10 @@ class StreamWorker(Generic[EventT]):
                 if self._should_flush(last_flush):
                     await self._flush()
                     last_flush = time.monotonic()
+
+                if time.monotonic() - last_maintain >= self._maintain_interval_sec:
+                    await self._maintain()
+                    last_maintain = time.monotonic()
 
                 backoff = _BACKOFF_START_SEC
             except asyncio.CancelledError:
@@ -213,6 +232,41 @@ class StreamWorker(Generic[EventT]):
         ack_ids = await self._handler(list(self._batch))
         await self._consumer.ack(list(ack_ids))
         self._batch.clear()
+
+    async def _maintain(self) -> None:
+        if not self._consumer.delete_on_ack:
+            await self._consumer.trim_acked()
+        self._report_backlog(await self._consumer.backlog())
+
+    def _report_backlog(self, backlog: int) -> None:
+        cap = self._consumer.spec.max_len
+        if backlog >= cap:
+            level = _BACKLOG_AT_CAP
+        elif backlog >= cap * _BACKLOG_WARN_FRACTION:
+            level = _BACKLOG_HIGH
+        else:
+            level = _BACKLOG_OK
+        if level == self._backlog_level:
+            return
+        self._backlog_level = level
+
+        if level == _BACKLOG_AT_CAP:
+            logger.error(
+                "%s: backlog of %d has reached the stream cap of %d, "
+                "entries this group has not read are being trimmed",
+                self._name,
+                backlog,
+                cap,
+            )
+        elif level == _BACKLOG_HIGH:
+            logger.warning(
+                "%s: backlog of %d is over half the stream cap of %d",
+                self._name,
+                backlog,
+                cap,
+            )
+        else:
+            logger.info("%s: backlog back down to %d", self._name, backlog)
 
     async def _drain(self) -> None:
         if not self._batch:

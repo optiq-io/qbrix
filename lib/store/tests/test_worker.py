@@ -238,6 +238,143 @@ class TestAckContract:
         assert await control.xlen(topology.SELECTION.name) == 1
 
 
+async def publish_selections(control, n: int) -> list[str]:
+    return [
+        await control.xadd(topology.SELECTION.name, make_selection().to_dict())
+        for _ in range(n)
+    ]
+
+
+async def read_as(control, group: str, count: int, ack: bool) -> list[str]:
+    stream = topology.SELECTION.name
+    read = await control.xreadgroup(group, "c", {stream: ">"}, count=count)
+    ids = [mid for mid, _ in read[0][1]] if read else []
+    if ack and ids:
+        await control.xack(stream, group, *ids)
+    return ids
+
+
+class TestTrimming:
+    """a fanned-out stream is trimmed to the oldest entry any group still needs."""
+
+    @pytest.fixture
+    async def consumer(self, redis_server, control) -> RedisStreamConsumer:
+        for group in ("trace", "metering"):
+            await control.xgroup_create(
+                topology.SELECTION.name, group, id="0", mkstream=True
+            )
+        consumer = RedisStreamConsumer(
+            topology.SELECTION, "trace", settings=RedisSettings(), consumer_name="w0"
+        )
+        await consumer.connect()
+        return consumer
+
+    async def test_keeps_what_the_slower_group_has_not_read(self, consumer, control):
+        ids = await publish_selections(control, 6)
+        await read_as(control, "trace", 6, ack=True)
+        await read_as(control, "metering", 2, ack=True)
+
+        await consumer.trim_acked()
+
+        remaining = await control.xrange(topology.SELECTION.name)
+        assert [mid for mid, _ in remaining][-4:] == ids[2:]
+        assert ids[0] not in [mid for mid, _ in remaining]
+
+    async def test_never_trims_a_pending_entry(self, consumer, control):
+        """cortex and meter leave entries pending until they are done with them."""
+        await publish_selections(control, 6)
+        await read_as(control, "trace", 6, ack=True)
+        await read_as(control, "metering", 4, ack=False)
+
+        assert await consumer.trim_acked() == 0
+        assert await control.xlen(topology.SELECTION.name) == 6
+
+    async def test_a_group_that_has_read_nothing_blocks_trimming(
+        self, consumer, control
+    ):
+        await publish_selections(control, 3)
+        await read_as(control, "trace", 3, ack=True)
+
+        assert await consumer.trim_acked() == 0
+        assert await control.xlen(topology.SELECTION.name) == 3
+
+    async def test_a_missing_stream_is_a_no_op(self, redis_server):
+        consumer = RedisStreamConsumer(
+            topology.SELECTION, "trace", settings=RedisSettings(), consumer_name="w0"
+        )
+        await consumer.connect()
+
+        assert await consumer.trim_acked() == 0
+
+    async def test_the_worker_trims_once_every_group_has_acked(self, consumer, control):
+        await publish_selections(control, 5)
+        await read_as(control, "metering", 5, ack=True)
+        handler = Handler()
+        worker = StreamWorker(
+            consumer, handler, flush_interval_sec=0, maintain_interval_sec=0
+        )
+
+        await worker.start()
+        try:
+            await wait_for(lambda: len(handler.seen_ids) == 5)
+            await asyncio.sleep(0.05)
+        finally:
+            await worker.stop()
+
+        assert await control.xlen(topology.SELECTION.name) <= 1
+
+
+class TestBacklogReport:
+    """a group's backlog is reported against the cap, once per change of level."""
+
+    SPEC = topology.StreamSpec(
+        name="test:small",
+        event=SelectionEvent,
+        groups=frozenset({"a", "b"}),
+        max_len=4,
+    )
+
+    @pytest.fixture
+    async def worker(self, redis_server) -> StreamWorker:
+        consumer = RedisStreamConsumer(
+            self.SPEC, "a", settings=RedisSettings(), consumer_name="w0"
+        )
+        await consumer.connect()
+        await consumer.ensure_group()
+        return StreamWorker(consumer, Handler())
+
+    async def add(self, control, n: int) -> None:
+        for _ in range(n):
+            await control.xadd(self.SPEC.name, make_selection().to_dict())
+
+    def levels(self, caplog) -> list[str]:
+        return [r.levelname for r in caplog.records if "backlog" in r.getMessage()]
+
+    async def test_warns_past_half_and_errors_at_the_cap(self, worker, control, caplog):
+        caplog.set_level("INFO", logger=worker_module.__name__)
+
+        await self.add(control, 1)
+        await worker._maintain()
+        await self.add(control, 1)
+        await worker._maintain()
+        await worker._maintain()
+        await self.add(control, 2)
+        await worker._maintain()
+
+        assert self.levels(caplog) == ["WARNING", "ERROR"]
+
+    async def test_reports_the_recovery(self, worker, control, caplog):
+        caplog.set_level("INFO", logger=worker_module.__name__)
+        await self.add(control, 3)
+        await worker._maintain()
+
+        read = await control.xreadgroup("a", "c", {self.SPEC.name: ">"})
+        await control.xack(self.SPEC.name, "a", *[mid for mid, _ in read[0][1]])
+        await worker._maintain()
+
+        assert self.levels(caplog) == ["WARNING", "INFO"]
+
+
 class TestHandlerFailure:
     async def test_a_raising_handler_keeps_the_batch_and_retries_it(
         self, redis_server, control
