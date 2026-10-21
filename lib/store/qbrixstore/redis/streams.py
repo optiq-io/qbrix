@@ -13,7 +13,7 @@ def _parse_id(entry_id: str) -> tuple[int, int]:
     return int(ms), int(seq or 0)
 
 
-async def _group_infos(client: redis.Redis, spec: StreamSpec) -> list[dict]:
+async def _consumer_groups(client: redis.Redis, spec: StreamSpec) -> list[dict]:
     try:
         return await client.xinfo_groups(spec.name)
     except redis.ResponseError as e:
@@ -22,14 +22,16 @@ async def _group_infos(client: redis.Redis, spec: StreamSpec) -> list[dict]:
         raise
 
 
-async def group_backlog(client: redis.Redis, spec: StreamSpec, group: str) -> int:
+async def consumer_group_backlog(
+    client: redis.Redis, spec: StreamSpec, group: str
+) -> int:
     """entries this group has not acked yet: undelivered plus pending.
 
     redis reports a group's lag as null once it can no longer count it, e.g.
     after the cap trimmed past the group; the stream's length bounds it then. a
     group that does not exist yet is owed whatever its start id will drain.
     """
-    for info in await _group_infos(client, spec):
+    for info in await _consumer_groups(client, spec):
         if info["name"] == group:
             if info.get("lag") is None:
                 return int(await client.xlen(spec.name))
@@ -183,7 +185,7 @@ class RedisStreamConsumer:
     async def backlog(self) -> int:
         if self._client is None:
             raise RuntimeError("consumer not connected. call connect() first.")
-        return await group_backlog(self._client, self._spec, self._group)
+        return await consumer_group_backlog(self._client, self._spec, self._group)
 
     async def trim_acked(self) -> int:
         """trim the stream to the oldest entry any of its groups still needs.
@@ -199,7 +201,7 @@ class RedisStreamConsumer:
 
         floor: tuple[int, int] | None = None
         floor_id = "0-0"
-        for info in await _group_infos(self._client, self._spec):
+        for info in await _consumer_groups(self._client, self._spec):
             needed = info["last-delivered-id"]
             if info["pending"]:
                 summary = await self._client.xpending(self._spec.name, info["name"])
