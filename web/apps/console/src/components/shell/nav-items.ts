@@ -1,17 +1,11 @@
 import { LayoutGrid, Boxes, Rows3 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { routes } from "@/config/routes";
-import type { GateState } from "@/lib/entitlements";
 
 export type NavItem = {
   label: string;
   href: string;
   icon: LucideIcon;
-  // gated on the event_log feature. **shown when locked, hidden when absent**:
-  // a scale-gated destination a growth tenant cannot see is a destination they
-  // never learn exists, and its UpgradeCard would only ever be reached by
-  // typing the URL. an OSS build has no plan to upgrade to, so there it goes.
-  ee?: boolean;
 };
 
 // board `Console Shell`. there is no Experiments route: home *is* the
@@ -21,12 +15,8 @@ export type NavItem = {
 export const navItems: NavItem[] = [
   { label: "Home", href: routes.home, icon: LayoutGrid },
   { label: "Pools", href: routes.pools, icon: Boxes },
-  { label: "Event log", href: routes.eventLog, icon: Rows3, ee: true },
+  { label: "Event log", href: routes.eventLog, icon: Rows3 },
 ];
-
-export function visibleNavItems(eventsGate: GateState): NavItem[] {
-  return navItems.filter((item) => !item.ee || eventsGate !== "absent");
-}
 
 export function isNavActive(pathname: string | null, href: string): boolean {
   if (!pathname) return false;

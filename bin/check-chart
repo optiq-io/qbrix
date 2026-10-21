@@ -37,10 +37,7 @@ EXAMPLES = CHART / "examples"
 COMPOSE_FILES = [ROOT / "docker-compose.yml", ROOT / "docker-compose.dev.yml"]
 RELEASE = "staging"
 
-ANALYTICS_AND_CLOUD = [
-    "global.analytics.enabled=true",
-    "trace.enabled=true",
-    "infrastructure.clickhouse.enabled=true",
+CLOUD = [
     "global.ee.enabled=true",
     "ee.meter.enabled=true",
     "global.sentry.enabled=true",
@@ -63,9 +60,9 @@ SCENARIOS = [
     Scenario("defaults"),
     Scenario("selfhost", values=[EXAMPLES / "values-selfhost.yaml"]),
     Scenario(
-        "selfhost, analytics and cloud",
+        "selfhost and cloud",
         values=[EXAMPLES / "values-selfhost.yaml"],
-        sets=ANALYTICS_AND_CLOUD,
+        sets=CLOUD,
     ),
     Scenario(
         "external services",
@@ -73,10 +70,17 @@ SCENARIOS = [
             EXAMPLES / "values-selfhost.yaml",
             EXAMPLES / "values-external-services.yaml",
         ],
-        existing={"qbrix-postgres", "qbrix-redis", "qbrix-jwt", "qbrix-token"},
+        existing={
+            "qbrix-postgres",
+            "qbrix-redis",
+            "qbrix-clickhouse",
+            "qbrix-jwt",
+            "qbrix-token",
+        },
         expect_config={
             "PROXY_POSTGRES_HOST": "qbrix.xxxxxxxx.eu-central-1.rds.amazonaws.com",
             "PROXY_REDIS_HOST": "qbrix.xxxxxx.cache.amazonaws.com",
+            "PROXY_CLICKHOUSE_HOST": "clickhouse.example.com",
         },
     ),
     Scenario(
@@ -93,8 +97,8 @@ SCENARIOS = [
         expect_error="global.postgres.host is required",
     ),
     Scenario(
-        "analytics without clickhouse",
-        sets=["global.analytics.enabled=true"],
+        "no clickhouse host and no in-cluster clickhouse",
+        sets=["infrastructure.clickhouse.enabled=false"],
         expect_error="global.clickhouse.host is required",
     ),
 ]

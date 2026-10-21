@@ -37,13 +37,6 @@ body:
       description: The image tag or commit, e.g. 0.1.0 or sha-4acde09.
     validations:
       required: true
-  - type: dropdown
-    id: analytics
-    attributes:
-      label: Analytics enabled
-      options:
-        - "no"
-        - "yes"
   - type: textarea
     id: logs
     attributes:

@@ -87,7 +87,6 @@ services:
       PROXY_SMTP_USERNAME: ${SMTP_USERNAME:-}
       PROXY_SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       PROXY_SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
-      PROXY_ANALYTICS_ENABLED: ${ANALYTICS_ENABLED:-false}
       PROXY_CLICKHOUSE_HOST: clickhouse
       PROXY_LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_FORMAT: ${LOG_FORMAT:-text}
@@ -95,6 +94,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      clickhouse:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -129,7 +130,6 @@ services:
     restart: unless-stopped
 
   clickhouse:
-    profiles: ["analytics"]
     image: clickhouse/clickhouse-server:24.1@sha256:44caeed7c81f7934c28a8ffa3a422a4ca96cf3bccc486d21311e5133ce88d49f
     environment:
       CLICKHOUSE_DB: qbrix
@@ -143,7 +143,6 @@ services:
     restart: unless-stopped
 
   trace:
-    profiles: ["analytics"]
     image: ${QBRIX_REGISTRY:-ghcr.io/optiq-io}/qbrix/trace:${QBRIX_VERSION:-latest}
     environment:
       TRACE_REDIS_HOST: redis

@@ -10,8 +10,6 @@ from qbrixstore.event import AuditEvent
 from qbrixstore.event import FeedbackEvent
 from qbrixstore.event import SelectionEvent
 
-from proxysvc.config import ProxySettings
-
 logger = get_logger(__name__)
 
 
@@ -19,60 +17,31 @@ class EventEmitter:
     """proxy's outbound event egress.
 
     owns the three redis event streams — feedback, selection, audit — their
-    lifecycle, ee-gating, best-effort publish, and uniform fire-and-forget
+    lifecycle, best-effort publish, and uniform fire-and-forget
     dispatch with drain-on-stop.
 
-    feedback is the learning-path signal and is always emitted; selection and
-    audit are emitted only when something consumes them, and otherwise no-op.
     every stream is dispatched fire-and-forget so no emit ever blocks the
     request path; in-flight tasks are tracked and drained on stop().
     """
 
-    def __init__(self, redis: RedisSettings, *, selection: bool, audit: bool):
+    def __init__(self, redis: RedisSettings):
         self._feedback = RedisStreamPublisher(topology.FEEDBACK, redis)
-        self._selection = (
-            RedisStreamPublisher(topology.SELECTION, redis) if selection else None
-        )
-        self._audit = RedisStreamPublisher(topology.AUDIT, redis) if audit else None
+        self._selection = RedisStreamPublisher(topology.SELECTION, redis)
+        self._audit = RedisStreamPublisher(topology.AUDIT, redis)
         self._inflight: set[asyncio.Task] = set()
-
-    @classmethod
-    def for_settings(
-        cls, redis: RedisSettings, settings: ProxySettings
-    ) -> EventEmitter:
-        """selection feeds trace and metersvc; audit feeds trace only."""
-        return cls(
-            redis,
-            selection=settings.ee_enabled or settings.analytics_enabled,
-            audit=settings.analytics_enabled,
-        )
-
-    @property
-    def selection_enabled(self) -> bool:
-        """whether the selection stream is active.
-
-        lets the hot path skip building selection events nobody consumes.
-        """
-        return self._selection is not None
 
     # lifecycle
 
     async def start(self) -> None:
         await self._feedback.connect()
-        if self._selection:
-            await self._selection.connect()
-            logger.info("selection publisher connected")
-        if self._audit:
-            await self._audit.connect()
-            logger.info("audit publisher connected")
+        await self._selection.connect()
+        await self._audit.connect()
 
     async def stop(self) -> None:
         await self.drain()
         await self._feedback.close()
-        if self._selection:
-            await self._selection.close()
-        if self._audit:
-            await self._audit.close()
+        await self._selection.close()
+        await self._audit.close()
 
     async def drain(self) -> None:
         """await all in-flight dispatch tasks (used by stop() and by tests)."""
@@ -115,9 +84,7 @@ class EventEmitter:
         )
 
     @staticmethod
-    async def _publish(publisher: RedisStreamPublisher | None, event) -> None:
-        if not publisher:
-            return
+    async def _publish(publisher: RedisStreamPublisher, event) -> None:
         try:
             await publisher.publish(event)
         except Exception as e:  # noqa

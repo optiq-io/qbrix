@@ -9,7 +9,6 @@ from qbrixstore.event import AuditEvent
 from qbrixstore.event import FeedbackEvent
 from qbrixstore.event import SelectionEvent
 
-from proxysvc.config import ProxySettings
 from proxysvc.core.events import EventEmitter
 
 
@@ -33,12 +32,11 @@ class _SpyPublisher:
         return "id-1"
 
 
-def _emitter(consumed: bool = True, raises: bool = False) -> EventEmitter:
-    em = EventEmitter(RedisSettings(), selection=consumed, audit=consumed)
+def _emitter(raises: bool = False) -> EventEmitter:
+    em = EventEmitter(RedisSettings())
     em._feedback = _SpyPublisher(raises=raises)
-    if consumed:
-        em._selection = _SpyPublisher(raises=raises)
-        em._audit = _SpyPublisher(raises=raises)
+    em._selection = _SpyPublisher(raises=raises)
+    em._audit = _SpyPublisher(raises=raises)
     return em
 
 
@@ -86,29 +84,6 @@ def _selection_event() -> SelectionEvent:
     )
 
 
-class TestStreamsPerDeployment:
-    @pytest.mark.parametrize(
-        ("ee", "analytics", "selection", "audit"),
-        [
-            (False, False, False, False),
-            (True, False, True, False),
-            (False, True, True, True),
-            (True, True, True, True),
-        ],
-    )
-    def test_publishes_only_what_something_consumes(
-        self, ee, analytics, selection, audit
-    ):
-        em = EventEmitter.for_settings(
-            RedisSettings(),
-            ProxySettings(ee_enabled=ee, analytics_enabled=analytics),
-        )
-
-        assert (em._selection is not None) is selection
-        assert (em._audit is not None) is audit
-        assert em._feedback is not None
-
-
 class TestSelectionEventSerialization:
     def test_event_id_round_trips(self):
         event = _selection_event()
@@ -147,14 +122,6 @@ class TestEmitAudit:
         assert len(em._audit.events) == 2
         assert {e.name for e in em._audit.events} == {"pool.created", "pool.deleted"}
 
-    @pytest.mark.asyncio
-    async def test_emit_audit_noop_when_unconsumed(self):
-        em = _emitter(consumed=False)
-        assert em._audit is None
-        # should not raise
-        em.emit_audit(_audit_event())
-        await em.drain()
-
 
 class TestEmitFeedback:
 
@@ -175,14 +142,6 @@ class TestEmitFeedback:
         assert len(em._feedback.events) == 2
         assert {e.experiment_id for e in em._feedback.events} == {"exp-1", "meta-1"}
 
-    @pytest.mark.asyncio
-    async def test_feedback_emitted_even_when_nothing_else_is_consumed(self):
-        em = _emitter(consumed=False)
-        em.emit_feedback(_feedback_event())
-        await em.drain()
-
-        assert len(em._feedback.events) == 1
-
 
 class TestEmitSelection:
 
@@ -201,14 +160,6 @@ class TestEmitSelection:
         await em.drain()
 
         assert len(em._selection.events) == 2
-
-    @pytest.mark.asyncio
-    async def test_emit_selection_noop_when_unconsumed(self):
-        em = _emitter(consumed=False)
-        assert em._selection is None
-        # should not raise
-        em.emit_selection(_selection_event())
-        await em.drain()
 
 
 class TestBestEffortAndLifecycle:

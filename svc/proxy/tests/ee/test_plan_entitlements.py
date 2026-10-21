@@ -26,11 +26,11 @@ from proxysvc.ee.plans import FEATURE_MIN_TIER
 from proxysvc.ee.plans import PLAN_LIMITS
 from proxysvc.ee.plans import TIER_ORDER
 
-CLOUD = ProxySettings(ee_enabled=True, analytics_enabled=True)
+CLOUD = ProxySettings(ee_enabled=True)
 
 
-def _plan(redis=None, settings: ProxySettings = CLOUD) -> PlanEntitlements:
-    return edition.entitlements(settings, redis or MagicMock())
+def _plan(redis=None) -> PlanEntitlements:
+    return edition.entitlements(CLOUD, redis or MagicMock())
 
 
 class TestPlan:
@@ -41,7 +41,7 @@ class TestPlan:
         for row in PLAN_LIMITS.values():
             assert tuple(row) == LIMITS
 
-    def test_cloud_with_analytics_offers_the_whole_catalogue(self):
+    def test_cloud_offers_the_whole_catalogue(self):
         assert _plan().locked_features("free") == FEATURES
 
     @pytest.mark.parametrize("tier", TIER_ORDER)
@@ -56,15 +56,6 @@ class TestPlan:
     @pytest.mark.parametrize("tier", TIER_ORDER)
     def test_limits_are_the_tiers_row(self, tier):
         assert _plan().limits(tier) == PLAN_LIMITS[tier]
-
-    def test_what_is_not_deployed_is_neither_granted_nor_sold(self):
-        entitlements = _plan(
-            settings=ProxySettings(ee_enabled=True, analytics_enabled=False)
-        )
-
-        for tier in TIER_ORDER:
-            assert not entitlements.features(tier) & {"insights", "event_log"}
-            assert not entitlements.locked_features(tier) & {"insights", "event_log"}
 
     def test_upgrade_tiers_are_the_granting_tiers_in_order(self):
         assert _plan().upgrade_tiers("insights") == ["growth", "scale", "enterprise"]
@@ -128,7 +119,6 @@ class TestEdition:
         env = {
             **os.environ,
             "PROXY_EE_ENABLED": "true",
-            "PROXY_ANALYTICS_ENABLED": "true",
         }
         result = subprocess.run(
             [sys.executable, "-c", probe], capture_output=True, text=True, env=env

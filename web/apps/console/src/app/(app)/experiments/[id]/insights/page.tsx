@@ -8,7 +8,7 @@ import { queryKeys } from "@/lib/api/query-keys";
 import { usePageReady } from "@/lib/api/page-ready";
 import { experiments as experimentsApi } from "@/lib/api/experiments";
 import { insights as insightsApi } from "@/lib/api/insights";
-import { useEntitlements, useFeatureRoute } from "@/lib/entitlements";
+import { useEntitlements } from "@/lib/entitlements";
 import { FeatureGate } from "@/lib/edition";
 import { num, pct } from "../format";
 import { useHeaderTool } from "../header-actions";
@@ -103,7 +103,6 @@ function ExperimentInsightsPageContent() {
   const params = useParams();
   const experimentId = params.id as string;
   const { hasInsights } = useEntitlements();
-  useFeatureRoute("insights");
 
   // preset and bucket move together: each range offers its own bucket set, so
   // changing the range resets the bucket to that range's default rather than

@@ -16,7 +16,7 @@ import { events as eventsApi } from "@/lib/api/events";
 import { experiments as experimentsApi } from "@/lib/api/experiments";
 import { auth as authApi } from "@/lib/api/auth";
 import { buildActorIndex, buildNameIndex, eventKey, streamDot } from "@/lib/events/derive";
-import { useEntitlements, useFeatureRoute } from "@/lib/entitlements";
+import { useEntitlements } from "@/lib/entitlements";
 import { FeatureGate } from "@/lib/edition";
 import { GuardedRoute } from "@/components/shell/mobile-guard";
 import { routes, docsUrl } from "@/config/routes";
@@ -124,7 +124,6 @@ function ActivityContent() {
   const params = useParams();
   const experimentId = params.id as string;
   const { hasEvents } = useEntitlements();
-  useFeatureRoute("event_log");
   const queryClient = useQueryClient();
 
   const [category, setCategory] = useState<Category>("all");

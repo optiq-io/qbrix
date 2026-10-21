@@ -20,7 +20,6 @@ import type { LucideIcon } from "lucide-react";
 import { cn } from "@qbrix/ui/lib/utils";
 import { useToast } from "@qbrix/ui/components/toast";
 import { useAuth } from "@/lib/auth/context";
-import { useEntitlements } from "@/lib/entitlements";
 import { experiments as experimentsApi } from "@/lib/api/experiments";
 import { queryKeys } from "@/lib/api/query-keys";
 import { routes } from "@/config/routes";
@@ -106,7 +105,6 @@ export function CommandPalette() {
   const queryClient = useQueryClient();
   const toast = useToast();
   const { logout } = useAuth();
-  const { gate } = useEntitlements();
   const { id: currentExperimentId, experiment: currentExperiment } =
     useCurrentExperiment();
 
@@ -197,17 +195,12 @@ export function CommandPalette() {
   const jumpEntries: Entry[] = [
     { id: "jump-home", label: "Home", icon: LayoutGrid, href: routes.home },
     { id: "jump-pools", label: "Pools", icon: Boxes, href: routes.pools },
-    // same rule as the sidebar: shown when locked, hidden when absent
-    ...(gate("event_log") !== "absent"
-      ? [
-          {
-            id: "jump-events",
-            label: "Event log",
-            icon: ScrollText,
-            href: routes.eventLog,
-          },
-        ]
-      : []),
+    {
+      id: "jump-events",
+      label: "Event log",
+      icon: ScrollText,
+      href: routes.eventLog,
+    },
     {
       id: "jump-settings",
       label: "Settings",

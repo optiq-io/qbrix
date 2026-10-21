@@ -13,7 +13,7 @@ from svc.proxy.tests.integration.test_oss_boot import mounted
 
 class TestCloudBoot:
     def test_billing_is_mounted_and_the_plugin_is_imported(self):
-        cloud = boot(ee=True, analytics=True)
+        cloud = boot(ee=True)
 
         assert mounted(cloud["routes"], BILLING_PREFIX)
         assert "proxysvc.ee" in cloud["loaded"]

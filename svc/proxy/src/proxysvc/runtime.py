@@ -49,6 +49,7 @@ class ProxyRuntime:
 
     async def start(self) -> None:
         self._verify_secrets()
+        self._verify_stores()
 
         init_db(
             PostgresSettings(
@@ -110,3 +111,10 @@ class ProxyRuntime:
             raise RuntimeError("PROXY_JWT_SECRET_KEY must be set in production")
         if self._settings.token_secret == "change-me-in-production":
             raise RuntimeError("PROXY_TOKEN_SECRET must be set in production")
+
+    def _verify_stores(self) -> None:
+        if not self._settings.clickhouse_host:
+            raise RuntimeError(
+                "PROXY_CLICKHOUSE_HOST must be set: insights and the event log "
+                "read from clickhouse"
+            )

@@ -26,7 +26,7 @@ from svc.proxy.tests.integration.http.conftest import as_tenant
 @pytest.fixture
 def oss(wired_app) -> Entitlements:
     entitlements = edition.entitlements(
-        ProxySettings(ee_enabled=False, analytics_enabled=True), wired_app.svc._redis
+        ProxySettings(ee_enabled=False), wired_app.svc._redis
     )
     wired_app.svc._entitlements = entitlements
     wired_app.svc._build_services()

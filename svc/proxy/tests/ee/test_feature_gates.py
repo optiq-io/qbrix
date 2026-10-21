@@ -87,9 +87,7 @@ class TestFeatureMatrix:
 class TestRequireFeature:
     @pytest.fixture(autouse=True)
     def cloud_operator(self, monkeypatch):
-        entitlements = edition.entitlements(
-            ProxySettings(ee_enabled=True, analytics_enabled=True), MagicMock()
-        )
+        entitlements = edition.entitlements(ProxySettings(ee_enabled=True), MagicMock())
         monkeypatch.setattr(
             _op_module, "auth_operator", SimpleNamespace(entitlements=entitlements)
         )

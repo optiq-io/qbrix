@@ -1,7 +1,7 @@
 #!/bin/sh
 # writes .env for the self-host quickstart (docker-compose.yml) with generated secrets.
 #
-#   bin/selfhost-init [--analytics] [--port N] [--force]
+#   bin/selfhost-init [--port N] [--force]
 
 set -eu
 
@@ -9,18 +9,16 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 env_file="$root/.env"
 template="$root/.env.example"
 
-analytics=false
 port=8000
 force=false
 
 usage() {
-    echo "usage: bin/selfhost-init [--analytics] [--port N] [--force]" >&2
+    echo "usage: bin/selfhost-init [--port N] [--force]" >&2
     exit 2
 }
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --analytics) analytics=true ;;
         --port) [ $# -ge 2 ] || usage; port=$2; shift ;;
         --force) force=true ;;
         -h|--help) usage ;;
@@ -56,14 +54,6 @@ sed \
     -e "s|^QBRIX_PORT=.*|QBRIX_PORT=$port|" \
     -e "s|^CONSOLE_URL=.*|CONSOLE_URL=http://localhost:$port|" \
     "$template" > "$tmp"
-
-if [ "$analytics" = true ]; then
-    sed \
-        -e "s|^# COMPOSE_PROFILES=analytics|COMPOSE_PROFILES=analytics|" \
-        -e "s|^# ANALYTICS_ENABLED=true|ANALYTICS_ENABLED=true|" \
-        "$tmp" > "$tmp.next"
-    mv "$tmp.next" "$tmp"
-fi
 
 chmod 600 "$tmp"
 mv "$tmp" "$env_file"

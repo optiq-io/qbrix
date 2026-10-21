@@ -1,5 +1,5 @@
 # qbrix helm chart. the defaults are a self-contained install: in-cluster
-# postgres and redis, generated secrets, no analytics, no cloud edition.
+# postgres, redis and clickhouse, generated secrets, no cloud edition.
 # see examples/ for an ingress setup and for external managed services.
 
 global:
@@ -68,10 +68,6 @@ global:
   ee:
     enabled: false
 
-  # insights and the event log; needs trace and clickhouse deployed
-  analytics:
-    enabled: false
-
 # subcharts
 proxy:
   enabled: true
@@ -86,7 +82,7 @@ console:
   enabled: true
 
 trace:
-  enabled: false
+  enabled: true
 
 # cloud edition subchart toggles
 ee:
@@ -137,7 +133,7 @@ infrastructure:
       storageClass: ""
 
   clickhouse:
-    enabled: false
+    enabled: true
     image:
       repository: clickhouse/clickhouse-server
       tag: "24.1@sha256:44caeed7c81f7934c28a8ffa3a422a4ca96cf3bccc486d21311e5133ce88d49f"

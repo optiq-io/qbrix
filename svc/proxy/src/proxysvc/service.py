@@ -61,7 +61,7 @@ class ProxyService:
         self._redis = RedisClient(redis_settings)
         await self._redis.connect()
 
-        self._events = EventEmitter.for_settings(redis_settings, self._settings)
+        self._events = EventEmitter(redis_settings)
         await self._events.start()
 
         self._motor_client = MotorClient(

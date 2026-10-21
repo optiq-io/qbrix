@@ -81,7 +81,7 @@ low-latency while parameter updates are eventually consistent.
 - **One instance by design**: training is event-sourced, and two trainers would
   race on the same parameters.
 
-**trace** (`svc/trace`): gRPC 50053, optional (the analytics switch)
+**trace** (`svc/trace`): gRPC 50053
 - Consumes all three streams and writes them to ClickHouse for the insight and
   event endpoints.
 - Scales horizontally: writes are append-only, and the `trace` consumer group
@@ -100,14 +100,14 @@ low-latency while parameter updates are eventually consistent.
 
 ### Editions
 
-Three independent switches:
+Two independent switches. Analytics is not one of them: trace, ClickHouse and the
+insight and event routes are part of every install, and the proxy refuses to boot
+without `PROXY_CLICKHOUSE_HOST`.
 
 - **`PROXY_EE_ENABLED`** loads the cloud plugin `proxysvc/ee/`: billing, plan tiers
   (`ee/plans.py`), the selection quota (`ee/metering/`), `PlanEntitlements`. Core
   reads plans only through `core/entitlements.Entitlements`; self-hosted gets
   `UnlimitedEntitlements` (no caps, no quota).
-- **`PROXY_ANALYTICS_ENABLED`** mounts the insight and event routes and turns on
-  the selection and audit streams. Needs trace and ClickHouse.
 - **`PROXY_NEXT_ENABLED`** turns qbrix next on, off until the release. Next routes
   and gRPC services mount only through `proxysvc/next.py` (`next_routes`,
   `next_servicers`), and `/api/auth/config` reports it as `next`. With it off, the
@@ -134,8 +134,8 @@ is listed in `bin/ee-paths.txt`, and CI deletes them all and runs the suite.
 | `/api/v1/policies` | policy catalog with parameters |
 | `/api/v1/runtime` | service health, stream diagnostics |
 | `/api/auth` | login, register, profile, API keys, workspace, invites, roles, `/config` (unauthenticated) |
-| `/api/v1/insight` | experiment analytics (analytics switch) |
-| `/api/v1/event` | event log from ClickHouse (analytics switch) |
+| `/api/v1/insight` | experiment analytics from ClickHouse |
+| `/api/v1/event` | event log from ClickHouse |
 | `/api/v1/ee/billing` | Stripe billing (cloud edition) |
 
 ### Request flow
@@ -177,7 +177,7 @@ until the release PR moves them in. The site never reads that folder, and
 |-------|-------------|
 | `/dashboard` | metrics, service health, active experiments |
 | `/experiments`, `/experiments/[id]` | experiment list and detail |
-| `/experiments/[id]/insights`, `/activity` | analytics (a 404 when the deployment has no analytics) |
+| `/experiments/[id]/insights`, `/activity` | analytics; locked below the plan's tier in the cloud edition |
 | `/experiments/[id]/gate` | the experiment's feature gate; gates have no id of their own, so there is no `/gates` route |
 | `/pools` | pools |
 | `/developers/event-log` | live event log (analytics) |
@@ -360,14 +360,13 @@ uv run pytest -k test_name          # one test
 uv run pytest -m unit               # by marker: unit, integration, slow, performance
 PROXY_EE_ENABLED=false uv run pytest svc/proxy   # self-hosted edition
 
-make infra                          # postgres + redis (docker-compose.dev.yml)
-make infra-ee                       # plus clickhouse
+make infra                          # postgres, redis and clickhouse (docker-compose.dev.yml)
 make dev                            # infra, migrations, then all services locally
 make dev-proxy                      # or one service: dev-motor, dev-cortex, dev-trace, dev-meter
 make dev-next                       # the proxy with qbrix next switched on
 
 make docker                         # full stack in containers, built from source
-make docker-ee                      # plus analytics and the cloud edition
+make docker-ee                      # plus the cloud edition (meter)
 
 make proto                          # regenerate gRPC stubs
 make lint                           # black --check
@@ -407,13 +406,13 @@ still being written must be split across two releases, because the hook runs
 before the new code rolls out.
 
 **Compose files:** `docker-compose.yml` is the self-host quickstart (published
-images behind an nginx gateway on port 8000, secrets from `bin/selfhost-init`,
-analytics as a profile). `docker-compose.dev.yml` builds from source and is what
-every `make docker*` and `make infra*` target uses; its settings are in
-`.env.dev.example`, with profiles `analytics`, `cloud` and `mail` (Mailpit).
+images behind an nginx gateway on port 8000, secrets from `bin/selfhost-init`).
+`docker-compose.dev.yml` builds from source and is what every `make docker*` and
+`make infra*` target uses; its settings are in `.env.dev.example`, with profiles
+`cloud` and `mail` (Mailpit).
 
 **Helm:** `helm/qbrix` defaults to the self-host shape (GHCR images, in-cluster
-Postgres and Redis, EE and analytics off, generated secrets). `bin/check-chart`
+Postgres, Redis and ClickHouse, EE off, generated secrets). `bin/check-chart`
 lints and renders it the way CI does. See `helm/README.md`.
 
 ## Conventions
@@ -480,7 +479,7 @@ are the reference. The ones that change behaviour most:
 |----------|--------|
 | `PROXY_RUNENV` | `dev` bypasses auth (default `dev`) |
 | `PROXY_EE_ENABLED` | cloud edition (default `false`) |
-| `PROXY_ANALYTICS_ENABLED` | analytics routes and streams (default `false`) |
+| `PROXY_CLICKHOUSE_HOST` | required; the proxy refuses to boot without it |
 | `PROXY_NEXT_ENABLED` | qbrix next routes and services (default `false`, until the release) |
 | `PROXY_SIGNUP_MODE` | `open`, `first-user` (default) or `invite-only` |
 | `PROXY_EMAIL_PROVIDER` | `auto` (default), `resend`, `smtp` or `none`; with no provider, new accounts are auto-verified |

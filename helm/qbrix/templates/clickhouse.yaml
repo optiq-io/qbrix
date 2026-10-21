@@ -101,6 +101,6 @@ spec:
         - name: data
           emptyDir: {}
   {{- end }}
-{{- else if and (or .Values.global.analytics.enabled .Values.trace.enabled) (not .Values.global.clickhouse.host) }}
+{{- else if not .Values.global.clickhouse.host }}
 {{- fail "global.clickhouse.host is required when infrastructure.clickhouse is disabled" }}
 {{- end }}

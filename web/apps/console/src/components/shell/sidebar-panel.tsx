@@ -5,9 +5,8 @@ import { usePathname } from "next/navigation";
 import { Settings } from "lucide-react";
 import { SidebarItem } from "@qbrix/ui/components/sidebar-item";
 import { cn } from "@qbrix/ui/lib/utils";
-import { useEntitlements } from "@/lib/entitlements";
 import { routes } from "@/config/routes";
-import { visibleNavItems, isNavActive } from "./nav-items";
+import { navItems, isNavActive } from "./nav-items";
 import { useExperimentId } from "./breadcrumb";
 import { PinnedSection } from "./pinned";
 import { SearchField } from "./search-trigger";
@@ -31,8 +30,6 @@ export function SidebarPanel({
   className?: string;
 }) {
   const pathname = usePathname();
-  const { gate } = useEntitlements();
-  const items = visibleNavItems(gate("event_log"));
   const experimentId = useExperimentId();
 
   return (
@@ -48,7 +45,7 @@ export function SidebarPanel({
       <SearchField />
 
       <nav className="flex flex-col gap-[2px]">
-        {items.map((item) => (
+        {navItems.map((item) => (
           <Link key={item.href} href={item.href}>
             <SidebarItem
               icon={item.icon}
