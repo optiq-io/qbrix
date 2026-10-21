@@ -79,11 +79,11 @@ class ProxySettings(GrpcSettings):
     http_port: int = 8080
 
     ee_enabled: bool = False
-    analytics_enabled: bool = False
     next_enabled: bool = False
 
-    # clickhouse, read by the analytics endpoints
-    clickhouse_host: str = "localhost"
+    # clickhouse, read by the insight and event endpoints. required: boot
+    # refuses an empty host rather than serving those routes against nothing
+    clickhouse_host: str = ""
     clickhouse_port: int = 8123
     clickhouse_user: str = "default"
     clickhouse_password: str = ""

@@ -1,6 +1,6 @@
 """what a self-hosted proxy process mounts, and what it refuses to load.
 
-the edition and the analytics switch are read while modules import and the http
+the edition and the next switch are read while modules import and the http
 app is a module-level singleton, so each case boots a fresh process through
 `probe/oss_boot.py` and asserts on what that process reports about itself.
 """
@@ -19,7 +19,6 @@ import pytest
 PROBE = Path(__file__).resolve().parents[1] / "probe" / "oss_boot.py"
 
 BILLING_PREFIX = "/api/v1/ee/billing"
-ANALYTICS_PREFIXES = ("/api/v1/insight", "/api/v1/event")
 
 # today's product, with next off. a route or grpc service that appears here
 # without a deliberate edit was mounted outside proxysvc/next.py.
@@ -101,9 +100,8 @@ def free_port() -> int:
         return s.getsockname()[1]
 
 
-def boot(*, ee: bool = False, analytics: bool, next_: bool = False) -> dict:
-    """boot one proxy process under the given switches and return its report."""
-    result = subprocess.run(
+def run_probe(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
         [sys.executable, str(PROBE)],
         capture_output=True,
         text=True,
@@ -111,14 +109,23 @@ def boot(*, ee: bool = False, analytics: bool, next_: bool = False) -> dict:
         # process sees, whatever the developer running the suite exports.
         env={
             "PATH": os.environ["PATH"],
-            "PROXY_EE_ENABLED": "true" if ee else "false",
-            "PROXY_ANALYTICS_ENABLED": "true" if analytics else "false",
-            "PROXY_NEXT_ENABLED": "true" if next_ else "false",
             "PROXY_GRPC_HOST": "127.0.0.1",
             "PROXY_GRPC_PORT": str(free_port()),
             "PROXY_JWT_SECRET_KEY": "probe-jwt-secret",
             "PROXY_TOKEN_SECRET": "probe-token-secret",
+            **env,
         },
+    )
+
+
+def boot(*, ee: bool = False, next_: bool = False) -> dict:
+    """boot one proxy process under the given switches and return its report."""
+    result = run_probe(
+        {
+            "PROXY_EE_ENABLED": "true" if ee else "false",
+            "PROXY_NEXT_ENABLED": "true" if next_ else "false",
+            "PROXY_CLICKHOUSE_HOST": "localhost",
+        }
     )
 
     assert result.returncode == 0, result.stderr
@@ -131,17 +138,12 @@ def mounted(routes: list[str], *prefixes: str) -> list[str]:
 
 @pytest.fixture(scope="module")
 def oss() -> dict:
-    return boot(analytics=True)
-
-
-@pytest.fixture(scope="module")
-def oss_without_analytics() -> dict:
-    return boot(analytics=False)
+    return boot()
 
 
 @pytest.fixture(scope="module")
 def oss_with_next() -> dict:
-    return boot(analytics=True, next_=True)
+    return boot(next_=True)
 
 
 class TestBoot:
@@ -159,17 +161,12 @@ class TestCloudPluginStaysOut:
         assert mounted(oss["routes"], BILLING_PREFIX) == []
 
 
-class TestAnalyticsSwitch:
-    def test_on_mounts_insight_and_event(self, oss):
-        assert mounted(oss["routes"], *ANALYTICS_PREFIXES)
+class TestClickhouseIsRequired:
+    def test_boot_refuses_a_missing_host_and_names_it(self):
+        result = run_probe({"PROXY_EE_ENABLED": "false"})
 
-    def test_off_mounts_nothing_and_leaves_clickhouse_unimported(
-        self, oss_without_analytics
-    ):
-        routes = oss_without_analytics["routes"]
-
-        assert mounted(routes, *ANALYTICS_PREFIXES) == []
-        assert oss_without_analytics["loaded"] == []
+        assert result.returncode != 0
+        assert "PROXY_CLICKHOUSE_HOST must be set" in result.stderr
 
 
 class TestNextSwitch:

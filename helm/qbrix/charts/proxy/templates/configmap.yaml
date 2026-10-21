@@ -37,7 +37,6 @@ data:
 
   # enterprise edition
   PROXY_EE_ENABLED: {{ .Values.global.ee.enabled | default false | quote }}
-  PROXY_ANALYTICS_ENABLED: {{ .Values.global.analytics.enabled | default false | quote }}
 
   # qbrix next, off until the release
   PROXY_NEXT_ENABLED: {{ .Values.next.enabled | default false | quote }}
@@ -84,13 +83,11 @@ data:
   PROXY_JWT_ACCESS_TOKEN_EXPIRE_MINUTES: {{ .Values.config.jwt.accessTokenExpireMinutes | quote }}
   PROXY_JWT_REFRESH_TOKEN_EXPIRE_DAYS: {{ .Values.config.jwt.refreshTokenExpireDays | quote }}
 
-  # clickhouse connection (analytics)
-  {{- if .Values.global.analytics.enabled }}
+  # clickhouse connection
   PROXY_CLICKHOUSE_HOST: {{ include "proxy.clickhouseHost" . | quote }}
   PROXY_CLICKHOUSE_PORT: {{ .Values.global.clickhouse.port | quote }}
   PROXY_CLICKHOUSE_USER: {{ .Values.global.clickhouse.user | quote }}
   PROXY_CLICKHOUSE_DATABASE: {{ .Values.global.clickhouse.database | quote }}
-  {{- end }}
 
   # logging
   PROXY_LOG_LEVEL: {{ .Values.config.logLevel | quote }}

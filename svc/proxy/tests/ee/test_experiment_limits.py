@@ -69,9 +69,9 @@ async def service(
     svc._redis = mock_redis
     svc._motor_client = mock_motor_client
     svc._cortex_client = mock_cortex_client
-    events = EventEmitter(RedisSettings(), selection=True, audit=True)
+    events = EventEmitter(RedisSettings())
     events._feedback = mock_feedback_publisher
-    events._selection = None
+    events._selection = AsyncMock()
     events._audit = AsyncMock()
     svc._events = events
     svc._gate_service = AsyncMock()

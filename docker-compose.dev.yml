@@ -78,8 +78,6 @@ services:
       SENTRY_ENVIRONMENT: "${SENTRY_ENVIRONMENT:-local}"
       # cloud edition
       PROXY_EE_ENABLED: "${QBRIX_EE_ENABLED:-false}"
-      # analytics: needs the trace + clickhouse services
-      PROXY_ANALYTICS_ENABLED: "${QBRIX_ANALYTICS_ENABLED:-false}"
       PROXY_CLICKHOUSE_HOST: ${CLICKHOUSE_HOST:-clickhouse}
       # qbrix next, off until the release
       PROXY_NEXT_ENABLED: "${QBRIX_NEXT_ENABLED:-false}"
@@ -110,6 +108,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      clickhouse:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -182,10 +182,8 @@ services:
       - "1025:1025"
       - "8025:8025"
 
-  # analytics (enabled with --profile analytics)
   clickhouse:
     image: clickhouse/clickhouse-server:24.1@sha256:44caeed7c81f7934c28a8ffa3a422a4ca96cf3bccc486d21311e5133ce88d49f
-    profiles: ["analytics"]
     ports:
       - "8123:8123"
       - "9000:9000"
@@ -200,7 +198,6 @@ services:
       retries: 5
 
   trace:
-    profiles: ["analytics"]
     build:
       context: .
       dockerfile: svc/trace/Dockerfile

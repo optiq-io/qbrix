@@ -58,7 +58,7 @@ def _emitter_with_spies(feedback, selection, audit) -> EventEmitter:
     """build an EventEmitter whose three streams are spy publishers."""
     from qbrixstore.config import RedisSettings
 
-    em = EventEmitter(RedisSettings(), selection=True, audit=True)
+    em = EventEmitter(RedisSettings())
     em._feedback = feedback
     em._selection = selection
     em._audit = audit

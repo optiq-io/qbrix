@@ -36,7 +36,7 @@ updates the model in the background, so training never slows a decision down.
   experiment.
 - **A console** for pools, experiments, gates, API keys and your team, with roles
   (admin, member, viewer).
-- **Analytics** (optional): per-experiment insights and a live event log, backed by
+- **Analytics**: per-experiment insights and a live event log, backed by
   ClickHouse.
 - **REST and gRPC** APIs, with [Python](https://github.com/optiq-io/qbrix-python) and
   [TypeScript](https://github.com/optiq-io/qbrix-js) SDKs.
@@ -47,7 +47,7 @@ You need Docker with Compose.
 
 ```bash
 git clone https://github.com/optiq-io/qbrix.git && cd qbrix
-bin/selfhost-init            # writes .env with generated secrets; add --analytics for insights
+bin/selfhost-init            # writes .env with generated secrets
 docker compose up -d
 ```
 
@@ -79,8 +79,8 @@ print(result.arm.name)
 qbrix.agent.feedback(request_id=result.request_id, reward=1.0)
 ```
 
-`.env.example` documents every compose setting: port, email (SMTP), signup mode,
-and analytics.
+`.env.example` documents every compose setting: port, email (SMTP), signup mode
+and logging.
 
 ### Kubernetes
 
@@ -90,8 +90,8 @@ curl -fsSL -o values.yaml https://raw.githubusercontent.com/optiq-io/qbrix/main/
 helm install qbrix oci://ghcr.io/optiq-io/charts/qbrix -f values.yaml
 ```
 
-See [`helm/README.md`](helm/README.md) for routing, secrets, external databases,
-analytics and upgrades.
+See [`helm/README.md`](helm/README.md) for routing, secrets, external databases
+and upgrades.
 
 ## Architecture
 
@@ -100,11 +100,11 @@ analytics and upgrades.
 | **proxy** | REST and gRPC API, auth, experiments, pools, gates; publishes feedback |
 | **motor** | selection: reads model parameters from Redis and picks an arm |
 | **cortex** | learning: consumes feedback from Redis Streams and trains |
-| **trace** | analytics (optional): writes the event streams to ClickHouse |
+| **trace** | analytics: writes the event streams to ClickHouse |
 | **console** | the web app |
 
 Postgres holds experiments, pools and users; Redis holds model parameters and the
-event streams.
+event streams; ClickHouse holds the event history.
 
 ## Editions
 

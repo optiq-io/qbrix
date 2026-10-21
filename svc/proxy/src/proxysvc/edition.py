@@ -10,21 +10,13 @@ from proxysvc.core.entitlements import Entitlements
 from proxysvc.core.entitlements import UnlimitedEntitlements
 from proxysvc.core.invalidation import TenantInvalidation
 
-CORE_FEATURES = frozenset({"rbac"})
-ANALYTICS_FEATURES = frozenset({"insights", "event_log"})
-
-
-def offered_features(settings: ProxySettings) -> frozenset[str]:
-    if settings.analytics_enabled:
-        return CORE_FEATURES | ANALYTICS_FEATURES
-    return CORE_FEATURES
+OFFERED_FEATURES = frozenset({"rbac", "insights", "event_log"})
 
 
 def entitlements(settings: ProxySettings, redis: RedisClient) -> Entitlements:
-    offered = offered_features(settings)
     if not settings.ee_enabled:
-        return UnlimitedEntitlements(offered)
-    return _ee().entitlements(settings, redis, offered)
+        return UnlimitedEntitlements(OFFERED_FEATURES)
+    return _ee().entitlements(settings, redis, OFFERED_FEATURES)
 
 
 def register_components(settings: ProxySettings, bus: TenantInvalidation) -> None:

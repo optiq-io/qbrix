@@ -1,12 +1,12 @@
 ---
 title: Self-hosting
-description: Run qbrix on your own machine or cluster — the Docker Compose quickstart, Kubernetes with Helm, email, analytics, upgrades and backups.
+description: Run qbrix on your own machine or cluster — the Docker Compose quickstart, Kubernetes with Helm, email, upgrades and backups.
 order: 2
 ---
 
 # Self-hosting
 
-qbrix is open source under Apache-2.0, and the version you run yourself is the whole product: the API, selection, learning, the console, feature gates and analytics. A self-hosted install has no usage limits, no seat or experiment caps and no license key.
+qbrix is open source under Apache-2.0, and the version you run yourself is the whole product: the API, selection, learning, the console, feature gates, insights and the event log. A self-hosted install has no usage limits, no seat or experiment caps and no license key.
 
 There are two supported ways to run it. **Docker Compose** puts everything on one machine and is the fastest way to a working install. **Helm** runs it on Kubernetes, where each service scales on its own.
 
@@ -29,7 +29,7 @@ cd qbrix
 bin/selfhost-init
 ```
 
-This copies `.env.example` to `.env` and generates the three secrets qbrix needs: the Postgres password, the key that signs console sessions, and the key that signs selection tokens. Add `--analytics` to turn on insights and the event log, or `--port 9000` to serve on a port other than `8000`.
+This copies `.env.example` to `.env` and generates the three secrets qbrix needs: the Postgres password, the key that signs console sessions, and the key that signs selection tokens. Add `--port 9000` to serve on a port other than `8000`.
 
 ## Start qbrix
 
@@ -115,19 +115,6 @@ To see the emails without a real relay, run [Mailpit](https://mailpit.axllent.or
 
 Invites work in every mode. An admin invites people from **Settings → Members**, and the invite link lets them create an account in that workspace.
 
-## Analytics
-
-Per-experiment insights, the Activity tab and the [Event Log](/docs/console-event-log) need an analytics store. They are off by default, and qbrix runs fully without them: selection, learning, gates and the rest of the console don't depend on analytics.
-
-To turn them on, add two lines to `.env` (or run `bin/selfhost-init --analytics` on a fresh install):
-
-```bash
-COMPOSE_PROFILES=analytics
-ANALYTICS_ENABLED=true
-```
-
-`docker compose up -d` then starts ClickHouse and the service that writes events into it, and the console shows the analytics pages.
-
 ## Kubernetes with Helm
 
 The chart runs the same images on Kubernetes 1.25+ with Helm 3.10+. You need an ingress controller and a default StorageClass for the in-cluster databases.
@@ -138,9 +125,9 @@ curl -fsSL -o values.yaml https://raw.githubusercontent.com/optiq-io/qbrix/main/
 helm install qbrix oci://ghcr.io/optiq-io/charts/qbrix -f values.yaml
 ```
 
-Any release name works. By default the chart runs Postgres and Redis in the cluster and generates the secrets on first install, keeping them across upgrades. The console and the API must share one host: the chart routes `/api` to the API and everything else to the console.
+Any release name works. By default the chart runs Postgres, Redis and ClickHouse in the cluster and generates the secrets on first install, keeping them across upgrades. The console and the API must share one host: the chart routes `/api` to the API and everything else to the console.
 
-The chart's [README](https://github.com/optiq-io/qbrix/tree/main/helm) covers secrets you manage yourself (needed for Argo CD and Flux, which only render), external Postgres and Redis, analytics, email and every value.
+The chart's [README](https://github.com/optiq-io/qbrix/tree/main/helm) covers secrets you manage yourself (needed for Argo CD and Flux, which only render), external Postgres, Redis and ClickHouse, email and every value.
 
 **Scaling.** The API, selection, the console and the analytics writer are stateless and scale horizontally. Learning runs as a single instance: it applies feedback in order, which is what keeps parameter updates correct. Scale it vertically.
 
@@ -189,7 +176,7 @@ docker compose exec redis redis-cli SAVE
 docker compose cp redis:/data/dump.rdb ./redis-$(date +%F).rdb
 ```
 
-With analytics on, ClickHouse holds the event history behind insights and the event log. It is worth backing up if you rely on that history, but qbrix keeps working without it.
+ClickHouse holds the event history behind insights and the event log. It is worth backing up if you rely on that history, but selection and learning don't depend on it.
 
 ## Getting help
 

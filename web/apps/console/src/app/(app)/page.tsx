@@ -51,10 +51,9 @@ const COLUMNS: Column[] = [
   { label: "Allocation", width: 230 },
 ];
 
-// board `APP · OSS · Home (EE disabled)`. every column above except the first
-// is fed by insightsApi, so without it they render "—" five rows deep over an
-// empty allocation rail — four columns measuring nothing. these four need no
-// analytics at all.
+// every column above except the first is fed by insightsApi, so on a tier
+// without insights they render "—" five rows deep over an empty allocation
+// rail — four columns measuring nothing. these four need no insights at all.
 const CORE_COLUMNS: Column[] = [
   { label: "Experiment" },
   { label: "Policy", width: 190 },
@@ -240,7 +239,7 @@ function PulseMetric({
 }
 
 // both column sets open with this cell, unchanged — it is the one part of the
-// row that needs no analytics, and the reason the two share a left edge.
+// row that needs no insights, and the reason the two share a left edge.
 function ExperimentIdentityCell({ exp }: { exp: Experiment }) {
   const armCount = exp.pool?.arms?.length ?? 0;
 

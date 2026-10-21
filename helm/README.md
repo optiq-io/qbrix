@@ -1,6 +1,6 @@
 # qbrix Helm chart
 
-Runs qbrix on Kubernetes: the proxy (API gateway), motor (selection), cortex (training) and the console, with in-cluster Postgres and Redis by default. Analytics (the trace service and ClickHouse) is optional.
+Runs qbrix on Kubernetes: the proxy (API gateway), motor (selection), cortex (training), trace (the analytics writer) and the console, with in-cluster Postgres, Redis and ClickHouse by default.
 
 For a single machine, the Docker Compose quickstart at the repository root is simpler.
 
@@ -48,24 +48,9 @@ Generated values are read back from the cluster, which render-only tools cannot 
 
 ## External databases
 
-For anything beyond a single-node install, point the chart at managed Postgres and Redis. `examples/values-external-services.yaml` shows how; layer it on top of the self-host values. With in-cluster Postgres disabled, a Postgres secret (or password) is required, and rendering fails without one.
+For anything beyond a single-node install, point the chart at managed Postgres, Redis and ClickHouse. `examples/values-external-services.yaml` shows how; layer it on top of the self-host values. With in-cluster Postgres disabled, a Postgres secret (or password) is required, and rendering fails without one.
 
 Redis is not a cache here: it holds what every experiment has learned, and nothing else has a copy. Your own Redis must run `maxmemory-policy noeviction` with `appendonly yes` and `appendfsync everysec`, the settings the in-cluster one uses, and needs at least 1 GB of `maxmemory`, which the event streams are sized to fit. An eviction policy silently resets learning and takes experiments offline. When Redis is full, writes fail loudly instead, learning pauses, and selection keeps working.
-
-## Analytics
-
-Insights and the event log need the trace service and ClickHouse:
-
-```yaml
-global:
-  analytics:
-    enabled: true
-trace:
-  enabled: true
-infrastructure:
-  clickhouse:
-    enabled: true   # or point global.clickhouse at your own
-```
 
 ## Email
 
@@ -79,13 +64,13 @@ Without an email provider, new accounts are verified automatically, and reset an
 | `global.imageTag` | Image tag for every service (per service: `<svc>.image.tag`) | chart `appVersion` |
 | `global.postgres.host` / `port` / `database` | Postgres connection; an empty host is the in-cluster service | `<release>-postgres` / `5432` / `qbrix` |
 | `global.redis.host` / `port` | Redis connection; an empty host is the in-cluster service | `<release>-redis` / `6379` |
-| `global.analytics.enabled` | Insights and event log | `false` |
+| `global.clickhouse.host` / `port` / `database` | ClickHouse connection, behind insights and the event log; an empty host is the in-cluster service | `<release>-clickhouse` / `8123` / `qbrix` |
 | `global.logging.format` / `level` | `json` or `text` / log level | `json` / `WARNING` |
 | `infrastructure.postgres.enabled` | In-cluster Postgres | `true` |
 | `infrastructure.redis.enabled` | In-cluster Redis | `true` |
 | `infrastructure.redis.maxmemory` | Redis memory ceiling; it never evicts, so keep it at 1gb or more and the memory limit above it | `1gb` |
-| `infrastructure.clickhouse.enabled` | In-cluster ClickHouse | `false` |
-| `trace.enabled` | Trace service (analytics) | `false` |
+| `infrastructure.clickhouse.enabled` | In-cluster ClickHouse | `true` |
+| `trace.enabled` | Trace service, which writes the event streams to ClickHouse | `true` |
 | `proxy.config.signupMode` | `first-user`, `invite-only` or `open` | `first-user` |
 | `proxy.config.consoleUrl` | Public console URL for email links | the proxy ingress host |
 | `proxy.config.corsOrigins` | Extra credentialed browser origins, comma separated | `""` |

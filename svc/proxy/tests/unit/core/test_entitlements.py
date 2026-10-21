@@ -45,26 +45,12 @@ class TestUnlimited:
         assert await entitlements.usage("t-1") == {}
 
 
-class TestOfferedFeatures:
-    def test_role_changes_are_always_offered(self):
-        offered = edition.offered_features(ProxySettings(analytics_enabled=False))
-
-        assert offered == {"rbac"}
-
-    def test_analytics_offers_insights_and_the_event_log(self):
-        offered = edition.offered_features(ProxySettings(analytics_enabled=True))
-
-        assert offered == {"rbac", "insights", "event_log"}
-
-
 class TestEdition:
     def test_oss_is_unlimited_over_what_is_offered(self):
-        settings = ProxySettings(ee_enabled=False, analytics_enabled=True)
-
-        entitlements = edition.entitlements(settings, None)
+        entitlements = edition.entitlements(ProxySettings(ee_enabled=False), None)
 
         assert entitlements.edition == "oss"
-        assert entitlements.features("free") == edition.offered_features(settings)
+        assert entitlements.features("free") == {"rbac", "insights", "event_log"}
 
     def test_cloud_without_the_plugin_fails_loudly(self, monkeypatch):
         monkeypatch.setitem(sys.modules, "proxysvc.ee", None)
@@ -88,7 +74,7 @@ class TestEdition:
             [sys.executable, "-c", probe],
             capture_output=True,
             text=True,
-            env={"PROXY_EE_ENABLED": "false", "PROXY_ANALYTICS_ENABLED": "true"},
+            env={"PROXY_EE_ENABLED": "false"},
         )
 
         assert result.returncode == 0, result.stderr

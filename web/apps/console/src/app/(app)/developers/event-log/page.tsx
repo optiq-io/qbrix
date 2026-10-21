@@ -11,7 +11,7 @@ import { queryKeys } from "@/lib/api/query-keys";
 import { usePageReady } from "@/lib/api/page-ready";
 import { events as eventsApi } from "@/lib/api/events";
 import { experiments as experimentsApi } from "@/lib/api/experiments";
-import { useEntitlements, useFeatureRoute } from "@/lib/entitlements";
+import { useEntitlements } from "@/lib/entitlements";
 import { FeatureGate } from "@/lib/edition";
 import { buildNameIndex, streamDot } from "@/lib/events/derive";
 import { EVENT_COLUMNS, EventRow } from "./row";
@@ -87,7 +87,6 @@ export default function EventLogPage() {
 
 function EventLogContent() {
   const { hasEvents } = useEntitlements();
-  useFeatureRoute("event_log");
 
   const [category, setCategory] = useState<Category>("all");
   const [range, setRange] = useState(RANGES[3]);

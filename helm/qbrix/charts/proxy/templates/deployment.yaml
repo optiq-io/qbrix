@@ -112,7 +112,7 @@ spec:
                   name: {{ .Values.config.stripe.existingSecret }}
                   key: {{ .Values.config.stripe.existingWebhookSecretKey }}
             {{- end }}
-            {{- if and (.Values.global.analytics.enabled) (or .Values.global.clickhouse.password .Values.global.clickhouse.existingSecret) }}
+            {{- if or .Values.global.clickhouse.password .Values.global.clickhouse.existingSecret }}
             - name: PROXY_CLICKHOUSE_PASSWORD
               valueFrom:
                 secretKeyRef:

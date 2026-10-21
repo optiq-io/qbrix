@@ -1,4 +1,4 @@
-# managed postgres, redis and (with analytics) clickhouse instead of the
+# managed postgres, redis and clickhouse instead of the
 # in-cluster ones. layer it on top of values-selfhost.yaml (saved as
 # values.yaml by the self-hosting guide):
 #
@@ -9,6 +9,7 @@
 #   kubectl create secret generic qbrix-postgres \
 #     --from-literal=username=qbrix --from-literal=password=...
 #   kubectl create secret generic qbrix-redis --from-literal=password=...
+#   kubectl create secret generic qbrix-clickhouse --from-literal=password=...
 #   kubectl create secret generic qbrix-jwt --from-literal=jwt-secret=$(openssl rand -hex 32)
 #   kubectl create secret generic qbrix-token --from-literal=token-secret=$(openssl rand -hex 32)
 #
@@ -25,12 +26,12 @@ global:
     host: "qbrix.xxxxxx.cache.amazonaws.com"
     port: 6379
     existingSecret: "qbrix-redis"
-  # clickhouse:
-  #   host: "clickhouse.example.com"
-  #   port: 8123
-  #   user: "qbrix"
-  #   database: "qbrix"
-  #   existingSecret: "qbrix-clickhouse"
+  clickhouse:
+    host: "clickhouse.example.com"
+    port: 8123
+    user: "qbrix"
+    database: "qbrix"
+    existingSecret: "qbrix-clickhouse"
 
 infrastructure:
   postgres:

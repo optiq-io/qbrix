@@ -1,6 +1,6 @@
-# a single-cluster install behind ingress-nginx: in-cluster postgres and redis,
-# generated secrets, console and api on one host. the self-hosting guide saves
-# this file as values.yaml:
+# a single-cluster install behind ingress-nginx: in-cluster postgres, redis and
+# clickhouse, generated secrets, console and api on one host. the self-hosting
+# guide saves this file as values.yaml:
 #
 #   helm install qbrix oci://ghcr.io/optiq-io/charts/qbrix -f values.yaml
 #
@@ -63,17 +63,9 @@ motor:
   podDisruptionBudget:
     enabled: false
 
-# insights and the event log: uncomment to deploy trace and clickhouse
-# global:
-#   analytics:
-#     enabled: true
-# trace:
-#   enabled: true
-#   replicaCount: 1
-#   autoscaling:
-#     enabled: false
-#   podDisruptionBudget:
-#     enabled: false
-# infrastructure:
-#   clickhouse:
-#     enabled: true
+trace:
+  replicaCount: 1
+  autoscaling:
+    enabled: false
+  podDisruptionBudget:
+    enabled: false

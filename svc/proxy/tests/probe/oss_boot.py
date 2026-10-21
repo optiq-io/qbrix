@@ -30,9 +30,9 @@ from grpc_reflection.v1alpha import reflection_pb2_grpc
 redis.asyncio.from_url = lambda url, **kwargs: FakeRedis(**kwargs)
 
 # the optional dependencies whose presence tells the edition apart: the cloud
-# plugin and stripe belong to PROXY_EE_ENABLED, clickhouse to the analytics
-# switch. each must be absent unless its switch asked for it.
-OPTIONAL = ("proxysvc.ee", "stripe", "clickhouse_connect")
+# plugin and stripe belong to PROXY_EE_ENABLED, and must be absent unless it
+# asked for them.
+OPTIONAL = ("proxysvc.ee", "stripe")
 
 
 async def reflected_services(server: grpc.aio.Server, port: int) -> list[str]:

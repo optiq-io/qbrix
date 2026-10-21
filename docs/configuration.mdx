@@ -1,6 +1,6 @@
 ---
 title: Configuration
-description: Every environment variable qbrix reads, per service — secrets, databases, signup, email, networking, analytics, tuning and logging.
+description: Every environment variable qbrix reads, per service — secrets, databases, signup, email, networking, tuning and logging.
 order: 31
 ---
 
@@ -72,12 +72,13 @@ Set all three to long random values. `bin/selfhost-init` and the Helm chart gene
 | `PROXY_TRUSTED_PROXY_HOPS` | `1` | Reverse proxies in front of the API that append to `X-Forwarded-For`. The login rate limit keys on the client address this many hops from the right |
 | `PROXY_TRUST_CLOUDFRONT_HEADER` | `false` | Key the login rate limit on `CloudFront-Viewer-Address`. Only safe when CloudFront is the sole way in and its origin request policy adds that header |
 
-### Analytics
+### ClickHouse
+
+Insights and the event log read from ClickHouse, which the analytics writer fills.
 
 | Variable | Default | Description |
 |---|---|---|
-| `PROXY_ANALYTICS_ENABLED` | `false` | Serve insights and the event log, and publish the events they are built from. Needs ClickHouse and the analytics writer |
-| `PROXY_CLICKHOUSE_HOST` / `_PORT` | `localhost` / `8123` | ClickHouse HTTP interface |
+| `PROXY_CLICKHOUSE_HOST` / `_PORT` | required / `8123` | ClickHouse HTTP interface. The API refuses to start without a host; Compose and Helm set it for you |
 | `PROXY_CLICKHOUSE_USER` / `_PASSWORD` / `_DATABASE` | `default` / unset / `qbrix` | ClickHouse credentials and database |
 
 ### Environment
@@ -115,7 +116,7 @@ Run exactly one learning service. It applies feedback in order, and two instance
 
 ## Analytics writer (`TRACE_`)
 
-Only runs with analytics on. It scales horizontally; give each replica its own `TRACE_CONSUMER_NAME`.
+Writes every selection, outcome and configuration change to ClickHouse. It scales horizontally; give each replica its own `TRACE_CONSUMER_NAME`.
 
 | Variable | Default | Description |
 |---|---|---|

@@ -171,24 +171,23 @@ class AgentService:
                 "is_default": True,
             }
 
-            if self._events.selection_enabled:
-                self._events.emit_selection(
-                    SelectionEvent(
-                        tenant_id=tenant_id,
-                        experiment_id=experiment_id,
-                        request_id=token,
-                        event_id=str(uuid.uuid4()),
-                        arm_id=committed_arm.id,
-                        arm_name=committed_arm.name,
-                        arm_index=committed_arm.index,
-                        is_default=True,
-                        context_id=context_id,
-                        context_vector=context_vector,
-                        context_metadata=context_metadata,
-                        timestamp_ms=int(time.time() * 1000),
-                        policy="gate",
-                    )
+            self._events.emit_selection(
+                SelectionEvent(
+                    tenant_id=tenant_id,
+                    experiment_id=experiment_id,
+                    request_id=token,
+                    event_id=str(uuid.uuid4()),
+                    arm_id=committed_arm.id,
+                    arm_name=committed_arm.name,
+                    arm_index=committed_arm.index,
+                    is_default=True,
+                    context_id=context_id,
+                    context_vector=context_vector,
+                    context_metadata=context_metadata,
+                    timestamp_ms=int(time.time() * 1000),
+                    policy="gate",
                 )
+            )
 
             return result
 
@@ -229,29 +228,28 @@ class AgentService:
         response["request_id"] = token
         response["is_default"] = False
 
-        if self._events.selection_enabled:
-            # for meta-bandit, publish selection under the learner experiment id
-            # so insights queries (which resolve to learner ids) find the data
-            selection_experiment_id = (
-                learner_experiment_id if learner_experiment_id else experiment_id
+        # for meta-bandit, publish selection under the learner experiment id
+        # so insights queries (which resolve to learner ids) find the data
+        selection_experiment_id = (
+            learner_experiment_id if learner_experiment_id else experiment_id
+        )
+        self._events.emit_selection(
+            SelectionEvent(
+                tenant_id=tenant_id,
+                experiment_id=selection_experiment_id,
+                request_id=token,
+                event_id=str(uuid.uuid4()),
+                arm_id=response["arm"]["id"],
+                arm_name=response["arm"]["name"],
+                arm_index=response["arm"]["index"],
+                is_default=False,
+                context_id=context_id,
+                context_vector=context_vector,
+                context_metadata=context_metadata,
+                timestamp_ms=int(time.time() * 1000),
+                policy=response["policy"],
             )
-            self._events.emit_selection(
-                SelectionEvent(
-                    tenant_id=tenant_id,
-                    experiment_id=selection_experiment_id,
-                    request_id=token,
-                    event_id=str(uuid.uuid4()),
-                    arm_id=response["arm"]["id"],
-                    arm_name=response["arm"]["name"],
-                    arm_index=response["arm"]["index"],
-                    is_default=False,
-                    context_id=context_id,
-                    context_vector=context_vector,
-                    context_metadata=context_metadata,
-                    timestamp_ms=int(time.time() * 1000),
-                    policy=response["policy"],
-                )
-            )
+        )
 
         return response
 
@@ -272,24 +270,23 @@ class AgentService:
         arm = await self._control_arm(tenant_id, experiment_id, state)
         result = {"arm": arm, "request_id": None, "is_default": True}
 
-        if self._events.selection_enabled:
-            self._events.emit_selection(
-                SelectionEvent(
-                    tenant_id=tenant_id,
-                    experiment_id=experiment_id,
-                    request_id="",
-                    event_id=str(uuid.uuid4()),
-                    arm_id=arm["id"],
-                    arm_name=arm["name"],
-                    arm_index=arm["index"],
-                    is_default=True,
-                    context_id=context_id,
-                    context_vector=context_vector,
-                    context_metadata=context_metadata,
-                    timestamp_ms=int(time.time() * 1000),
-                    policy="paused",
-                )
+        self._events.emit_selection(
+            SelectionEvent(
+                tenant_id=tenant_id,
+                experiment_id=experiment_id,
+                request_id="",
+                event_id=str(uuid.uuid4()),
+                arm_id=arm["id"],
+                arm_name=arm["name"],
+                arm_index=arm["index"],
+                is_default=True,
+                context_id=context_id,
+                context_vector=context_vector,
+                context_metadata=context_metadata,
+                timestamp_ms=int(time.time() * 1000),
+                policy="paused",
             )
+        )
 
         return result
 

@@ -6,9 +6,8 @@ import { PanelLeft, Settings } from "lucide-react";
 import { QbrixBrick } from "@qbrix/ui/components/logo";
 import { SidebarItem } from "@qbrix/ui/components/sidebar-item";
 import { cn } from "@qbrix/ui/lib/utils";
-import { useEntitlements } from "@/lib/entitlements";
 import { routes } from "@/config/routes";
-import { visibleNavItems, isNavActive } from "./nav-items";
+import { navItems, isNavActive } from "./nav-items";
 import { useSidebar } from "./sidebar-context";
 import { SearchRailButton } from "./search-trigger";
 import { ServiceHealthDot } from "./service-health";
@@ -19,9 +18,7 @@ import { UserPopover } from "./user-popover";
 // expanded panel takes its place entirely rather than sitting beside it.
 export function Rail() {
   const pathname = usePathname();
-  const { gate } = useEntitlements();
   const { expanded, toggle } = useSidebar();
-  const items = visibleNavItems(gate("event_log"));
   const settingsActive = isNavActive(pathname, routes.settings);
 
   return (
@@ -55,7 +52,7 @@ export function Rail() {
 
       <SearchRailButton />
 
-      {items.map((item) => (
+      {navItems.map((item) => (
         <Link key={item.href} href={item.href} aria-label={item.label}>
           <SidebarItem
             icon={item.icon}

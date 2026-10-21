@@ -94,7 +94,7 @@ export default function ExperimentWorkspaceLayout({
   const toast = useToast();
   const toastApiError = useApiErrorToast();
   const queryClient = useQueryClient();
-  const { gate, hasInsights } = useEntitlements();
+  const { hasInsights } = useEntitlements();
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const reset = useResetExperiment(id);
@@ -170,22 +170,16 @@ export default function ExperimentWorkspaceLayout({
     },
   });
 
-  // board order: Insights sits before Activity.
-  //
-  // a *locked* tab is still listed — it leads to the UpgradeCard, which is the
-  // only way a growth tenant learns Activity exists. an *absent* one is gone:
-  // an OSS build has no tier to sell.
+  // board order: Insights sits before Activity. a *locked* tab is still listed:
+  // it leads to the UpgradeCard, which is the only way a growth tenant learns
+  // Activity exists.
   const tabs: WorkspaceTabItem[] = [
     { label: "Overview", href: routes.experimentOverview(id), exact: true },
     { label: "Arms", href: routes.experimentArms(id) },
     { label: "Policy", href: routes.experimentPolicy(id) },
     { label: "Gate", href: routes.experimentGate(id) },
-    ...(gate("insights") !== "absent"
-      ? [{ label: "Insights", href: routes.experimentInsights(id) }]
-      : []),
-    ...(gate("event_log") !== "absent"
-      ? [{ label: "Activity", href: routes.experimentActivity(id) }]
-      : []),
+    { label: "Insights", href: routes.experimentInsights(id) },
+    { label: "Activity", href: routes.experimentActivity(id) },
   ];
 
   if (expError || (!expLoading && !experiment)) {

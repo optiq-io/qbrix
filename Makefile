@@ -6,7 +6,7 @@ endif
 COMPOSE_DEV := docker compose -f docker-compose.dev.yml
 
 .PHONY: help proto install test lint fmt clean \
-        infra infra-down infra-ee infra-ee-down \
+        infra infra-down \
         dev dev-proxy dev-next dev-motor dev-cortex dev-trace dev-meter \
         docker docker-build docker-build-no-cache docker-up docker-down docker-logs docker-ps \
         docker-ee docker-ee-build docker-ee-build-no-cache docker-ee-up docker-ee-down docker-ee-logs \
@@ -24,16 +24,14 @@ help:
 	@echo "  make proto                Generate protobuf stubs"
 	@echo ""
 	@echo "Development:"
-	@echo "  make infra                Start infrastructure (postgres + redis)"
+	@echo "  make infra                Start infrastructure (postgres + redis + clickhouse)"
 	@echo "  make infra-down           Stop infrastructure"
-	@echo "  make infra-ee             Start infrastructure with analytics (postgres + redis + clickhouse)"
-	@echo "  make infra-ee-down        Stop infrastructure with analytics"
 	@echo "  make dev                  Start all services locally (requires infra)"
 	@echo "  make dev-proxy            Start proxy service only"
 	@echo "  make dev-next             Start proxy service with qbrix next switched on"
 	@echo "  make dev-motor            Start motor service only"
 	@echo "  make dev-cortex           Start cortex service only"
-	@echo "  make dev-trace            Start trace service only (analytics)"
+	@echo "  make dev-trace            Start trace service only"
 	@echo "  make dev-meter            Start meter service only (EE)"
 	@echo ""
 	@echo "Docker (contributor stack, built from source: docker-compose.dev.yml):"
@@ -44,12 +42,12 @@ help:
 	@echo "  make docker-logs          Tail logs from all containers"
 	@echo "  make docker-ps            Show running containers"
 	@echo ""
-	@echo "Docker cloud edition (with analytics: trace + clickhouse, and meter):"
+	@echo "Docker cloud edition (plus meter):"
 	@echo "  make docker-ee            Build and start all containers"
 	@echo "  make docker-ee-build      Build all containers"
 	@echo "  make docker-ee-up         Start all containers"
 	@echo "  make docker-ee-down       Stop all containers"
-	@echo "  make docker-ee-logs       Tail logs from trace and clickhouse"
+	@echo "  make docker-ee-logs       Tail logs from meter"
 	@echo ""
 	@echo "Testing & Quality:"
 	@echo "  make test                 Run all tests"
@@ -63,7 +61,7 @@ help:
 	@echo "Database:"
 	@echo "  make migrate              Apply alembic migrations to localhost postgres"
 	@echo "  make db-reset             Reset postgres database and re-apply migrations"
-	@echo "  make clickhouse-reset     Reset clickhouse database (analytics)"
+	@echo "  make clickhouse-reset     Reset clickhouse database"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  make clean                Clean generated files and caches"
@@ -83,27 +81,18 @@ proto:
 # ============================================================================
 
 infra:
-	$(COMPOSE_DEV) up -d postgres redis
+	$(COMPOSE_DEV) up -d postgres redis clickhouse
 	@echo "Waiting for services to be healthy..."
-	@sleep 3
+	@sleep 5
 	@$(COMPOSE_DEV) ps
 
 infra-down:
-	$(COMPOSE_DEV) down postgres redis
-
-infra-ee:
-	$(COMPOSE_DEV) --profile analytics up -d postgres redis clickhouse
-	@echo "Waiting for services to be healthy..."
-	@sleep 5
-	@$(COMPOSE_DEV) --profile analytics ps
-
-infra-ee-down:
-	$(COMPOSE_DEV) --profile analytics down postgres redis clickhouse
+	$(COMPOSE_DEV) down postgres redis clickhouse
 
 dev: infra migrate
 	@echo "Starting all services..."
 	@set -m; \
-	PROXY_POSTGRES_HOST=localhost PROXY_REDIS_HOST=localhost PROXY_MOTOR_HOST=localhost PROXY_RUNENV=dev \
+	PROXY_POSTGRES_HOST=localhost PROXY_REDIS_HOST=localhost PROXY_MOTOR_HOST=localhost PROXY_CLICKHOUSE_HOST=localhost PROXY_RUNENV=dev \
 	uv run python -m proxysvc.cli serve & \
 	P1=$$!; \
 	MOTOR_REDIS_HOST=localhost \
@@ -112,11 +101,14 @@ dev: infra migrate
 	CORTEX_REDIS_HOST=localhost \
 	uv run python -m cortexsvc.cli & \
 	P3=$$!; \
-	trap "echo 'Shutting down...'; kill $$P1 $$P2 $$P3; wait" INT TERM EXIT; \
+	TRACE_REDIS_HOST=localhost TRACE_CLICKHOUSE_HOST=localhost \
+	uv run python -m tracesvc.cli & \
+	P4=$$!; \
+	trap "echo 'Shutting down...'; kill $$P1 $$P2 $$P3 $$P4; wait" INT TERM EXIT; \
 	wait
 
 dev-proxy:
-	PROXY_POSTGRES_HOST=localhost PROXY_REDIS_HOST=localhost PROXY_MOTOR_HOST=localhost PROXY_RUNENV=dev \
+	PROXY_POSTGRES_HOST=localhost PROXY_REDIS_HOST=localhost PROXY_MOTOR_HOST=localhost PROXY_CLICKHOUSE_HOST=localhost PROXY_RUNENV=dev \
 	uv run python -m proxysvc.cli serve
 
 dev-next:
@@ -164,26 +156,26 @@ docker-ps:
 	$(COMPOSE_DEV) ps
 
 # ============================================================================
-# Docker Compose EE (with trace + clickhouse)
+# Docker Compose EE (cloud edition: plus meter)
 # ============================================================================
 
 docker-ee: docker-ee-build docker-ee-up
 
 docker-ee-build:
-	QBRIX_EE_ENABLED=true QBRIX_ANALYTICS_ENABLED=true $(COMPOSE_DEV) --profile analytics --profile cloud build
+	QBRIX_EE_ENABLED=true $(COMPOSE_DEV) --profile cloud build
 
 docker-ee-build-no-cache:
-	QBRIX_EE_ENABLED=true QBRIX_ANALYTICS_ENABLED=true $(COMPOSE_DEV) --profile analytics --profile cloud build --no-cache
+	QBRIX_EE_ENABLED=true $(COMPOSE_DEV) --profile cloud build --no-cache
 
 docker-ee-up:
-	QBRIX_EE_ENABLED=true QBRIX_ANALYTICS_ENABLED=true $(COMPOSE_DEV) --profile analytics --profile cloud up -d
-	@$(COMPOSE_DEV) --profile analytics --profile cloud ps
+	QBRIX_EE_ENABLED=true $(COMPOSE_DEV) --profile cloud up -d
+	@$(COMPOSE_DEV) --profile cloud ps
 
 docker-ee-down:
-	$(COMPOSE_DEV) --profile analytics --profile cloud down
+	$(COMPOSE_DEV) --profile cloud down
 
 docker-ee-logs:
-	$(COMPOSE_DEV) --profile analytics logs -f trace clickhouse
+	$(COMPOSE_DEV) --profile cloud logs -f meter
 
 # ============================================================================
 # Testing & Quality
@@ -212,9 +204,9 @@ db-reset:
 	@$(MAKE) migrate
 
 clickhouse-reset:
-	$(COMPOSE_DEV) --profile analytics down clickhouse
+	$(COMPOSE_DEV) down clickhouse
 	docker volume rm qbrix-dev_qbrix_clickhouse_data 2>/dev/null || true
-	$(COMPOSE_DEV) --profile analytics up -d clickhouse
+	$(COMPOSE_DEV) up -d clickhouse
 	@echo "Waiting for clickhouse to be ready..."
 	@sleep 5
 

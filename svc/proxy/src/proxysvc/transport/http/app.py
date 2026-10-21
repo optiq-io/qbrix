@@ -8,6 +8,13 @@ from fastapi.responses import JSONResponse
 from qbrixlog import get_logger
 
 from proxysvc.transport.http.router.agent import router as agent_router
+from proxysvc.transport.http.router.analytics.event import router as event_router
+from proxysvc.transport.http.router.analytics.insight.experiment import (
+    router as insight_router,
+)
+from proxysvc.transport.http.router.analytics.insight.tenant import (
+    router as workspace_insight_router,
+)
 from proxysvc.transport.http.router.experiment import router as experiment_router
 from proxysvc.transport.http.router.policy import router as policy_router
 from proxysvc.transport.http.router.pool import router as pool_router
@@ -159,19 +166,9 @@ app.include_router(policy_router, prefix="/api/v1")
 app.include_router(gate_router, prefix="/api/v1")
 app.include_router(agent_router, prefix="/api/v1")
 app.include_router(runtime_router, prefix="/api/v1")
-
-if settings.analytics_enabled:
-    from proxysvc.transport.http.router.analytics.event import router as event_router
-    from proxysvc.transport.http.router.analytics.insight.experiment import (
-        router as insight_router,
-    )
-    from proxysvc.transport.http.router.analytics.insight.tenant import (
-        router as workspace_insight_router,
-    )
-
-    for analytics_router in (event_router, insight_router, workspace_insight_router):
-        app.include_router(analytics_router, prefix="/api/v1")
-    logger.info("analytics endpoints registered")
+app.include_router(event_router, prefix="/api/v1")
+app.include_router(insight_router, prefix="/api/v1")
+app.include_router(workspace_insight_router, prefix="/api/v1")
 
 edition.register_routes(app, settings)
 next_routes(app, settings)

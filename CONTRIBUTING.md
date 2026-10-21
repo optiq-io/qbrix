@@ -5,7 +5,7 @@ Thanks for your interest. Bug reports, fixes, docs and new policies are all welc
 ## Before you start
 
 - **Bugs:** open an issue with steps to reproduce, what you expected, and what
-  happened. Include versions and whether analytics is on.
+  happened. Include versions.
 - **Features and larger changes:** open an issue first, so we can agree on the
   approach before you spend time on it.
 - **Security issues:** don't open an issue. Follow [`SECURITY.md`](SECURITY.md).
@@ -19,7 +19,7 @@ console, Node.js 22 with [pnpm](https://pnpm.io).
 make install                  # uv sync --all-packages
 uv run pre-commit install     # black on every commit
 
-make dev                      # postgres + redis in docker, migrations, then proxy, motor and cortex locally
+make dev                      # postgres, redis and clickhouse in docker, migrations, then every service locally
 ```
 
 `make dev` runs the proxy with `PROXY_RUNENV=dev`, which bypasses auth with a seeded
@@ -31,7 +31,7 @@ To run the whole stack in containers, built from your checkout:
 
 ```bash
 make docker                   # core services and the console
-make docker-ee                # plus analytics (trace, clickhouse) and the cloud edition
+make docker-ee                # plus the cloud edition (meter)
 ```
 
 Settings for that stack are in `.env.dev.example`.

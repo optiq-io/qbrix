@@ -79,12 +79,9 @@ async def service(
     svc._redis = mock_redis
     svc._motor_client = mock_motor_client
     svc._cortex_client = mock_cortex_client
-    # event egress: emitter with mock stream publishers. selection is disabled
-    # by default (mirrors the previous _selection_publisher = None); tests that
-    # exercise selection enable it by setting svc._events._selection.
-    events = EventEmitter(RedisSettings(), selection=True, audit=True)
+    events = EventEmitter(RedisSettings())
     events._feedback = mock_feedback_publisher
-    events._selection = None
+    events._selection = AsyncMock()
     events._audit = AsyncMock()
     svc._events = events
     # gate service with mocked cache
@@ -126,7 +123,10 @@ class TestProxyServiceSelect:
     async def test_gate_none_routes_to_motor(self, service):
         service._gate_service.evaluate = AsyncMock(return_value=None)
         service._motor_client.select = AsyncMock(
-            return_value={"arm": {"id": "arm-2", "name": "variant", "index": 1}}
+            return_value={
+                "arm": {"id": "arm-2", "name": "variant", "index": 1},
+                "policy": "BetaTSPolicy",
+            }
         )
 
         result = await service.select(
@@ -166,7 +166,10 @@ class TestProxyServiceSelect:
     async def test_motor_result_has_valid_token(self, service):
         service._gate_service.evaluate = AsyncMock(return_value=None)
         service._motor_client.select = AsyncMock(
-            return_value={"arm": {"id": "arm-1", "name": "control", "index": 0}}
+            return_value={
+                "arm": {"id": "arm-1", "name": "control", "index": 0},
+                "policy": "BetaTSPolicy",
+            }
         )
 
         result = await service.select(
@@ -209,23 +212,6 @@ class TestProxyServiceSelect:
         published = service._events._selection.publish.call_args.args[0]
         assert published.policy == "BetaTSPolicy"
         service._redis.get_experiment.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_no_publisher_no_publish(self, service):
-        service._events._selection = None
-        service._gate_service.evaluate = AsyncMock(return_value=None)
-        service._motor_client.select = AsyncMock(
-            return_value={"arm": {"id": "arm-1", "name": "control", "index": 0}}
-        )
-
-        # should not raise
-        await service.select(
-            tenant_id="t-1",
-            experiment_id="exp-1",
-            context_id="ctx-1",
-            context_vector=[],
-            context_metadata={},
-        )
 
     @pytest.mark.asyncio
     async def test_paused_serves_pool_arm_zero_no_token(self, service):
@@ -293,7 +279,10 @@ class TestProxyServiceSelect:
         )
         service._gate_service.evaluate = AsyncMock(return_value=None)
         service._motor_client.select = AsyncMock(
-            return_value={"arm": {"id": "arm-2", "name": "variant", "index": 1}}
+            return_value={
+                "arm": {"id": "arm-2", "name": "variant", "index": 1},
+                "policy": "BetaTSPolicy",
+            }
         )
 
         result = await service.select(

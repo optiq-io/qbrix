@@ -66,7 +66,7 @@ function Stat({
   );
 }
 
-// ── variants, without analytics ─────────────────────────────────────────────
+// ── variants, for a tier without insights ───────────────────────────────────
 
 // hoisted out of the page body so the loading state can draw the same bar —
 // the column widths are half of what makes a skeleton line up with its content.
@@ -79,10 +79,10 @@ const ALLOCATION_COLUMNS: Column[] = [
   { label: "Observed range", width: 96, align: "right" },
 ];
 
-// board `APP · OSS · Experiment / Overview (EE disabled)`. every column of the
-// allocation table is fed by the insight endpoints, so with no analytics store
-// the left column renders nothing at all. these four fields are on the Arm rows
-// Postgres already returns with the experiment — no extra request.
+// every column of the allocation table is fed by the insight endpoints, so on a
+// tier without insights the left column would render nothing at all. these four
+// fields are on the Arm rows Postgres already returns with the experiment — no
+// extra request.
 const VARIANT_COLUMNS: Column[] = [
   { label: "Variant" },
   { label: "Index", width: 96 },
@@ -299,10 +299,8 @@ function OverviewSkeleton({ hasInsights }: { hasInsights: boolean }) {
 export default function ExperimentOverviewPage() {
   const params = useParams();
   const id = params.id as string;
-  // both closed states show the variants table, but only one of them explains
-  // itself with the note and only the other carries the upgrade card
-  const { hasInsights, gate: entitlementGate } = useEntitlements();
-  const insightGate = entitlementGate("insights");
+  // a locked tenant sees the variants table with the upgrade card under it
+  const { hasInsights } = useEntitlements();
 
   const experimentQuery = useQuery({
     queryKey: queryKeys.experiments.detail(id),
@@ -552,19 +550,6 @@ export default function ExperimentOverviewPage() {
                 poolName={experiment?.pool?.name}
               />
 
-              {/* absent only. this explains an OSS *deployment*; a locked tenant's
-                  answer is their plan tier, and the card below already says so. */}
-              {insightGate === "absent" && (
-                <p className="px-7 py-4 text-[12.5px] leading-[1.5] text-text-faint">
-                  Selection counts, reward rates and allocation come from the
-                  analytics store, which the enterprise trace service writes.
-                  Without it this table shows only what Postgres holds: the
-                  pool&apos;s arms.
-                </p>
-              )}
-
-              {/* null when absent — the board draws no OSS upgrade prompt because
-                  there is nothing to upgrade to */}
               <FeatureGate surface="experiment.overview" />
             </>
           )}
