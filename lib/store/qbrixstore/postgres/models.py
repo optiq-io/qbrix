@@ -2,6 +2,7 @@ from datetime import datetime, time, timezone
 from uuid import uuid4
 from typing import List, Optional
 from sqlalchemy import String, Boolean, Float, Integer, ForeignKey, JSON, DateTime, Time
+from sqlalchemy import Text
 from sqlalchemy import Index, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -55,6 +56,9 @@ class Tenant(Base):
     )
     invites: Mapped[list["Invite"]] = relationship(
         "Invite", back_populates="tenant", cascade="all, delete-orphan"
+    )
+    changes: Mapped[list["Change"]] = relationship(
+        "Change", back_populates="tenant", cascade="all, delete-orphan"
     )
 
 
@@ -398,3 +402,55 @@ class Invoice(Base):
     )
 
     tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="invoices")
+
+
+class Change(Base):
+    """one write by one actor: what it touched, before and after, and what the
+    target had learned at that moment."""
+
+    __tablename__ = "changes"
+    __table_args__ = (
+        # an object's history, newest first
+        Index(
+            "ix_changes_tenant_id_target_created_at",
+            "tenant_id",
+            "target_type",
+            "target_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: uuid4().hex
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("tenants.id"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    # no foreign key: history outlives the user who made it
+    actor_kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    actor_user_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    connection_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    client_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    api_key_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence: Mapped[dict | None] = mapped_column(
+        JSON(none_as_null=True), nullable=True
+    )
+    before: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
+    after: Mapped[dict | None] = mapped_column(JSON(none_as_null=True), nullable=True)
+    learning: Mapped[dict | None] = mapped_column(
+        JSON(none_as_null=True), nullable=True
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="applied")
+    undoes_id: Mapped[str | None] = mapped_column(
+        String(32), ForeignKey("changes.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="changes")

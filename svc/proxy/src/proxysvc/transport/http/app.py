@@ -29,6 +29,7 @@ from proxysvc.transport.http.cors import ScopedCORSMiddleware
 from proxysvc.transport.http.cors import AGENT_CORS_POLICY
 from proxysvc.transport.http.cors import AGENT_CORS_PREFIXES
 from proxysvc.transport.http.cors import DEFAULT_CORS_POLICY
+from proxysvc.transport.http.request_id import RequestIdMiddleware
 from proxysvc.transport.http.auth.seed import seed_dev_user
 from proxysvc import edition
 from proxysvc.config import settings
@@ -158,6 +159,8 @@ app.add_middleware(
     scoped_policy=AGENT_CORS_POLICY,
     default_policy=DEFAULT_CORS_POLICY,
 )
+
+app.add_middleware(RequestIdMiddleware)
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(experiment_router, prefix="/api/v1")

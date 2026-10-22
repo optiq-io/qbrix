@@ -5,6 +5,9 @@ from typing import List
 from fastapi import Request
 from fastapi import Depends
 
+from qbrixlog.context import get_request_id
+
+from proxysvc.core.actor import Actor
 from proxysvc.core.entitlements import FEATURES
 from proxysvc.mod.auth import operator
 from proxysvc.transport.http.exception import UnauthorizedException
@@ -57,6 +60,18 @@ async def get_current_tenant_id(request: Request) -> str:
 
     raise UnauthorizedException(
         "tenant context not available - ensure authentication is configured"
+    )
+
+
+async def get_actor(
+    request: Request, user_id: str = Depends(get_current_user_id)
+) -> Actor:
+    """the member behind this request, and the api key they used, if any."""
+    api_key = getattr(request.state, "api_key", None)
+    return Actor.member(
+        user_id,
+        api_key_id=api_key.id if api_key else "",
+        request_id=get_request_id() or "",
     )
 
 

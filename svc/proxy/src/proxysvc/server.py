@@ -12,6 +12,7 @@ from qbrixcore.policy import POLICIES
 from qbrixcore.policy import RewardType
 from qbrixproto import common_pb2, proxy_pb2, proxy_pb2_grpc
 
+from proxysvc.core.actor import Actor
 from proxysvc.mod.gate.config import FeatureGateConfig
 from proxysvc.mod.gate.schema import GateConfigPatchRequest
 from proxysvc.mod.gate.schema import GateConfigRequest
@@ -67,6 +68,17 @@ class ProxyGRPCServicer(proxy_pb2_grpc.ProxyServiceServicer):
             raise UnauthenticatedException("authentication context not available")
         return auth_ctx.tenant_id
 
+    @staticmethod
+    def _get_actor() -> Actor:
+        auth_ctx = get_grpc_auth_context()
+        if auth_ctx is None:
+            raise UnauthenticatedException("authentication context not available")
+        return Actor.member(
+            auth_ctx.user_id,
+            api_key_id=auth_ctx.api_key_id,
+            request_id=auth_ctx.request_id,
+        )
+
     async def CreatePool(self, request, context):
         tenant_id = self._get_tenant_id()
         arms = [
@@ -76,7 +88,9 @@ class ProxyGRPCServicer(proxy_pb2_grpc.ProxyServiceServicer):
             }
             for arm in request.arms
         ]
-        response = await self._service.create_pool(tenant_id, request.name, arms)
+        response = await self._service.create_pool(
+            tenant_id, request.name, arms, actor=self._get_actor()
+        )
         return proxy_pb2.CreatePoolResponse(pool=self._dict_to_pool(response))
 
     async def GetPool(self, request, context):
@@ -102,14 +116,18 @@ class ProxyGRPCServicer(proxy_pb2_grpc.ProxyServiceServicer):
         kwargs = {}
         if request.HasField("name"):
             kwargs["name"] = request.name
-        response = await self._service.update_pool(tenant_id, request.pool_id, **kwargs)
+        response = await self._service.update_pool(
+            tenant_id, request.pool_id, actor=self._get_actor(), **kwargs
+        )
         if response is None:
             raise PoolNotFoundException(f"pool not found: {request.pool_id}")
         return proxy_pb2.UpdatePoolResponse(pool=self._dict_to_pool(response))
 
     async def DeletePool(self, request, context):
         tenant_id = self._get_tenant_id()
-        deleted = await self._service.delete_pool(tenant_id, request.pool_id)
+        deleted = await self._service.delete_pool(
+            tenant_id, request.pool_id, actor=self._get_actor()
+        )
         if not deleted:
             raise PoolNotFoundException(f"pool not found: {request.pool_id}")
         return proxy_pb2.DeletePoolResponse(deleted=deleted)
@@ -127,6 +145,7 @@ class ProxyGRPCServicer(proxy_pb2_grpc.ProxyServiceServicer):
             policy_params=_request_policy_params(request),
             enabled=request.enabled,
             feature_gate_config=feature_gate,
+            actor=self._get_actor(),
         )
         resp = proxy_pb2.CreateExperimentResponse(
             experiment=self._dict_to_experiment(response),
@@ -194,11 +213,11 @@ class ProxyGRPCServicer(proxy_pb2_grpc.ProxyServiceServicer):
         if request.HasField("policy_params_json") or request.policy_params:
             kwargs["policy_params"] = _request_policy_params(request)
         if request.HasField("feature_gate"):
-            kwargs["feature_gate_config"] = self._proto_to_gate_config(
-                request.feature_gate
+            raise InvalidArgumentException(
+                "UpdateExperiment does not change the gate; use UpdateGateConfig"
             )
         response = await self._service.update_experiment(
-            tenant_id, request.experiment_id, **kwargs
+            tenant_id, request.experiment_id, actor=self._get_actor(), **kwargs
         )
         if response is None:
             raise ExperimentNotFoundException(
@@ -218,7 +237,7 @@ class ProxyGRPCServicer(proxy_pb2_grpc.ProxyServiceServicer):
     async def DeleteExperiment(self, request, context):
         tenant_id = self._get_tenant_id()
         deleted = await self._service.delete_experiment(
-            tenant_id, request.experiment_id
+            tenant_id, request.experiment_id, actor=self._get_actor()
         )
         if not deleted:
             raise ExperimentNotFoundException(
@@ -230,7 +249,7 @@ class ProxyGRPCServicer(proxy_pb2_grpc.ProxyServiceServicer):
         tenant_id = self._get_tenant_id()
         config = self._proto_to_gate_config(request.config)
         response = await self._service.create_gate_config(
-            tenant_id, request.experiment_id, config
+            tenant_id, request.experiment_id, config, actor=self._get_actor()
         )
         if response is None:
             raise ExperimentNotFoundException(
@@ -258,11 +277,12 @@ class ProxyGRPCServicer(proxy_pb2_grpc.ProxyServiceServicer):
                 tenant_id,
                 request.experiment_id,
                 self._proto_to_gate_patch(request.config, request.update_mask),
+                actor=self._get_actor(),
             )
         else:
             config = self._proto_to_gate_config(request.config)
             response = await self._service.update_gate_config(
-                tenant_id, request.experiment_id, config
+                tenant_id, request.experiment_id, config, actor=self._get_actor()
             )
         if response is None:
             raise GateConfigNotFoundException(
@@ -275,7 +295,7 @@ class ProxyGRPCServicer(proxy_pb2_grpc.ProxyServiceServicer):
     async def DeleteGateConfig(self, request, context):
         tenant_id = self._get_tenant_id()
         deleted = await self._service.delete_gate_config(
-            tenant_id, request.experiment_id
+            tenant_id, request.experiment_id, actor=self._get_actor()
         )
         if not deleted:
             raise GateConfigNotFoundException(

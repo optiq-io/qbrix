@@ -24,7 +24,9 @@ class CortexGRPCServicer(cortex_pb2_grpc.CortexServiceServicer):
 
     async def FlushBatch(self, request, context):
         try:
-            count = await self._service.flush_batch(request.experiment_id or None)
+            count = await self._service.flush_batch(
+                experiment_id=request.experiment_id or None
+            )
             return cortex_pb2.FlushBatchResponse(events_processed=count)
         except Exception as e:
             logger.error("flush batch failed: %s", e)
@@ -33,7 +35,9 @@ class CortexGRPCServicer(cortex_pb2_grpc.CortexServiceServicer):
             return cortex_pb2.FlushBatchResponse(events_processed=0)
 
     async def GetStats(self, request, context):
-        stats_list = self._service.get_stats(request.experiment_id or None)
+        stats_list = self._service.get_stats(
+            experiment_id=request.experiment_id or None
+        )
         return cortex_pb2.GetStatsResponse(
             stats=[
                 cortex_pb2.ExperimentStats(

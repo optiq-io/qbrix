@@ -8,8 +8,11 @@ from pathlib import Path
 # make sibling modules (e.g. factories) importable without __init__.py
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
+
+from qbrixstore.redis import Learning
 
 from proxysvc.config import ProxySettings
 
@@ -54,6 +57,7 @@ def mock_redis() -> AsyncMock:
     redis.set_experiment = AsyncMock()
     redis.delete_experiment = AsyncMock()
     redis.reset_learning = AsyncMock()
+    redis.read_learning = AsyncMock(return_value=Learning(params=None))
     redis.get_gate_config = AsyncMock(return_value=None)
     redis.set_gate_config = AsyncMock()
     redis.delete_gate_config = AsyncMock()

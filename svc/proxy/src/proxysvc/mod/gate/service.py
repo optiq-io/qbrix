@@ -8,8 +8,10 @@ from qbrixstore.redis import RedisClient
 from qbrixstore.event import AuditEvent
 
 from proxysvc.config import ProxySettings
+from proxysvc.core.actor import Actor
 from proxysvc.core.error import GateExistsError
 from proxysvc.core.events import EventEmitter
+from proxysvc.mod.change.repository import ChangeRepository
 from proxysvc.mod.gate.cache import GateConfigCache
 from proxysvc.mod.gate.config import FeatureGateConfig
 from proxysvc.mod.gate.controller import FeatureGate
@@ -135,7 +137,8 @@ class GateService:
         tenant_id: str,
         experiment_id: str,
         config: GateConfigRequest,
-        actor_id: str = "",
+        *,
+        actor: Actor,
     ) -> FeatureGateConfig | None:
         """create feature gate config for an experiment."""
         async with get_session() as session:
@@ -147,13 +150,20 @@ class GateService:
             await repo.create(experiment_id, config)
             gate = await repo.get(experiment_id)
             gate_config = repo.to_config(gate)
+            await ChangeRepository(session, tenant_id).record(
+                "gate.create",
+                "gate",
+                experiment_id,
+                actor,
+                after=gate_config.model_dump(mode="json"),
+            )
         # sync to redis after postgres commit succeeds
         await self.set_config(tenant_id, experiment_id, gate_config)
         self._events.emit_audit(
             AuditEvent(
                 name="gate.created",
                 tenant_id=tenant_id,
-                actor_id=actor_id,
+                actor_id=actor.user_id,
                 resource_type="gate",
                 resource_id=experiment_id,
                 payload={},
@@ -167,16 +177,27 @@ class GateService:
         tenant_id: str,
         experiment_id: str,
         config: GateConfigRequest,
-        actor_id: str = "",
+        *,
+        actor: Actor,
     ) -> FeatureGateConfig | None:
         """update feature gate config for an experiment."""
         async with get_session() as session:
             repo = FeatureGateRepository(session, tenant_id)
-            updated = await repo.update(experiment_id, config)
-            if updated is None:
+            current = await repo.get(experiment_id)
+            if current is None:
                 return None
+            before = repo.to_config(current).model_dump(mode="json")
+            await repo.update(experiment_id, config)
             gate = await repo.get(experiment_id)
             gate_config = repo.to_config(gate)
+            await ChangeRepository(session, tenant_id).record(
+                "gate.replace",
+                "gate",
+                experiment_id,
+                actor,
+                before=before,
+                after=gate_config.model_dump(mode="json"),
+            )
         # sync to redis after postgres commit succeeds
         self.invalidate(tenant_id, experiment_id)
         await self.set_config(tenant_id, experiment_id, gate_config)
@@ -184,7 +205,7 @@ class GateService:
             AuditEvent(
                 name="gate.updated",
                 tenant_id=tenant_id,
-                actor_id=actor_id,
+                actor_id=actor.user_id,
                 resource_type="gate",
                 resource_id=experiment_id,
                 payload={},
@@ -198,17 +219,29 @@ class GateService:
         tenant_id: str,
         experiment_id: str,
         patch: GateConfigPatchRequest,
-        actor_id: str = "",
+        *,
+        actor: Actor,
     ) -> FeatureGateConfig | None:
         """apply a partial update to an experiment's feature gate config."""
         changes = patch.changes()
         async with get_session() as session:
             repo = FeatureGateRepository(session, tenant_id)
-            patched = await repo.patch(experiment_id, changes)
-            if patched is None:
+            # locked here, before the read, so before is the row the patch applies to
+            current = await repo.get(experiment_id, for_update=True)
+            if current is None:
                 return None
+            before = repo.to_config(current).model_dump(mode="json")
+            await repo.patch(experiment_id, changes)
             gate = await repo.get(experiment_id)
             gate_config = repo.to_config(gate)
+            await ChangeRepository(session, tenant_id).record(
+                "gate.patch",
+                "gate",
+                experiment_id,
+                actor,
+                before=before,
+                after=gate_config.model_dump(mode="json"),
+            )
         # sync to redis after postgres commit succeeds
         self.invalidate(tenant_id, experiment_id)
         await self.set_config(tenant_id, experiment_id, gate_config)
@@ -216,7 +249,7 @@ class GateService:
             AuditEvent(
                 name="gate.updated",
                 tenant_id=tenant_id,
-                actor_id=actor_id,
+                actor_id=actor.user_id,
                 resource_type="gate",
                 resource_id=experiment_id,
                 payload={"fields": sorted(changes)},
@@ -226,23 +259,29 @@ class GateService:
         return gate_config
 
     async def delete_gate_config(
-        self, tenant_id: str, experiment_id: str, actor_id: str = ""
+        self, tenant_id: str, experiment_id: str, *, actor: Actor
     ) -> bool:
         """delete feature gate config for an experiment."""
         async with get_session() as session:
             repo = FeatureGateRepository(session, tenant_id)
-            deleted = await repo.delete(experiment_id)
-        if deleted:
-            await self.delete_config(tenant_id, experiment_id)
-            self._events.emit_audit(
-                AuditEvent(
-                    name="gate.deleted",
-                    tenant_id=tenant_id,
-                    actor_id=actor_id,
-                    resource_type="gate",
-                    resource_id=experiment_id,
-                    payload={},
-                    timestamp_ms=int(time.time() * 1000),
-                )
+            current = await repo.get(experiment_id)
+            if current is None:
+                return False
+            before = repo.to_config(current).model_dump(mode="json")
+            await repo.delete(experiment_id)
+            await ChangeRepository(session, tenant_id).record(
+                "gate.delete", "gate", experiment_id, actor, before=before
             )
-        return deleted
+        await self.delete_config(tenant_id, experiment_id)
+        self._events.emit_audit(
+            AuditEvent(
+                name="gate.deleted",
+                tenant_id=tenant_id,
+                actor_id=actor.user_id,
+                resource_type="gate",
+                resource_id=experiment_id,
+                payload={},
+                timestamp_ms=int(time.time() * 1000),
+            )
+        )
+        return True

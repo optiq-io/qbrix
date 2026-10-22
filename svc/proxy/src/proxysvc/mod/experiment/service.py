@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 
 from qbrixlog import get_logger
@@ -8,12 +9,16 @@ from qbrixstore.redis.client import RedisClient
 from qbrixstore.event import AuditEvent
 
 from proxysvc.config import ProxySettings
+from proxysvc.core.actor import Actor
 from proxysvc.core.entitlements import Entitlements
 from proxysvc.core.events import EventEmitter
 from proxysvc.core.error import BadPolicyParamsError
 from proxysvc.core.error import ExperimentLimitError
 from proxysvc.core.error import ExperimentRunningError
 from proxysvc.core.error import LearnerExperimentDeleteError
+from proxysvc.mod.change.repository import ChangeRepository
+from proxysvc.mod.change.serialize import learning_snapshot
+from proxysvc.mod.change.serialize import snapshot
 from proxysvc.mod.experiment.cache import ExperimentState
 from proxysvc.mod.experiment.cache import ExperimentStateCache
 from proxysvc.mod.experiment.repository import ExperimentRepository
@@ -112,7 +117,8 @@ class ExperimentService:
         policy_params: dict | None = None,
         enabled: bool = True,
         feature_gate_config: GateConfigRequest | None = None,
-        actor_id: str = "",
+        *,
+        actor: Actor,
         plan_tier: str = "free",
     ) -> dict:
         policy_params = _resolve_context_schema(policy_params)
@@ -140,6 +146,13 @@ class ExperimentService:
             gate_config = await self._load_gate_config(
                 session, tenant_id, experiment_id, feature_gate_config
             )
+            await ChangeRepository(session, tenant_id).record(
+                "experiment.create",
+                "experiment",
+                experiment_id,
+                actor,
+                after=snapshot(exp_dict),
+            )
 
         # sync to redis after postgres commit succeeds
         if gate_config:
@@ -149,7 +162,7 @@ class ExperimentService:
             AuditEvent(
                 name="experiment.created",
                 tenant_id=tenant_id,
-                actor_id=actor_id,
+                actor_id=actor.user_id,
                 resource_type="experiment",
                 resource_id=experiment_id,
                 payload={"name": name, "pool_id": pool_id, "policy": policy},
@@ -166,7 +179,8 @@ class ExperimentService:
         policy_params: dict,
         enabled: bool = True,
         feature_gate_config: GateConfigRequest | None = None,
-        actor_id: str = "",
+        *,
+        actor: Actor,
         plan_tier: str = "free",
     ) -> dict:
         """create a meta-bandit experiment with automatic policy selection.
@@ -248,6 +262,13 @@ class ExperimentService:
             gate_config = await self._load_gate_config(
                 session, tenant_id, meta_id, feature_gate_config
             )
+            await ChangeRepository(session, tenant_id).record(
+                "experiment.create",
+                "experiment",
+                meta_id,
+                actor,
+                after=await self._snapshot(repo, parent),
+            )
 
         # sync learners first so motor can resolve them before the meta
         # parent starts routing selections at the meta level
@@ -262,7 +283,7 @@ class ExperimentService:
             AuditEvent(
                 name="experiment.created",
                 tenant_id=tenant_id,
-                actor_id=actor_id,
+                actor_id=actor.user_id,
                 resource_type="experiment",
                 resource_id=meta_id,
                 payload={
@@ -310,12 +331,16 @@ class ExperimentService:
         self,
         tenant_id: str,
         experiment_id: str,
-        actor_id: str = "",
+        *,
+        actor: Actor,
         plan_tier: str = "free",
         **kwargs,
     ) -> dict | None:
         async with get_session() as session:
             repo = ExperimentRepository(session, tenant_id)
+            current = await repo.get(experiment_id)
+            if current is None:
+                return None
 
             if kwargs.get("enabled"):
                 max_experiments = self._entitlements.limits(plan_tier)[
@@ -331,26 +356,34 @@ class ExperimentService:
             if "policy_params" in kwargs:
                 # patch replaces policy_params wholesale (see ExperimentRepository.update);
                 # validate against the experiment's current policy.
-                current = await repo.get(experiment_id)
-                if current is not None:
-                    params = _resolve_context_schema(kwargs["policy_params"])
-                    _assert_context_schema_unchanged(current.policy_params, params)
-                    _assert_context_dim_unchanged(current.policy_params, params)
-                    kwargs["policy_params"] = params
-                    _inspect_params(current.policy, params)
+                params = _resolve_context_schema(kwargs["policy_params"])
+                _assert_context_schema_unchanged(current.policy_params, params)
+                _assert_context_dim_unchanged(current.policy_params, params)
+                kwargs["policy_params"] = params
+                _inspect_params(current.policy, params)
 
+            # serialized before update, which mutates the same identity-mapped row
+            before = await self._snapshot(repo, current)
+            learning = await self._learning(tenant_id, current)
             experiment = await repo.update(experiment_id, **kwargs)
-            if experiment is None:
-                return None
             exp_dict = experiment_to_dict(experiment)
             pool_id = experiment.pool_id
+            await ChangeRepository(session, tenant_id).record(
+                "experiment.update",
+                "experiment",
+                experiment_id,
+                actor,
+                before=before,
+                after=await self._snapshot(repo, experiment),
+                learning=learning,
+            )
         await self._sync_experiment_to_redis(tenant_id, experiment_id, pool_id)
         self._cache.invalidate(tenant_id, experiment_id)
         self._events.emit_audit(
             AuditEvent(
                 name="experiment.updated",
                 tenant_id=tenant_id,
-                actor_id=actor_id,
+                actor_id=actor.user_id,
                 resource_type="experiment",
                 resource_id=experiment_id,
                 payload={"changed_fields": list(kwargs.keys())},
@@ -360,39 +393,47 @@ class ExperimentService:
         return exp_dict
 
     async def delete_experiment(
-        self, tenant_id: str, experiment_id: str, actor_id: str = ""
+        self, tenant_id: str, experiment_id: str, *, actor: Actor
     ) -> bool:
         async with get_session() as session:
             repo = ExperimentRepository(session, tenant_id)
             experiment = await repo.get(experiment_id)
-            meta_exp_id = (
-                getattr(experiment, "meta_experiment_id", None) if experiment else None
-            )
-            if isinstance(meta_exp_id, str) and meta_exp_id:
+            if experiment is None:
+                return False
+            if experiment.meta_experiment_id:
                 raise LearnerExperimentDeleteError(
                     "cannot delete a learner experiment managed by a meta-bandit. "
                     "delete the meta experiment instead."
                 )
-            deleted = await repo.delete(experiment_id)
-        if deleted:
-            await self._redis.delete_experiment(tenant_id, experiment_id)
-            self._cache.invalidate(tenant_id, experiment_id)
-            await self._gate_service.delete_config(tenant_id, experiment_id)
-            self._events.emit_audit(
-                AuditEvent(
-                    name="experiment.deleted",
-                    tenant_id=tenant_id,
-                    actor_id=actor_id,
-                    resource_type="experiment",
-                    resource_id=experiment_id,
-                    payload={},
-                    timestamp_ms=int(time.time() * 1000),
-                )
+            before = await self._snapshot(repo, experiment)
+            learning = await self._learning(tenant_id, experiment)
+            await repo.delete(experiment_id)
+            await ChangeRepository(session, tenant_id).record(
+                "experiment.delete",
+                "experiment",
+                experiment_id,
+                actor,
+                before=before,
+                learning=learning,
             )
-        return deleted
+        await self._redis.delete_experiment(tenant_id, experiment_id)
+        self._cache.invalidate(tenant_id, experiment_id)
+        await self._gate_service.delete_config(tenant_id, experiment_id)
+        self._events.emit_audit(
+            AuditEvent(
+                name="experiment.deleted",
+                tenant_id=tenant_id,
+                actor_id=actor.user_id,
+                resource_type="experiment",
+                resource_id=experiment_id,
+                payload={},
+                timestamp_ms=int(time.time() * 1000),
+            )
+        )
+        return True
 
     async def reset_experiment(
-        self, tenant_id: str, experiment_id: str, actor_id: str = ""
+        self, tenant_id: str, experiment_id: str, *, actor: Actor
     ) -> dict | None:
         """reset an experiment's learned params back to its configured policy_params.
 
@@ -412,6 +453,7 @@ class ExperimentService:
                     "pause the experiment before resetting its parameters"
                 )
             exp_dict = experiment_to_dict(experiment)
+            state = await self._snapshot(repo, experiment)
 
         # best-effort drain of in-flight feedback so the reset is the last writer
         if self._cortex_client:
@@ -420,12 +462,24 @@ class ExperimentService:
             except Exception as e:  # noqa
                 logger.warning("cortex flush before reset failed: %s", e)
 
-        await self._redis.reset_learning(tenant_id, experiment_id)
+        # after the flush, so the snapshot includes what was in flight; inside
+        # the transaction, so a failed reset leaves no record of one
+        async with get_session() as session:
+            await ChangeRepository(session, tenant_id).record(
+                "experiment.reset",
+                "experiment",
+                experiment_id,
+                actor,
+                before=state,
+                after=state,
+                learning=await self._learning(tenant_id, experiment),
+            )
+            await self._redis.reset_learning(tenant_id, experiment_id)
         self._events.emit_audit(
             AuditEvent(
                 name="experiment.reset",
                 tenant_id=tenant_id,
-                actor_id=actor_id,
+                actor_id=actor.user_id,
                 resource_type="experiment",
                 resource_id=experiment_id,
                 payload={},
@@ -433,6 +487,31 @@ class ExperimentService:
             )
         )
         return exp_dict
+
+    @staticmethod
+    def _learner_ids(experiment) -> list[str]:
+        if experiment.policy != "MetaBanditPolicy":
+            return []
+        return list((experiment.policy_params or {}).get("learners", []))
+
+    async def _snapshot(self, repo: ExperimentRepository, experiment) -> dict:
+        """the experiment as a change stores it; a meta experiment carries its
+        learners, since they are created and deleted with it."""
+        state = snapshot(experiment_to_dict(experiment))
+        learner_ids = self._learner_ids(experiment)
+        if learner_ids:
+            learners = [await repo.get(lid) for lid in learner_ids]
+            state["learners"] = [
+                snapshot(experiment_to_dict(learner)) for learner in learners if learner
+            ]
+        return state
+
+    async def _learning(self, tenant_id: str, experiment) -> dict:
+        ids = [experiment.id, *self._learner_ids(experiment)]
+        learnings = await asyncio.gather(
+            *(self._redis.read_learning(tenant_id, eid) for eid in ids)
+        )
+        return learning_snapshot(dict(zip(ids, learnings)))
 
     async def _sync_experiment_to_redis(
         self, tenant_id: str, experiment_id: str, pool_id: str

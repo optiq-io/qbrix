@@ -10,6 +10,9 @@ from proxysvc.mod.gate import GateService
 from proxysvc.mod.gate.schema import GateConfigRequest
 
 from factories import make_gate_config
+from proxysvc.core.actor import Actor
+
+ACTOR = Actor.member("test-user")
 
 
 def cache_mock(config=None, absent=True):
@@ -214,6 +217,7 @@ class TestGateServiceConfigCrud:
         self, mock_get_session, mock_redis, proxy_settings
     ):
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -231,7 +235,10 @@ class TestGateServiceConfigCrud:
             "proxysvc.mod.gate.service.FeatureGateRepository", return_value=mock_repo
         ):
             result = await service.create_gate_config(
-                "t-1", "exp-1", GateConfigRequest(enabled=True)
+                "t-1",
+                "exp-1",
+                GateConfigRequest(enabled=True),
+                actor=ACTOR,
             )
 
         assert result is not None
@@ -258,7 +265,10 @@ class TestGateServiceConfigCrud:
         ):
             with pytest.raises(GateExistsError):
                 await service.create_gate_config(
-                    "t-1", "exp-1", GateConfigRequest(enabled=True)
+                    "t-1",
+                    "exp-1",
+                    GateConfigRequest(enabled=True),
+                    actor=ACTOR,
                 )
 
         mock_repo.create.assert_not_called()
@@ -269,6 +279,7 @@ class TestGateServiceConfigCrud:
         self, mock_get_session, mock_redis, proxy_settings
     ):
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -285,7 +296,10 @@ class TestGateServiceConfigCrud:
             "proxysvc.mod.gate.service.FeatureGateRepository", return_value=mock_repo
         ):
             result = await service.update_gate_config(
-                "t-1", "exp-1", GateConfigRequest(enabled=False)
+                "t-1",
+                "exp-1",
+                GateConfigRequest(enabled=False),
+                actor=ACTOR,
             )
 
         assert result is not None
@@ -298,11 +312,12 @@ class TestGateServiceConfigCrud:
         self, mock_get_session, mock_redis, proxy_settings
     ):
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
         mock_repo = AsyncMock()
-        mock_repo.update = AsyncMock(return_value=None)
+        mock_repo.get = AsyncMock(return_value=None)
 
         service = GateService(mock_redis, proxy_settings, events=MagicMock())
         service._cache = cache_mock()
@@ -311,7 +326,10 @@ class TestGateServiceConfigCrud:
             "proxysvc.mod.gate.service.FeatureGateRepository", return_value=mock_repo
         ):
             result = await service.update_gate_config(
-                "t-1", "exp-1", GateConfigRequest(enabled=False)
+                "t-1",
+                "exp-1",
+                GateConfigRequest(enabled=False),
+                actor=ACTOR,
             )
 
         assert result is None
@@ -323,10 +341,13 @@ class TestGateServiceConfigCrud:
         self, mock_get_session, mock_redis, proxy_settings
     ):
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
         mock_repo = AsyncMock()
+        mock_repo.get = AsyncMock(return_value=MagicMock())
+        mock_repo.to_config = MagicMock(return_value=make_gate_config())
         mock_repo.delete = AsyncMock(return_value=True)
 
         service = GateService(mock_redis, proxy_settings, events=MagicMock())
@@ -335,7 +356,7 @@ class TestGateServiceConfigCrud:
         with patch(
             "proxysvc.mod.gate.service.FeatureGateRepository", return_value=mock_repo
         ):
-            result = await service.delete_gate_config("t-1", "exp-1")
+            result = await service.delete_gate_config("t-1", "exp-1", actor=ACTOR)
 
         assert result is True
         service._cache.delete.assert_called_once_with("t-1", "exp-1")

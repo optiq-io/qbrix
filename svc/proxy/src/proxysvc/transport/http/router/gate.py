@@ -8,6 +8,7 @@ from fastapi import status
 from fastapi import Depends
 
 from proxysvc.transport.http.auth.dependencies import get_current_user_id
+from proxysvc.transport.http.auth.dependencies import get_actor
 from proxysvc.transport.http.auth.dependencies import get_current_tenant_id
 from proxysvc.transport.http.auth.dependencies import require_scopes
 from proxysvc.transport.http.exception import GateAlreadyExistsException
@@ -16,6 +17,7 @@ from proxysvc.transport.http.exception import ExperimentNotFoundException
 from proxysvc.transport.http.exception import InternalServerException
 from proxysvc.core.error import GateExistsError
 from proxysvc.service import ProxyService
+from proxysvc.core.actor import Actor
 from proxysvc.mod.gate.schema import GateConfigPatchRequest
 from proxysvc.mod.gate.schema import GateConfigRequest
 from proxysvc.mod.gate.schema import GateEvaluateRequest
@@ -54,21 +56,21 @@ async def create_gate_config(
     experiment_id: str,
     body: GateConfigRequest,
     tenant_id: str = Depends(get_current_tenant_id),
-    user_id: str = Depends(get_current_user_id),
+    actor: Actor = Depends(get_actor),
     _user=Depends(require_scopes(["gate:write"])),
 ):
     """create feature gate config for an experiment."""
     try:
         service = get_proxy_service()
         result = await service.create_gate_config(
-            tenant_id, experiment_id, body, actor_id=user_id
+            tenant_id, experiment_id, body, actor=actor
         )
 
         if result is None:
             raise ExperimentNotFoundException(f"experiment not found: {experiment_id}")
 
         logger.info(
-            f"gate config created for experiment: {experiment_id} by user {user_id}"
+            f"gate config created for experiment: {experiment_id} by user {actor.user_id}"
         )
         return to_response(result)
     except ExperimentNotFoundException:
@@ -112,14 +114,14 @@ async def update_gate_config(
     experiment_id: str,
     body: GateConfigRequest,
     tenant_id: str = Depends(get_current_tenant_id),
-    user_id: str = Depends(get_current_user_id),
+    actor: Actor = Depends(get_actor),
     _user=Depends(require_scopes(["gate:write"])),
 ):
     """update feature gate config for an experiment."""
     try:
         service = get_proxy_service()
         result = await service.update_gate_config(
-            tenant_id, experiment_id, body, actor_id=user_id
+            tenant_id, experiment_id, body, actor=actor
         )
 
         if result is None:
@@ -128,7 +130,7 @@ async def update_gate_config(
             )
 
         logger.info(
-            f"gate config updated for experiment: {experiment_id} by user {user_id}"
+            f"gate config updated for experiment: {experiment_id} by user {actor.user_id}"
         )
         return to_response(result)
     except GateNotFoundException:
@@ -147,7 +149,7 @@ async def patch_gate_config(
     experiment_id: str,
     body: GateConfigPatchRequest,
     tenant_id: str = Depends(get_current_tenant_id),
-    user_id: str = Depends(get_current_user_id),
+    actor: Actor = Depends(get_actor),
     _user=Depends(require_scopes(["gate:write"])),
 ):
     """partially update feature gate config for an experiment.
@@ -158,7 +160,7 @@ async def patch_gate_config(
     try:
         service = get_proxy_service()
         result = await service.patch_gate_config(
-            tenant_id, experiment_id, body, actor_id=user_id
+            tenant_id, experiment_id, body, actor=actor
         )
 
         if result is None:
@@ -167,7 +169,7 @@ async def patch_gate_config(
             )
 
         logger.info(
-            f"gate config patched for experiment: {experiment_id} by user {user_id}"
+            f"gate config patched for experiment: {experiment_id} by user {actor.user_id}"
         )
         return to_response(result)
     except GateNotFoundException:
@@ -184,14 +186,12 @@ async def patch_gate_config(
 async def delete_gate_config(
     experiment_id: str,
     tenant_id: str = Depends(get_current_tenant_id),
-    user_id: str = Depends(get_current_user_id),
+    actor: Actor = Depends(get_actor),
     _user=Depends(require_scopes(["gate:write"])),
 ):
     """delete feature gate config for an experiment."""
     service = get_proxy_service()
-    deleted = await service.delete_gate_config(
-        tenant_id, experiment_id, actor_id=user_id
-    )
+    deleted = await service.delete_gate_config(tenant_id, experiment_id, actor=actor)
 
     if not deleted:
         raise GateNotFoundException(
@@ -199,7 +199,7 @@ async def delete_gate_config(
         )
 
     logger.info(
-        f"gate config deleted for experiment: {experiment_id} by user {user_id}"
+        f"gate config deleted for experiment: {experiment_id} by user {actor.user_id}"
     )
     return {"message": "gate config deleted successfully"}
 

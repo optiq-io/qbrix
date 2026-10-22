@@ -7,7 +7,9 @@ from qbrixstore.postgres.models import Tenant
 from qbrixstore.redis.client import RedisClient
 from qbrixstore.event import FeedbackEvent
 
+from proxysvc.core.actor import Actor
 from proxysvc.mod.auth.repository import TenantRepository
+from proxysvc.mod.change.repository import ChangeRepository
 from proxysvc.mod.pool.repository import PoolRepository
 from proxysvc.mod.experiment.repository import ExperimentRepository
 from proxysvc.mod.gate.repository import FeatureGateRepository
@@ -494,3 +496,35 @@ class TestFeedbackEventTenantIsolation:
         # tenant-a:exp-1 has 2 events, tenant-b:exp-1 has 1 event
         assert len(grouped[("tenant-a", "exp-1")]) == 2
         assert len(grouped[("tenant-b", "exp-1")]) == 1
+
+
+class TestChangeTenantIsolation:
+    """changes are read only within the tenant that made them."""
+
+    @pytest.mark.asyncio
+    async def test_change_get_requires_tenant_match(
+        self, db_session: AsyncSession, tenant_a: Tenant, tenant_b: Tenant
+    ):
+        repo_a = ChangeRepository(db_session, tenant_a.id)
+        repo_b = ChangeRepository(db_session, tenant_b.id)
+        change = await repo_a.record(
+            "pool.create", "pool", "pool-1", Actor.member("user-a"), after={}
+        )
+
+        assert await repo_a.get(change.id) is not None
+        assert await repo_b.get(change.id) is None
+
+    @pytest.mark.asyncio
+    async def test_change_list_filtered_by_tenant(
+        self, db_session: AsyncSession, tenant_a: Tenant, tenant_b: Tenant
+    ):
+        repo_a = ChangeRepository(db_session, tenant_a.id)
+        repo_b = ChangeRepository(db_session, tenant_b.id)
+        await repo_a.record("pool.create", "pool", "pool-1", Actor.member("user-a"))
+        await repo_b.record("pool.create", "pool", "pool-1", Actor.member("user-b"))
+
+        changes_a = await repo_a.list_for("pool", "pool-1")
+        changes_b = await repo_b.list_for("pool", "pool-1")
+
+        assert [c.actor_user_id for c in changes_a] == ["user-a"]
+        assert [c.actor_user_id for c in changes_b] == ["user-b"]
