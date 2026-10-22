@@ -5,6 +5,7 @@ import time
 
 from qbrixlog import get_logger
 from qbrixstore.postgres.session import get_session
+from qbrixstore.redis.client import Learning
 from qbrixstore.redis.client import RedisClient
 from qbrixstore.event import AuditEvent
 
@@ -19,6 +20,7 @@ from proxysvc.core.error import LearnerExperimentDeleteError
 from proxysvc.mod.change.repository import ChangeRepository
 from proxysvc.mod.change.serialize import learning_snapshot
 from proxysvc.mod.change.serialize import snapshot
+from proxysvc.mod.change.undo import Undoing
 from proxysvc.mod.experiment.cache import ExperimentState
 from proxysvc.mod.experiment.cache import ExperimentStateCache
 from proxysvc.mod.experiment.repository import ExperimentRepository
@@ -336,6 +338,43 @@ class ExperimentService:
         plan_tier: str = "free",
         **kwargs,
     ) -> dict | None:
+        return await self._update(
+            tenant_id, experiment_id, kwargs, actor=actor, plan_tier=plan_tier
+        )
+
+    async def restore_experiment(
+        self,
+        tenant_id: str,
+        experiment_id: str,
+        fields: dict,
+        *,
+        actor: Actor,
+        undoing: Undoing,
+        plan_tier: str = "free",
+    ) -> dict | None:
+        """write back fields an earlier change recorded, as an update."""
+        return await self._update(
+            tenant_id,
+            experiment_id,
+            fields,
+            actor=actor,
+            plan_tier=plan_tier,
+            undoing=undoing,
+        )
+
+    async def _update(
+        self,
+        tenant_id: str,
+        experiment_id: str,
+        kwargs: dict,
+        *,
+        actor: Actor,
+        plan_tier: str,
+        undoing: Undoing | None = None,
+    ) -> dict | None:
+        """an undo assigns stored values as they are: they were valid when
+        recorded, and a stored context schema already carries the derived dim
+        that _resolve_context_schema rejects."""
         async with get_session() as session:
             repo = ExperimentRepository(session, tenant_id)
             current = await repo.get(experiment_id)
@@ -353,7 +392,7 @@ class ExperimentService:
                             f"active experiment limit reached for {plan_tier} plan with {max_experiments} experiments)"
                         )
 
-            if "policy_params" in kwargs:
+            if "policy_params" in kwargs and undoing is None:
                 # patch replaces policy_params wholesale (see ExperimentRepository.update);
                 # validate against the experiment's current policy.
                 params = _resolve_context_schema(kwargs["policy_params"])
@@ -365,7 +404,10 @@ class ExperimentService:
             # serialized before update, which mutates the same identity-mapped row
             before = await self._snapshot(repo, current)
             learning = await self._learning(tenant_id, current)
-            experiment = await repo.update(experiment_id, **kwargs)
+            if undoing is None:
+                experiment = await repo.update(experiment_id, **kwargs)
+            else:
+                experiment = await repo.restore(experiment_id, kwargs)
             exp_dict = experiment_to_dict(experiment)
             pool_id = experiment.pool_id
             await ChangeRepository(session, tenant_id).record(
@@ -376,6 +418,7 @@ class ExperimentService:
                 before=before,
                 after=await self._snapshot(repo, experiment),
                 learning=learning,
+                undoing=undoing,
             )
         await self._sync_experiment_to_redis(tenant_id, experiment_id, pool_id)
         self._cache.invalidate(tenant_id, experiment_id)
@@ -455,12 +498,7 @@ class ExperimentService:
             exp_dict = experiment_to_dict(experiment)
             state = await self._snapshot(repo, experiment)
 
-        # best-effort drain of in-flight feedback so the reset is the last writer
-        if self._cortex_client:
-            try:
-                await self._cortex_client.flush_batch(experiment_id)
-            except Exception as e:  # noqa
-                logger.warning("cortex flush before reset failed: %s", e)
+        await self._flush_cortex(experiment_id, "reset")
 
         # after the flush, so the snapshot includes what was in flight; inside
         # the transaction, so a failed reset leaves no record of one
@@ -487,6 +525,77 @@ class ExperimentService:
             )
         )
         return exp_dict
+
+    async def restore_learning(
+        self,
+        tenant_id: str,
+        experiment_id: str,
+        learning: Learning,
+        *,
+        baseline_applied: int,
+        actor: Actor,
+        undoing: Undoing,
+    ) -> dict | None:
+        """put back what an experiment had learned, exactly as recorded.
+
+        outcomes learned since the undone change are dropped, not re-applied:
+        their entries are already acked. the undo records how many as
+        ``dropped``, counted above ``baseline_applied``, the applied count the
+        undone change left behind.
+        """
+        async with get_session() as session:
+            repo = ExperimentRepository(session, tenant_id)
+            experiment = await repo.get(experiment_id)
+            if experiment is None:
+                return None
+            if experiment.enabled:
+                raise ExperimentRunningError(
+                    "pause the experiment before restoring what it had learned"
+                )
+            exp_dict = experiment_to_dict(experiment)
+            state = await self._snapshot(repo, experiment)
+
+        await self._flush_cortex(experiment_id, "restore")
+
+        async with get_session() as session:
+            change = await ChangeRepository(session, tenant_id).record(
+                "experiment.restore",
+                "experiment",
+                experiment_id,
+                actor,
+                before=state,
+                after=state,
+                undoing=undoing,
+            )
+            replaced = await self._redis.restore_learning(
+                tenant_id, experiment_id, learning
+            )
+            change.learning = {
+                experiment_id: {
+                    **learning_snapshot({experiment_id: replaced})[experiment_id],
+                    "dropped": replaced.applied - baseline_applied,
+                }
+            }
+        self._events.emit_audit(
+            AuditEvent(
+                name="experiment.restored",
+                tenant_id=tenant_id,
+                actor_id=actor.user_id,
+                resource_type="experiment",
+                resource_id=experiment_id,
+                payload={},
+                timestamp_ms=int(time.time() * 1000),
+            )
+        )
+        return exp_dict
+
+    async def _flush_cortex(self, experiment_id: str, before: str) -> None:
+        """best-effort drain of in-flight feedback, so this write is the last."""
+        if self._cortex_client:
+            try:
+                await self._cortex_client.flush_batch(experiment_id)
+            except Exception as e:  # noqa
+                logger.warning("cortex flush before %s failed: %s", before, e)
 
     @staticmethod
     def _learner_ids(experiment) -> list[str]:

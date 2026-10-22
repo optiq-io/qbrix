@@ -12,6 +12,7 @@ from proxysvc.core.actor import Actor
 from proxysvc.core.error import GateExistsError
 from proxysvc.core.events import EventEmitter
 from proxysvc.mod.change.repository import ChangeRepository
+from proxysvc.mod.change.undo import Undoing
 from proxysvc.mod.gate.cache import GateConfigCache
 from proxysvc.mod.gate.config import FeatureGateConfig
 from proxysvc.mod.gate.controller import FeatureGate
@@ -139,6 +140,7 @@ class GateService:
         config: GateConfigRequest,
         *,
         actor: Actor,
+        undoing: Undoing | None = None,
     ) -> FeatureGateConfig | None:
         """create feature gate config for an experiment."""
         async with get_session() as session:
@@ -156,6 +158,7 @@ class GateService:
                 experiment_id,
                 actor,
                 after=gate_config.model_dump(mode="json"),
+                undoing=undoing,
             )
         # sync to redis after postgres commit succeeds
         await self.set_config(tenant_id, experiment_id, gate_config)
@@ -179,6 +182,7 @@ class GateService:
         config: GateConfigRequest,
         *,
         actor: Actor,
+        undoing: Undoing | None = None,
     ) -> FeatureGateConfig | None:
         """update feature gate config for an experiment."""
         async with get_session() as session:
@@ -197,6 +201,7 @@ class GateService:
                 actor,
                 before=before,
                 after=gate_config.model_dump(mode="json"),
+                undoing=undoing,
             )
         # sync to redis after postgres commit succeeds
         self.invalidate(tenant_id, experiment_id)
@@ -259,7 +264,12 @@ class GateService:
         return gate_config
 
     async def delete_gate_config(
-        self, tenant_id: str, experiment_id: str, *, actor: Actor
+        self,
+        tenant_id: str,
+        experiment_id: str,
+        *,
+        actor: Actor,
+        undoing: Undoing | None = None,
     ) -> bool:
         """delete feature gate config for an experiment."""
         async with get_session() as session:
@@ -270,7 +280,12 @@ class GateService:
             before = repo.to_config(current).model_dump(mode="json")
             await repo.delete(experiment_id)
             await ChangeRepository(session, tenant_id).record(
-                "gate.delete", "gate", experiment_id, actor, before=before
+                "gate.delete",
+                "gate",
+                experiment_id,
+                actor,
+                before=before,
+                undoing=undoing,
             )
         await self.delete_config(tenant_id, experiment_id)
         self._events.emit_audit(

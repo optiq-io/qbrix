@@ -7,6 +7,8 @@ from pydantic import BaseModel
 from qbrixstore.postgres.models import Change
 from qbrixstore.redis import Learning
 
+from proxysvc.mod.change.undo import is_undoable
+
 
 def snapshot(value: Any) -> Any:
     """a json-safe copy of a serialized object, for a change's before and after."""
@@ -51,6 +53,7 @@ def change_to_dict(change: Change) -> dict:
         "after": change.after,
         "learning": change.learning,
         "status": change.status,
+        "undoable": is_undoable(change.kind),
         "undoes_id": change.undoes_id,
         "created_at": change.created_at.isoformat() if change.created_at else None,
     }

@@ -71,6 +71,15 @@ class ExperimentRunningError(BaseAPIError):
     pass
 
 
+class ChangeNotUndoableError(BaseAPIError):
+    """raised when undoing a kind of change that cannot be undone."""
+
+
+class ChangeConflictError(BaseAPIError):
+    """raised when an undo would not restore what the change recorded: it was
+    already undone, a later change exists, or its target is gone."""
+
+
 class SignupClosedError(BaseAPIError):
     """raised when public registration is closed by the deployment's signup mode."""
 

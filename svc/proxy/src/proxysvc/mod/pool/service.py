@@ -9,6 +9,7 @@ from proxysvc.core.actor import Actor
 from proxysvc.core.events import EventEmitter
 from proxysvc.core.error import PoolHasExperimentsError
 from proxysvc.mod.change.repository import ChangeRepository
+from proxysvc.mod.change.undo import Undoing
 from proxysvc.mod.experiment.repository import ExperimentRepository
 from proxysvc.mod.pool.repository import PoolRepository
 from proxysvc.mod.pool.serialize import pool_to_dict
@@ -64,7 +65,13 @@ class PoolService:
             return [pool_to_dict(pool) for pool in pools]
 
     async def update_pool(
-        self, tenant_id: str, pool_id: str, *, actor: Actor, **kwargs
+        self,
+        tenant_id: str,
+        pool_id: str,
+        *,
+        actor: Actor,
+        undoing: Undoing | None = None,
+        **kwargs,
     ) -> dict | None:
         async with get_session() as session:
             repo = PoolRepository(session, tenant_id)
@@ -75,7 +82,13 @@ class PoolService:
             pool = await repo.update(pool_id, **kwargs)
             pool_dict = pool_to_dict(pool)
             await ChangeRepository(session, tenant_id).record(
-                "pool.update", "pool", pool_id, actor, before=before, after=pool_dict
+                "pool.update",
+                "pool",
+                pool_id,
+                actor,
+                before=before,
+                after=pool_dict,
+                undoing=undoing,
             )
         self._events.emit_audit(
             AuditEvent(

@@ -94,7 +94,6 @@ class ProxyService:
         if self._entitlements is None:
             self._entitlements = edition.entitlements(self._settings, self._redis)
         self._pool_service = PoolService(events=self._events)
-        self._change_service = ChangeService()
         self._experiment_service = ExperimentService(
             redis=self._redis,
             gate_service=self._gate_service,
@@ -102,6 +101,11 @@ class ProxyService:
             events=self._events,
             settings=self._settings,
             entitlements=self._entitlements,
+        )
+        self._change_service = ChangeService(
+            experiments=self._experiment_service,
+            gates=self._gate_service,
+            pools=self._pool_service,
         )
         self._agent_service = AgentService(
             gate_service=self._gate_service,
@@ -329,6 +333,19 @@ class ProxyService:
 
     async def get_change(self, tenant_id: str, change_id: str) -> dict | None:
         return await self._change_service.get_change(tenant_id, change_id)
+
+    async def undo_change(
+        self,
+        tenant_id: str,
+        change_id: str,
+        *,
+        actor: Actor,
+        reason: str | None = None,
+        plan_tier: str = "free",
+    ) -> dict | None:
+        return await self._change_service.undo(
+            tenant_id, change_id, actor=actor, reason=reason, plan_tier=plan_tier
+        )
 
     # agent
 

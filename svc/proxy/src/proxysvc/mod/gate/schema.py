@@ -40,6 +40,35 @@ class GateConfigRequest(BaseModel):
                 raise ValueError("schedule_start must be before schedule_end")
         return self
 
+    @classmethod
+    def from_snapshot(cls, config: dict) -> GateConfigRequest:
+        """the request that writes a gate back to a stored FeatureGateConfig dump."""
+        experiment = config["experiment"]
+        hour = experiment["schedule"]["hour"]
+        period = experiment["schedule"]["period"]
+        return cls(
+            enabled=config["enabled"],
+            rollout_percentage=experiment["rollout"]["percentage"],
+            default_arm_id=experiment["arm"]["committed"]["id"],
+            schedule_start=period["start"],
+            schedule_end=period["end"],
+            active_hours_start=hour["start"],
+            active_hours_end=hour["end"],
+            timezone=hour["timezone"],
+            rules=[_rule_from_snapshot(rule) for rule in config["rules"]],
+        )
+
+
+def _rule_from_snapshot(rule: dict) -> RuleRequest:
+    committed = (rule.get("arm") or {}).get("committed") or {}
+    return RuleRequest(
+        key=rule["key"],
+        operator=rule["operator"],
+        value=rule["value"],
+        arm_id=committed.get("id"),
+        arm_name=committed.get("name"),
+    )
+
 
 class GateConfigPatchRequest(BaseModel):
     """a partial gate update.

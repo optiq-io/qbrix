@@ -162,6 +162,42 @@ class RedisClient:
             f"{_LEARNING_ATTEMPTS} attempts"
         )
 
+    async def restore_learning(
+        self, tenant_id: str, experiment_id: str, learning: Learning
+    ) -> Learning:
+        """replace the learning with ``learning`` and return what it replaced.
+
+        watched like ``apply_learning``, so the returned learning is exactly
+        the one the restore overwrote, even while cortex trains.
+        """
+        experiment_key = self._experiment_key(tenant_id, experiment_id)
+        param_key = self._param_key(tenant_id, experiment_id)
+        learning_key = self._learning_key(tenant_id, experiment_id)
+
+        async with self.client.pipeline(transaction=True) as pipe:
+            for _ in range(_LEARNING_ATTEMPTS):
+                try:
+                    await pipe.watch(experiment_key, param_key, learning_key)
+                    params, record = await pipe.mget(param_key, learning_key)
+                    replaced = Learning.decode(params, record)
+                    pipe.multi()
+                    if learning.params is None:
+                        # noinspection PyAsyncCall
+                        pipe.delete(param_key)
+                    else:
+                        # noinspection PyAsyncCall
+                        pipe.set(param_key, json.dumps(learning.params))
+                    # noinspection PyAsyncCall
+                    pipe.set(learning_key, learning.encode_record())
+                    await pipe.execute()
+                    return replaced
+                except WatchError:
+                    continue
+        raise WatchError(
+            f"learning for {tenant_id}/{experiment_id} kept changing during "
+            f"{_LEARNING_ATTEMPTS} attempts"
+        )
+
     async def reset_learning(self, tenant_id: str, experiment_id: str) -> None:
         await self.client.delete(
             self._param_key(tenant_id, experiment_id),
