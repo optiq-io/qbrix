@@ -5,6 +5,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import grpc
 import pytest
 
+from qbrixlog.context import get_request_id
+from qbrixlog.context import set_request_id
+
 from proxysvc.config import ProxySettings
 from proxysvc.transport.grpc.auth.context import (
     GRPCAuthContext,
@@ -159,6 +162,58 @@ class TestAuthInterceptorDevMode:
 
         result = await interceptor.intercept_service(continuation, details)
         assert result is not handler  # wrapped, not rejected
+
+
+class TestAuthInterceptorIdentity:
+    """the api key and request id a change is recorded with."""
+
+    @staticmethod
+    async def _run(interceptor, metadata):
+        handler = _make_handler()
+        continuation = AsyncMock(return_value=handler)
+        details = _make_handler_call_details(
+            "/qbrix.proxy.ProxyService/CreatePool", metadata=metadata
+        )
+        result = await interceptor.intercept_service(continuation, details)
+        set_grpc_auth_context(None)
+        set_request_id(None)
+        await result.unary_unary(MagicMock(), MagicMock())
+        return get_grpc_auth_context(), get_request_id()
+
+    @pytest.mark.asyncio
+    @patch("proxysvc.mod.auth.operator.auth_operator")
+    async def test_api_key_id_and_inbound_request_id_are_kept(self, mock_auth_operator):
+        api_key = _make_api_key(user_id="u-456")
+        api_key.id = "key-9"
+        mock_auth_operator.validate_api_key = AsyncMock(return_value=api_key)
+        mock_auth_operator.get_user = AsyncMock(
+            return_value=_make_user(user_id="u-456")
+        )
+        mock_auth_operator.check_api_key_rate_limit = AsyncMock(return_value=True)
+
+        ctx, logged = await self._run(
+            AuthInterceptor(ProxySettings(runenv="production")),
+            {"x-api-key": "optiq_testkey123", "x-request-id": "req-77"},
+        )
+
+        assert ctx.api_key_id == "key-9"
+        assert ctx.request_id == "req-77"
+        assert logged == "req-77"
+        set_grpc_auth_context(None)
+        set_request_id(None)
+
+    @pytest.mark.asyncio
+    async def test_an_unsafe_request_id_is_replaced(self):
+        ctx, logged = await self._run(
+            AuthInterceptor(ProxySettings(runenv="dev")),
+            {"x-request-id": "not safe\n"},
+        )
+
+        assert ctx.api_key_id == ""
+        assert len(ctx.request_id) == 32
+        assert logged == ctx.request_id
+        set_grpc_auth_context(None)
+        set_request_id(None)
 
 
 class TestAuthInterceptorAPIKey:

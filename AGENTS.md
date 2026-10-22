@@ -56,6 +56,14 @@ low-latency while parameter updates are eventually consistent.
 - Auth: JWT tokens and API keys (prefix `optiq_`). Roles: admin, member, viewer.
 - Multi-tenant: the tenant is resolved from the authenticated principal, never from
   a header.
+- Every pool, experiment and gate write records a `Change` (`mod/change/`) on its
+  own session, before commit, so the object and its record commit together. Write
+  methods take a required `actor: Actor` (`core/actor.py`), built once per request:
+  `get_actor` on HTTP, `_get_actor()` from `GRPCAuthContext` on gRPC. A change holds
+  before and after, and for experiments a learning snapshot keyed by experiment id
+  (a meta experiment's learners included). Every request has an id
+  (`X-Request-ID` / `x-request-id`, kept when safe, otherwise minted), in the logs
+  and on the change.
 - `ProxyRuntime` (`proxysvc/runtime.py`) is the composition root: it owns Redis,
   `ProxyService`, `AuthService`, the invalidation bus and, in the cloud edition,
   `BillingService`, and starts and stops them in one place. `cli.py` only parses
@@ -216,7 +224,7 @@ Policies register in `qbrixcore/policy/__init__.py` (`POLICIES`).
 Postgres, Redis and ClickHouse.
 
 **Postgres** (SQLAlchemy 2.0, asyncpg): `Tenant`, `User`, `APIKey`, `Invite`,
-`Pool`, `Arm`, `Experiment`, `FeatureGate`, and the billing tables
+`Pool`, `Arm`, `Experiment`, `FeatureGate`, `Change`, and the billing tables
 (`StripeCustomer`, `Subscription`, `Invoice`), which stay in the one migration
 chain and are unused outside the cloud edition. The schema is owned by Alembic
 (`qbrixstore/migrations/`); services never create tables.

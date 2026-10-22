@@ -9,6 +9,7 @@ from fastapi import Depends
 from pydantic import BaseModel
 
 from proxysvc.transport.http.auth.dependencies import get_current_user_id
+from proxysvc.transport.http.auth.dependencies import get_actor
 from proxysvc.transport.http.auth.dependencies import get_current_tenant_id
 from proxysvc.transport.http.auth.dependencies import require_scopes
 from proxysvc.transport.http.exception import PoolNotFoundException
@@ -16,6 +17,7 @@ from proxysvc.transport.http.exception import PoolHasExperimentsException
 from proxysvc.transport.http.exception import PoolCreationException
 from proxysvc.transport.http.exception import InternalServerException
 from proxysvc.service import ProxyService
+from proxysvc.core.actor import Actor
 from proxysvc.core.error import PoolHasExperimentsError
 
 logger = logging.getLogger(__name__)
@@ -96,18 +98,16 @@ class ExperimentLinkedResponse(BaseModel):
 async def create_pool(
     body: PoolCreateRequest,
     tenant_id: str = Depends(get_current_tenant_id),
-    user_id: str = Depends(get_current_user_id),
+    actor: Actor = Depends(get_actor),
     _user=Depends(require_scopes(["pool:write"])),
 ):
     """create a new pool with arms."""
     try:
         service = get_proxy_service()
         arms_data = [{"name": arm.name, "metadata": arm.metadata} for arm in body.arms]
-        pool = await service.create_pool(
-            tenant_id, body.name, arms_data, actor_id=user_id
-        )
+        pool = await service.create_pool(tenant_id, body.name, arms_data, actor=actor)
 
-        logger.info(f"pool created: {pool['id']} by user {user_id}")
+        logger.info(f"pool created: {pool['id']} by user {actor.user_id}")
         return _to_response(pool)
     except PoolCreationException:
         raise
@@ -146,7 +146,7 @@ async def update_pool(
     pool_id: str,
     body: PoolUpdateRequest,
     tenant_id: str = Depends(get_current_tenant_id),
-    user_id: str = Depends(get_current_user_id),
+    actor: Actor = Depends(get_actor),
     _user=Depends(require_scopes(["pool:write"])),
 ):
     """update pool by id."""
@@ -157,12 +157,12 @@ async def update_pool(
         if body.name is not None:
             kwargs["name"] = body.name
 
-        pool = await service.update_pool(tenant_id, pool_id, actor_id=user_id, **kwargs)
+        pool = await service.update_pool(tenant_id, pool_id, actor=actor, **kwargs)
 
         if pool is None:
             raise PoolNotFoundException(f"pool not found: {pool_id}")
 
-        logger.info(f"pool updated: {pool_id} by user {user_id}")
+        logger.info(f"pool updated: {pool_id} by user {actor.user_id}")
         return _to_response(pool)
     except PoolNotFoundException:
         raise
@@ -178,21 +178,21 @@ async def update_pool(
 async def delete_pool(
     pool_id: str,
     tenant_id: str = Depends(get_current_tenant_id),
-    user_id: str = Depends(get_current_user_id),
+    actor: Actor = Depends(get_actor),
     _user=Depends(require_scopes(["pool:delete"])),
 ):
     """delete pool by id."""
     service = get_proxy_service()
 
     try:
-        deleted = await service.delete_pool(tenant_id, pool_id, actor_id=user_id)
+        deleted = await service.delete_pool(tenant_id, pool_id, actor=actor)
     except PoolHasExperimentsError as e:
         raise PoolHasExperimentsException(str(e))
 
     if not deleted:
         raise PoolNotFoundException(f"pool not found: {pool_id}")
 
-    logger.info(f"pool deleted: {pool_id} by user {user_id}")
+    logger.info(f"pool deleted: {pool_id} by user {actor.user_id}")
     return {"message": "pool deleted successfully"}
 
 

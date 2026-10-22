@@ -13,6 +13,7 @@ from qbrixproto import common_pb2
 
 from cortexsvc.config import CortexSettings
 from cortexsvc.server import CortexGRPCServicer
+from cortexsvc.service import CortexService
 
 
 class TestCortexGRPCServicerInit:
@@ -46,8 +47,23 @@ class TestCortexGRPCServicerFlushBatch:
         response = await servicer.FlushBatch(request, context)
 
         # assert
-        mock_service.flush_batch.assert_called_once_with("exp-001")
+        mock_service.flush_batch.assert_called_once_with(experiment_id="exp-001")
         assert response.events_processed == 10
+
+    @pytest.mark.asyncio
+    async def test_flush_batch_reaches_the_dispatcher_as_an_experiment_id(self):
+        service = CortexService(CortexSettings())
+        service._dispatcher = AsyncMock()
+        service._dispatcher.flush = AsyncMock(return_value=3)
+        servicer = CortexGRPCServicer(service)
+
+        request = cortex_pb2.FlushBatchRequest(experiment_id="exp-001")
+        response = await servicer.FlushBatch(request, Mock())
+
+        service._dispatcher.flush.assert_called_once_with(
+            tenant_id=None, experiment_id="exp-001"
+        )
+        assert response.events_processed == 3
 
     @pytest.mark.asyncio
     async def test_flush_batch_with_empty_experiment_id_passes_none(self):
@@ -63,7 +79,7 @@ class TestCortexGRPCServicerFlushBatch:
         response = await servicer.FlushBatch(request, context)
 
         # assert
-        mock_service.flush_batch.assert_called_once_with(None)
+        mock_service.flush_batch.assert_called_once_with(experiment_id=None)
         assert response.events_processed == 5
 
     @pytest.mark.asyncio
@@ -117,7 +133,7 @@ class TestCortexGRPCServicerGetStats:
         response = await servicer.GetStats(request, context)
 
         # assert
-        mock_service.get_stats.assert_called_once_with(None)
+        mock_service.get_stats.assert_called_once_with(experiment_id=None)
         assert len(response.stats) == 2
         assert response.stats[0].experiment_id == "exp-001"
         assert response.stats[0].total_events == 100
@@ -147,7 +163,7 @@ class TestCortexGRPCServicerGetStats:
         response = await servicer.GetStats(request, context)
 
         # assert
-        mock_service.get_stats.assert_called_once_with("exp-001")
+        mock_service.get_stats.assert_called_once_with(experiment_id="exp-001")
         assert len(response.stats) == 1
         assert response.stats[0].experiment_id == "exp-001"
 

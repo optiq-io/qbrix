@@ -20,6 +20,9 @@ from proxysvc.core.error import TokenInvalidError
 from proxysvc.mod.agent.token import SelectionToken
 from proxysvc.mod.gate.model.base import BaseArmModel
 from proxysvc import edition
+from proxysvc.core.actor import Actor
+
+ACTOR = Actor.member("test-user")
 
 
 def _make_pool_record(**overrides):
@@ -389,6 +392,7 @@ class TestProxyServicePoolCRUD:
     @patch("proxysvc.mod.pool.service.get_session")
     async def test_create_pool(self, mock_get_session, service):
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -397,7 +401,7 @@ class TestProxyServicePoolCRUD:
         mock_repo.create = AsyncMock(return_value=pool)
 
         with patch("proxysvc.mod.pool.service.PoolRepository", return_value=mock_repo):
-            result = await service.create_pool("t-1", "Test Pool", [])
+            result = await service.create_pool("t-1", "Test Pool", [], actor=ACTOR)
 
         assert result["id"] == "pool-1"
         assert result["name"] == "Test Pool"
@@ -406,6 +410,7 @@ class TestProxyServicePoolCRUD:
     @patch("proxysvc.mod.pool.service.get_session")
     async def test_get_pool_found(self, mock_get_session, service):
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -423,6 +428,7 @@ class TestProxyServicePoolCRUD:
     @patch("proxysvc.mod.pool.service.get_session")
     async def test_get_pool_not_found(self, mock_get_session, service):
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -438,6 +444,7 @@ class TestProxyServicePoolCRUD:
     @patch("proxysvc.mod.pool.service.get_session")
     async def test_list_pools(self, mock_get_session, service):
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -454,6 +461,7 @@ class TestProxyServicePoolCRUD:
     @patch("proxysvc.mod.pool.service.get_session")
     async def test_delete_pool(self, mock_get_session, service):
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -470,7 +478,7 @@ class TestProxyServicePoolCRUD:
             ),
             patch("proxysvc.mod.pool.service.PoolRepository", return_value=mock_repo),
         ):
-            result = await service.delete_pool("t-1", "pool-1")
+            result = await service.delete_pool("t-1", "pool-1", actor=ACTOR)
 
         assert result is True
 
@@ -478,6 +486,7 @@ class TestProxyServicePoolCRUD:
     @patch("proxysvc.mod.pool.service.get_session")
     async def test_delete_pool_with_experiments_raises(self, mock_get_session, service):
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -491,7 +500,7 @@ class TestProxyServicePoolCRUD:
             return_value=mock_exp_repo,
         ):
             with pytest.raises(PoolHasExperimentsError):
-                await service.delete_pool("t-1", "pool-1")
+                await service.delete_pool("t-1", "pool-1", actor=ACTOR)
 
 
 class TestProxyServiceExperimentCRUD:
@@ -500,6 +509,7 @@ class TestProxyServiceExperimentCRUD:
     @patch("proxysvc.mod.experiment.service.get_session")
     async def test_create_experiment_syncs_redis(self, mock_get_session, service):
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -529,6 +539,7 @@ class TestProxyServiceExperimentCRUD:
                 policy="BetaTSPolicy",
                 policy_params={},
                 enabled=True,
+                actor=ACTOR,
             )
 
         assert result["id"] == "exp-1"
@@ -541,6 +552,7 @@ class TestProxyServiceExperimentCRUD:
         self, mock_get_session, service
     ):
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -586,6 +598,7 @@ class TestProxyServiceExperimentCRUD:
                 feature_gate_config=GateConfigRequest(
                     enabled=True, rollout_percentage=50.0
                 ),
+                actor=ACTOR,
             )
 
         assert result["id"] == "exp-1"
@@ -597,6 +610,7 @@ class TestProxyServiceExperimentCRUD:
         self, mock_get_session, service
     ):
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -645,6 +659,7 @@ class TestProxyServiceExperimentCRUD:
                     "dim": 8,
                 },
                 enabled=True,
+                actor=ACTOR,
             )
 
         assert result["id"] == "meta-1"
@@ -674,6 +689,7 @@ class TestProxyServiceExperimentCRUD:
         self, mock_get_session, service
     ):
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -720,6 +736,7 @@ class TestProxyServiceExperimentCRUD:
                 feature_gate_config=GateConfigRequest(
                     enabled=True, rollout_percentage=25.0
                 ),
+                actor=ACTOR,
             )
 
         # feature_gate_config must be forwarded to the meta parent's create call
@@ -734,6 +751,7 @@ class TestProxyServiceExperimentCRUD:
     @patch("proxysvc.mod.experiment.service.get_session")
     async def test_update_experiment_syncs_redis(self, mock_get_session, service):
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -759,7 +777,9 @@ class TestProxyServiceExperimentCRUD:
                 return_value=mock_pool_repo,
             ),
         ):
-            result = await service.update_experiment("t-1", "exp-1", name="Updated")
+            result = await service.update_experiment(
+                "t-1", "exp-1", name="Updated", actor=ACTOR
+            )
 
         assert result is not None
         service._redis.set_experiment.assert_called_once()
@@ -772,17 +792,21 @@ class TestProxyServiceExperimentCRUD:
     @patch("proxysvc.mod.experiment.service.get_session")
     async def test_delete_experiment_cleans_redis(self, mock_get_session, service):
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
         mock_repo = AsyncMock()
+        mock_repo.get = AsyncMock(
+            return_value=_make_experiment_record(meta_experiment_id=None)
+        )
         mock_repo.delete = AsyncMock(return_value=True)
 
         with patch(
             "proxysvc.mod.experiment.service.ExperimentRepository",
             return_value=mock_repo,
         ):
-            result = await service.delete_experiment("t-1", "exp-1")
+            result = await service.delete_experiment("t-1", "exp-1", actor=ACTOR)
 
         assert result is True
         service._redis.delete_experiment.assert_called_once_with("t-1", "exp-1")
@@ -794,6 +818,7 @@ class TestProxyServiceExperimentCRUD:
         self, mock_get_session, service
     ):
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -805,7 +830,7 @@ class TestProxyServiceExperimentCRUD:
             "proxysvc.mod.experiment.service.ExperimentRepository",
             return_value=mock_repo,
         ):
-            result = await service.reset_experiment("t-1", "exp-1", actor_id="u-1")
+            result = await service.reset_experiment("t-1", "exp-1", actor=ACTOR)
 
         assert result is not None
         assert result["id"] == "exp-1"
@@ -817,6 +842,7 @@ class TestProxyServiceExperimentCRUD:
     @patch("proxysvc.mod.experiment.service.get_session")
     async def test_reset_experiment_running_raises(self, mock_get_session, service):
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -829,7 +855,7 @@ class TestProxyServiceExperimentCRUD:
             return_value=mock_repo,
         ):
             with pytest.raises(ExperimentRunningError):
-                await service.reset_experiment("t-1", "exp-1")
+                await service.reset_experiment("t-1", "exp-1", actor=ACTOR)
 
         service._redis.reset_learning.assert_not_called()
         service._cortex_client.flush_batch.assert_not_called()
@@ -840,6 +866,7 @@ class TestProxyServiceExperimentCRUD:
         self, mock_get_session, service
     ):
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -850,7 +877,7 @@ class TestProxyServiceExperimentCRUD:
             "proxysvc.mod.experiment.service.ExperimentRepository",
             return_value=mock_repo,
         ):
-            result = await service.reset_experiment("t-1", "missing")
+            result = await service.reset_experiment("t-1", "missing", actor=ACTOR)
 
         assert result is None
         service._redis.reset_learning.assert_not_called()
@@ -861,6 +888,7 @@ class TestProxyServiceExperimentCRUD:
         self, mock_get_session, service
     ):
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -875,7 +903,7 @@ class TestProxyServiceExperimentCRUD:
             "proxysvc.mod.experiment.service.ExperimentRepository",
             return_value=mock_repo,
         ):
-            result = await service.reset_experiment("t-1", "exp-1")
+            result = await service.reset_experiment("t-1", "exp-1", actor=ACTOR)
 
         assert result is not None
         service._redis.reset_learning.assert_called_once_with("t-1", "exp-1")

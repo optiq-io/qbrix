@@ -14,6 +14,9 @@ from proxysvc.core.events import EventEmitter
 from proxysvc.service import ProxyService
 from proxysvc.core.error import ExperimentLimitError
 from proxysvc import edition
+from proxysvc.core.actor import Actor
+
+ACTOR = Actor.member("test-user")
 
 
 def _make_pool_record(**overrides):
@@ -92,6 +95,7 @@ class TestExperimentLimitsOnCreate:
     @patch("proxysvc.mod.experiment.service.get_session")
     async def test_free_plan_under_limit_succeeds(self, mock_get_session, service):
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -122,6 +126,7 @@ class TestExperimentLimitsOnCreate:
                 policy_params={},
                 enabled=True,
                 plan_tier="free",
+                actor=ACTOR,
             )
 
         assert result["id"] == "exp-1"
@@ -130,6 +135,7 @@ class TestExperimentLimitsOnCreate:
     @patch("proxysvc.mod.experiment.service.get_session")
     async def test_free_plan_at_limit_raises(self, mock_get_session, service):
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -151,6 +157,7 @@ class TestExperimentLimitsOnCreate:
                     policy_params={},
                     enabled=True,
                     plan_tier="free",
+                    actor=ACTOR,
                 )
 
     @pytest.mark.asyncio
@@ -158,6 +165,7 @@ class TestExperimentLimitsOnCreate:
     @patch("proxysvc.mod.experiment.service.get_session")
     async def test_paid_plans_unlimited(self, mock_get_session, service, plan_tier):
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -188,6 +196,7 @@ class TestExperimentLimitsOnCreate:
                 policy_params={},
                 enabled=True,
                 plan_tier=plan_tier,
+                actor=ACTOR,
             )
 
         assert result["id"] == "exp-1"
@@ -198,6 +207,7 @@ class TestExperimentLimitsOnCreate:
         self, mock_get_session, service
     ):
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -228,6 +238,7 @@ class TestExperimentLimitsOnCreate:
                 policy_params={},
                 enabled=False,
                 plan_tier="free",
+                actor=ACTOR,
             )
 
         assert result["id"] == "exp-1"
@@ -239,6 +250,7 @@ class TestExperimentLimitsOnEnable:
     @patch("proxysvc.mod.experiment.service.get_session")
     async def test_enabling_at_limit_raises(self, mock_get_session, service):
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -258,12 +270,14 @@ class TestExperimentLimitsOnEnable:
                     "exp-1",
                     plan_tier="free",
                     enabled=True,
+                    actor=ACTOR,
                 )
 
     @pytest.mark.asyncio
     @patch("proxysvc.mod.experiment.service.get_session")
     async def test_disabling_does_not_check_limit(self, mock_get_session, service):
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_get_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_get_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -291,6 +305,7 @@ class TestExperimentLimitsOnEnable:
                 "exp-1",
                 plan_tier="free",
                 enabled=False,
+                actor=ACTOR,
             )
 
         assert result is not None

@@ -12,6 +12,8 @@ class GRPCAuthContext:
     user_id: str
     role: str
     scopes: list[str] = field(default_factory=list)
+    api_key_id: str = ""
+    request_id: str = ""
 
 
 _grpc_auth_context: ContextVar[GRPCAuthContext | None] = ContextVar(

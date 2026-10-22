@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from proxysvc.transport.http.auth.dependencies import get_current_user
 from proxysvc.transport.http.auth.dependencies import get_current_user_id
+from proxysvc.transport.http.auth.dependencies import get_actor
 from proxysvc.transport.http.auth.dependencies import get_current_tenant_id
 from proxysvc.transport.http.auth.dependencies import require_scopes
 from proxysvc.transport.http.exception import ExperimentNotFoundException
@@ -28,6 +29,7 @@ from proxysvc.core.error import ContextDimImmutableError
 from proxysvc.core.error import ContextSchemaImmutableError
 from proxysvc.core.error import ExperimentRunningError
 from proxysvc.service import ProxyService
+from proxysvc.core.actor import Actor
 from proxysvc.mod.gate.schema import GateConfigRequest
 from proxysvc.mod.gate.response import GateConfigResponse
 from proxysvc.mod.gate.response import to_response
@@ -112,6 +114,7 @@ async def create_experiment(
     body: ExperimentCreateRequest,
     tenant_id: str = Depends(get_current_tenant_id),
     user=Depends(get_current_user),
+    actor: Actor = Depends(get_actor),
     _scoped=Depends(require_scopes(["experiment:write"])),
 ):
     """create a new experiment."""
@@ -126,7 +129,7 @@ async def create_experiment(
                 policy_params=body.policy_params,
                 enabled=body.enabled,
                 feature_gate_config=body.feature_gate,
-                actor_id=user.id,
+                actor=actor,
                 plan_tier=user.plan_tier,
             )
         else:
@@ -140,7 +143,7 @@ async def create_experiment(
                 policy_params=body.policy_params,
                 enabled=body.enabled,
                 feature_gate_config=body.feature_gate,
-                actor_id=user.id,
+                actor=actor,
                 plan_tier=user.plan_tier,
             )
 
@@ -188,6 +191,7 @@ async def update_experiment(
     body: ExperimentUpdateRequest,
     tenant_id: str = Depends(get_current_tenant_id),
     user=Depends(get_current_user),
+    actor: Actor = Depends(get_actor),
     _scoped=Depends(require_scopes(["experiment:write"])),
 ):
     """update experiment by id."""
@@ -203,7 +207,7 @@ async def update_experiment(
         experiment = await service.update_experiment(
             tenant_id,
             experiment_id,
-            actor_id=user.id,
+            actor=actor,
             plan_tier=user.plan_tier,
             **kwargs,
         )
@@ -239,13 +243,14 @@ async def reset_experiment(
     experiment_id: str,
     tenant_id: str = Depends(get_current_tenant_id),
     user=Depends(get_current_user),
+    actor: Actor = Depends(get_actor),
     _scoped=Depends(require_scopes(["experiment:write"])),
 ):
     """reset an experiment's learned params back to its configured policy_params."""
     try:
         service = get_proxy_service()
         experiment = await service.reset_experiment(
-            tenant_id, experiment_id, actor_id=user.id
+            tenant_id, experiment_id, actor=actor
         )
     except ExperimentRunningError as e:
         logger.error(str(e))
@@ -265,15 +270,13 @@ async def reset_experiment(
 async def delete_experiment(
     experiment_id: str,
     tenant_id: str = Depends(get_current_tenant_id),
-    user_id: str = Depends(get_current_user_id),
+    actor: Actor = Depends(get_actor),
     _user=Depends(require_scopes(["experiment:delete"])),
 ):
     """delete experiment by id."""
     try:
         service = get_proxy_service()
-        deleted = await service.delete_experiment(
-            tenant_id, experiment_id, actor_id=user_id
-        )
+        deleted = await service.delete_experiment(tenant_id, experiment_id, actor=actor)
     except LearnerExperimentDeleteError as e:
         logger.error(str(e))
         raise LearnerExperimentDeleteException(str(e))
@@ -286,7 +289,7 @@ async def delete_experiment(
         logger.error(not_found_msg)
         raise ExperimentNotFoundException(not_found_msg)
 
-    logger.info(f"experiment deleted: {experiment_id} by user {user_id}")
+    logger.info(f"experiment deleted: {experiment_id} by user {actor.user_id}")
     return {"message": "experiment deleted successfully"}
 
 

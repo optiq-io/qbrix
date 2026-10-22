@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import grpc
 
 from qbrixlog import get_logger
+from qbrixlog.context import set_request_id
 
 from proxysvc.config import ProxySettings
+from proxysvc.core.actor import inbound_request_id
 from proxysvc.mod.auth.scope import ROLE_SCOPES
 from proxysvc.mod.auth.scope import RPC_SCOPES
 from proxysvc.transport.grpc.auth.context import GRPCAuthContext, set_grpc_auth_context
@@ -58,6 +62,8 @@ class AuthInterceptor(grpc.aio.ServerInterceptor):
         if method in PUBLIC_METHODS:
             return handler
 
+        request_id = inbound_request_id(metadata.get("x-request-id"))
+
         # in dev mode, use the dev credentials
         if self._settings.runenv == "dev":
             logger.debug("development mode: bypassing grpc auth for %s", method)
@@ -68,6 +74,7 @@ class AuthInterceptor(grpc.aio.ServerInterceptor):
                     user_id=DEV_USER_ID,
                     role=DEV_USER_ROLE,
                     scopes=ROLE_SCOPES.get(Role.ADMIN.value, []),
+                    request_id=request_id,
                 ),
             )
 
@@ -92,7 +99,7 @@ class AuthInterceptor(grpc.aio.ServerInterceptor):
                     f"missing required scope: {required_scope}",
                 )
 
-        return _wrap_handler(handler, auth_ctx)
+        return _wrap_handler(handler, replace(auth_ctx, request_id=request_id))
 
     async def _authenticate(
         self, metadata: dict, apply_rate_limit: bool = True
@@ -147,6 +154,7 @@ class AuthInterceptor(grpc.aio.ServerInterceptor):
             user_id=user.id,
             role=user.role,
             scopes=api_key.scopes,
+            api_key_id=api_key.id,
         )
 
     @staticmethod
@@ -216,6 +224,7 @@ def _wrap_unary_unary(behavior, auth_ctx: GRPCAuthContext):
 
     async def wrapper(request, context):
         set_grpc_auth_context(auth_ctx)
+        set_request_id(auth_ctx.request_id)
         return await behavior(request, context)
 
     return wrapper
@@ -226,6 +235,7 @@ def _wrap_unary_stream(behavior, auth_ctx: GRPCAuthContext):
 
     async def wrapper(request, context):
         set_grpc_auth_context(auth_ctx)
+        set_request_id(auth_ctx.request_id)
         async for response in behavior(request, context):
             yield response
 
@@ -237,6 +247,7 @@ def _wrap_stream_unary(behavior, auth_ctx: GRPCAuthContext):
 
     async def wrapper(request_iterator, context):
         set_grpc_auth_context(auth_ctx)
+        set_request_id(auth_ctx.request_id)
         return await behavior(request_iterator, context)
 
     return wrapper
@@ -247,6 +258,7 @@ def _wrap_stream_stream(behavior, auth_ctx: GRPCAuthContext):
 
     async def wrapper(request_iterator, context):
         set_grpc_auth_context(auth_ctx)
+        set_request_id(auth_ctx.request_id)
         async for response in behavior(request_iterator, context):
             yield response
 

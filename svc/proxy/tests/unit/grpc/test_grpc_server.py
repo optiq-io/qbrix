@@ -33,6 +33,9 @@ from proxysvc.transport.grpc.exception.base import (
     UnauthenticatedException,
 )
 from proxysvc.server import ProxyGRPCServicer
+from proxysvc.core.actor import Actor
+
+ACTOR = Actor.member("test-user")
 
 # ── shared test data ──────────────────────────────────────────────────────────
 
@@ -201,7 +204,9 @@ class TestCreatePool:
         request.arms = []
 
         await servicer.CreatePool(request, grpc_context)
-        mock_service.create_pool.assert_awaited_once_with("test-tenant", "my-pool", [])
+        mock_service.create_pool.assert_awaited_once_with(
+            "test-tenant", "my-pool", [], actor=ACTOR
+        )
 
     async def test_no_auth_raises(self, servicer, mock_service, grpc_context):
         set_grpc_auth_context(None)
@@ -292,7 +297,7 @@ class TestUpdatePool:
 
         await servicer.UpdatePool(request, grpc_context)
         mock_service.update_pool.assert_awaited_once_with(
-            "test-tenant", "p-1", name="new-name"
+            "test-tenant", "p-1", actor=ACTOR, name="new-name"
         )
 
     async def test_not_found_raises(self, servicer, mock_service, grpc_context):
@@ -321,7 +326,9 @@ class TestDeletePool:
         request.pool_id = "p-1"
 
         await servicer.DeletePool(request, grpc_context)
-        mock_service.delete_pool.assert_awaited_once_with("test-tenant", "p-1")
+        mock_service.delete_pool.assert_awaited_once_with(
+            "test-tenant", "p-1", actor=ACTOR
+        )
 
     async def test_pool_has_experiments_raises(
         self, servicer, mock_service, grpc_context
@@ -728,7 +735,9 @@ class TestDeleteExperiment:
         request.experiment_id = "e-1"
 
         await servicer.DeleteExperiment(request, grpc_context)
-        mock_service.delete_experiment.assert_awaited_once_with("test-tenant", "e-1")
+        mock_service.delete_experiment.assert_awaited_once_with(
+            "test-tenant", "e-1", actor=ACTOR
+        )
 
     async def test_not_found_raises(self, servicer, mock_service, grpc_context):
         mock_service.delete_experiment = AsyncMock(return_value=False)
@@ -974,7 +983,9 @@ class TestDeleteGateConfig:
         request.experiment_id = "e-1"
 
         await servicer.DeleteGateConfig(request, grpc_context)
-        mock_service.delete_gate_config.assert_awaited_once_with("test-tenant", "e-1")
+        mock_service.delete_gate_config.assert_awaited_once_with(
+            "test-tenant", "e-1", actor=ACTOR
+        )
 
 
 # ── select / feedback / health ────────────────────────────────────────────────
