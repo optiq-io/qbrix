@@ -21,3 +21,8 @@ def argmax_random_tiebreak(values) -> int:
     max_val = np.max(a)
     candidates = np.flatnonzero(a == max_val)
     return int(np.random.choice(candidates))
+
+
+def unit_interval(value: float, lo: float, hi: float) -> float:
+    """rescale value from [lo, hi] onto [0, 1], clamping anything outside."""
+    return float(np.clip((float(value) - lo) / (hi - lo), 0.0, 1.0))
