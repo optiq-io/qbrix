@@ -62,6 +62,11 @@ _DOMAIN_TO_GRPC: dict[type[BaseAPIError], type[BaseGRPCException]] = {
     TokenError: TokenInvalidException,
 }
 
+# why a token was rejected would tell the caller whether it verifies elsewhere
+_OPAQUE_DOMAIN_ERRORS: frozenset[type[BaseAPIError]] = frozenset(
+    {TokenInvalidError, TokenError}
+)
+
 
 class ExceptionInterceptor(grpc.aio.ServerInterceptor):
     """grpc server interceptor that converts typed exceptions to grpc status codes.
@@ -186,6 +191,8 @@ def _map_domain_error(exc: BaseAPIError) -> BaseGRPCException:
     """map a domain error to its grpc exception counterpart."""
     grpc_cls = _DOMAIN_TO_GRPC.get(type(exc))
     if grpc_cls is not None:
+        if type(exc) in _OPAQUE_DOMAIN_ERRORS:
+            return grpc_cls()
         return grpc_cls(str(exc))
     logger.error("unmapped domain error: %s: %s", type(exc).__name__, exc)
     return InternalException()

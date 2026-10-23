@@ -10,6 +10,8 @@ invariants verified:
   scenario 4: POST /agent/feedback with a valid token → FeedbackEvent published
               with arm_index matching prior selection
   scenario 5: POST /agent/feedback with a tampered token → 4xx, no FeedbackEvent
+  scenario 5b: POST /agent/feedback with another workspace's token → the same 400
+              as a tampered token, no FeedbackEvent, counted for the caller only
   scenario 6: POST /agent/select with a wrong-width or absent context vector on a
               contextual experiment → 400 INVALID_CONTEXT_VECTOR, motor never called
   scenario 8: POST /agent/select with context.properties on a schema-backed
@@ -31,6 +33,8 @@ from proxysvc.mod.gate.model.base import ArmConfig
 from proxysvc.mod.gate.model.base import BaseArmModel
 from proxysvc.mod.gate import ExperimentConfig
 from proxysvc.mod.gate.model.rule import Rule
+
+from svc.proxy.tests.integration.http.conftest import as_tenant
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -448,6 +452,64 @@ class TestFeedbackTamperedToken:
 
         # no feedback event should have been published
         assert len(wired_app.feedback_spy.events) == 0
+
+
+class TestFeedbackForeignToken:
+    async def _token_of_tenant_a(self, client, wired_app, tenant_a) -> str:
+        with as_tenant(wired_app.app, tenant_id=tenant_a.id, user_id="user-a"):
+            pool_id, arms = await _create_pool(client, name="foreign-token-pool")
+            exp_id = (
+                await _create_experiment(client, pool_id, name="foreign-token-exp")
+            )["id"]
+            wired_app.motor_mock.select.return_value = {
+                "arm": arms[0],
+                "policy": "RandomPolicy",
+            }
+            select_resp = await client.post(
+                "/api/v1/agent/select",
+                json={"experiment_id": exp_id, "context": {"id": "ctx-a"}},
+            )
+        await wired_app.events.drain()
+        assert select_resp.status_code == 200, select_resp.text
+        wired_app.feedback_spy.events.clear()
+        return select_resp.json()["request_id"]
+
+    async def _feedback_as_tenant_b(self, client, wired_app, tenant_b, token: str):
+        with as_tenant(wired_app.app, tenant_id=tenant_b.id, user_id="user-b"):
+            resp = await client.post(
+                "/api/v1/agent/feedback",
+                json={"request_id": token, "reward": 1.0},
+            )
+        await wired_app.events.drain()
+        return resp
+
+    async def test_a_token_from_another_workspace_reads_as_tampered(
+        self, client, wired_app, app_with_db, tenant_a, tenant_b
+    ):
+        token = await self._token_of_tenant_a(client, wired_app, tenant_a)
+        tampered = token[:-1] + ("A" if token[-1] != "A" else "B")
+
+        foreign = await self._feedback_as_tenant_b(client, wired_app, tenant_b, token)
+        forged = await self._feedback_as_tenant_b(client, wired_app, tenant_b, tampered)
+
+        assert foreign.status_code == 400, foreign.text
+        assert foreign.json() == forged.json()
+        assert wired_app.feedback_spy.events == []
+
+    async def test_an_expired_foreign_token_is_counted_for_the_caller_only(
+        self, client, wired_app, app_with_db, tenant_a, tenant_b, monkeypatch
+    ):
+        token = await self._token_of_tenant_a(client, wired_app, tenant_a)
+        monkeypatch.setattr(wired_app.svc._settings, "token_max_age_ms", -1)
+
+        resp = await self._feedback_as_tenant_b(client, wired_app, tenant_b, token)
+
+        assert resp.status_code == 400, resp.text
+        assert wired_app.feedback_spy.events == []
+        redis = wired_app.svc._redis
+        assert await redis.invalid_outcomes(tenant_b.id, window_minutes=5) == 1
+        outcome_keys = f"qbrix:tenant:{tenant_a.id}:health:outcome*"
+        assert await wired_app.fake_redis.keys(outcome_keys) == []
 
 
 # ── scenario 6 ────────────────────────────────────────────────────────────────
