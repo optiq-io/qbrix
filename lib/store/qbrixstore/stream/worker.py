@@ -306,7 +306,7 @@ class StreamWorker(Generic[EventT]):
                 )
 
         if poison:
-            await self._consumer.ack(poison)
+            await self._consumer.quarantine(poison)
 
         return decoded
 

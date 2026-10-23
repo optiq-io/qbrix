@@ -1007,10 +1007,11 @@ class TestSelect:
         assert call_kwargs["experiment_id"] == "e-1"
 
 
-class TestFeedbackNoTenantNeeded:
-    """feedback extracts tenant from token, no auth context needed."""
+class TestFeedbackTenant:
+    """feedback learns for the token's tenant, and passes the principal's
+    tenant only to attribute a token that fails verification."""
 
-    async def test_feedback_does_not_call_get_tenant_id(
+    async def test_feedback_passes_the_principal_tenant(
         self, servicer, mock_service, grpc_context
     ):
         request = MagicMock()
@@ -1019,7 +1020,7 @@ class TestFeedbackNoTenantNeeded:
 
         await servicer.Feedback(request, grpc_context)
         mock_service.feed.assert_awaited_once_with(
-            request_id="signed-token", reward=1.0
+            tenant_id="test-tenant", request_id="signed-token", reward=1.0
         )
 
     async def test_missing_request_id_noops(self, servicer, mock_service, grpc_context):

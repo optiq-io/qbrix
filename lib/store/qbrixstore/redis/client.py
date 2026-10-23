@@ -10,6 +10,9 @@ from redis.asyncio.client import Pipeline
 from redis.exceptions import WatchError
 
 from qbrixstore.config import RedisSettings
+from qbrixstore.redis.health import OUTCOME_HEALTH_TTL_SEC
+from qbrixstore.redis.health import OutcomeDisposition
+from qbrixstore.redis.health import OutcomeHealth
 from qbrixstore.redis.health import SELECT_HEALTH_TTL_SEC
 from qbrixstore.redis.health import SelectErrorReason
 from qbrixstore.redis.health import SelectHealth
@@ -345,4 +348,134 @@ class RedisClient:
             error=outcomes[SelectOutcome.ERROR],
             not_found=outcomes[SelectOutcome.NOT_FOUND],
             by_reason=by_reason,
+        )
+
+    @staticmethod
+    def _outcome_health_key(
+        tenant_id: str,
+        experiment_id: str,
+        minute: int,
+        disposition: OutcomeDisposition,
+    ) -> str:
+        return (
+            f"qbrix:tenant:{tenant_id}:health:outcome:{experiment_id}"
+            f":{minute}:{disposition.value}"
+        )
+
+    @staticmethod
+    def _last_arrival_key(tenant_id: str, experiment_id: str) -> str:
+        return f"qbrix:tenant:{tenant_id}:health:outcome:{experiment_id}:last_arrival"
+
+    @staticmethod
+    def _invalid_outcome_key(tenant_id: str, minute: int) -> str:
+        return f"qbrix:tenant:{tenant_id}:health:outcome_invalid:{minute}"
+
+    def stage_outcomes(
+        self,
+        pipe: Pipeline,
+        tenant_id: str,
+        experiment_id: str,
+        counts: dict[OutcomeDisposition, int],
+        last_arrival_ms: int | None = None,
+        minute: int | None = None,
+    ) -> None:
+        """queue outcome counts onto a caller's pipeline, so they land with
+        whatever else it writes, or not at all."""
+        if minute is None:
+            minute = int(time.time()) // 60
+        for disposition, count in counts.items():
+            if count <= 0:
+                continue
+            key = self._outcome_health_key(
+                tenant_id, experiment_id, minute, disposition
+            )
+            # noinspection PyAsyncCall
+            pipe.incrby(key, count)
+            # noinspection PyAsyncCall
+            pipe.expire(key, OUTCOME_HEALTH_TTL_SEC)
+        if last_arrival_ms is not None:
+            # noinspection PyAsyncCall
+            pipe.set(
+                self._last_arrival_key(tenant_id, experiment_id),
+                last_arrival_ms,
+                ex=OUTCOME_HEALTH_TTL_SEC,
+            )
+
+    async def count_outcomes(
+        self,
+        tenant_id: str,
+        experiment_id: str,
+        counts: dict[OutcomeDisposition, int],
+        minute: int | None = None,
+    ) -> None:
+        pipe = self.client.pipeline(transaction=False)
+        self.stage_outcomes(pipe, tenant_id, experiment_id, counts, minute=minute)
+        await pipe.execute()
+
+    async def count_invalid_outcome(
+        self, tenant_id: str, minute: int | None = None
+    ) -> None:
+        """count an outcome whose token failed verification. it names no
+        experiment that can be trusted, so it is counted per tenant only."""
+        if minute is None:
+            minute = int(time.time()) // 60
+        key = self._invalid_outcome_key(tenant_id, minute)
+        pipe = self.client.pipeline(transaction=False)
+        # noinspection PyAsyncCall
+        pipe.incr(key)
+        # noinspection PyAsyncCall
+        pipe.expire(key, OUTCOME_HEALTH_TTL_SEC)
+        await pipe.execute()
+
+    async def invalid_outcomes(
+        self, tenant_id: str, window_minutes: int, now_minute: int | None = None
+    ) -> int:
+        if now_minute is None:
+            now_minute = int(time.time()) // 60
+        keys = [
+            self._invalid_outcome_key(tenant_id, m)
+            for m in range(now_minute - window_minutes + 1, now_minute + 1)
+        ]
+        values = await self.client.mget(keys) if keys else []
+        return sum(int(value) for value in values if value)
+
+    async def outcome_health(
+        self,
+        tenant_id: str,
+        experiment_id: str,
+        window_minutes: int,
+        now_minute: int | None = None,
+    ) -> OutcomeHealth:
+        """sum the outcome dispositions of the last ``window_minutes`` minutes,
+        the current one included, with the last arrival."""
+        if now_minute is None:
+            now_minute = int(time.time()) // 60
+        minutes = range(now_minute - window_minutes + 1, now_minute + 1)
+        dispositions = list(OutcomeDisposition)
+        keys = [
+            self._outcome_health_key(tenant_id, experiment_id, m, disposition)
+            for m in minutes
+            for disposition in dispositions
+        ]
+        *values, last_arrival = await self.client.mget(
+            *keys, self._last_arrival_key(tenant_id, experiment_id)
+        )
+
+        learned = 0
+        by_reason: dict[str, int] = {}
+        for disposition, value in zip(dispositions * len(minutes), values):
+            if not value:
+                continue
+            if disposition is OutcomeDisposition.LEARNED:
+                learned += int(value)
+            else:
+                by_reason[disposition.value] = by_reason.get(
+                    disposition.value, 0
+                ) + int(value)
+
+        return OutcomeHealth(
+            learned=learned,
+            not_learned=sum(by_reason.values()),
+            by_reason=by_reason,
+            last_arrival_ms=int(last_arrival) if last_arrival is not None else None,
         )

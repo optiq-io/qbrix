@@ -5,6 +5,7 @@ from dataclasses import field
 from enum import Enum
 
 SELECT_HEALTH_TTL_SEC = 2 * 60 * 60
+OUTCOME_HEALTH_TTL_SEC = 26 * 60 * 60
 
 
 class SelectOutcome(str, Enum):
@@ -33,3 +34,27 @@ class SelectHealth:
     error: int = 0
     not_found: int = 0
     by_reason: dict[str, int] = field(default_factory=dict)
+
+
+class OutcomeDisposition(str, Enum):
+    LEARNED = "learned"
+    UNKNOWN_EXPERIMENT = "unknown_experiment"
+    PAUSED = "paused"
+    UNKNOWN_POLICY = "unknown_policy"
+    TRAIN_ERROR = "train_error"
+    REJECTED_TOKEN_EXPIRED = "rejected_token_expired"
+
+
+@dataclass(frozen=True)
+class OutcomeHealth:
+    """how an experiment's outcomes ended over a window of minutes, and when
+    the last one arrived.
+
+    ``train_error`` is counted on an outcome's first failed attempt, so an
+    outcome that later trains appears under it and under ``learned``.
+    """
+
+    learned: int = 0
+    not_learned: int = 0
+    by_reason: dict[str, int] = field(default_factory=dict)
+    last_arrival_ms: int | None = None

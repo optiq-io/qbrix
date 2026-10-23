@@ -5,6 +5,11 @@ from unittest.mock import AsyncMock
 from cortexsvc import dispatcher as dispatcher_module
 from cortexsvc.dispatcher import TrainingDispatcher
 from qbrixstore.event import FeedbackEvent
+from qbrixstore.redis import OutcomeDisposition
+
+
+def learned(count: int) -> dict[OutcomeDisposition, int]:
+    return {OutcomeDisposition.LEARNED: count}
 
 
 def _make_event(
@@ -26,7 +31,7 @@ def _make_event(
 @pytest.fixture
 def mock_trainer():
     trainer = AsyncMock()
-    trainer.train_experiment = AsyncMock(return_value=1)
+    trainer.train_experiment = AsyncMock(return_value=learned(1))
     return trainer
 
 
@@ -121,7 +126,7 @@ class TestDispatcherWorker:
             if call_count >= 2:
                 training_started.set()
             await asyncio.sleep(0.05)
-            return len(events)
+            return learned(len(events))
 
         mock_trainer.train_experiment.side_effect = slow_train
 
@@ -138,7 +143,7 @@ class TestDispatcherWorker:
 
     @pytest.mark.asyncio
     async def test_worker_updates_stats_after_training(self, dispatcher, mock_trainer):
-        mock_trainer.train_experiment.return_value = 3
+        mock_trainer.train_experiment.return_value = learned(3)
 
         events = [_make_event() for _ in range(3)]
         messages = [(f"msg-{i}", ev) for i, ev in enumerate(events)]
@@ -166,7 +171,7 @@ class TestDispatcherWorker:
             if len(batches) == 1:
                 dispatcher.dispatch([("msg-2", _make_event())])
                 raise ConnectionError("redis went away")
-            return len(messages)
+            return learned(len(messages))
 
         mock_trainer.train_experiment.side_effect = flaky
         dispatcher.dispatch([("msg-1", _make_event())])
@@ -178,6 +183,49 @@ class TestDispatcherWorker:
         assert batches == [["msg-1"], ["msg-1", "msg-2"]]
         stats = dispatcher.get_stats(tenant_id="tenant-001", experiment_id="exp-001")
         assert stats[0]["pending"] == 0
+
+    @pytest.mark.asyncio
+    async def test_a_retried_batch_counts_each_train_error_once(
+        self, dispatcher, mock_trainer, fast_retry
+    ):
+        calls = 0
+
+        async def down_twice(tenant_id, experiment_id, messages):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                dispatcher.dispatch([("msg-3", _make_event())])
+            if calls <= 2:
+                raise ConnectionError("down")
+            return learned(len(messages))
+
+        mock_trainer.train_experiment.side_effect = down_twice
+        dispatcher.dispatch([("msg-1", _make_event()), ("msg-2", _make_event())])
+
+        await dispatcher.start()
+        await asyncio.sleep(0.4)
+        await dispatcher.stop()
+
+        assert calls == 3
+        counted = [c.args for c in mock_trainer.count_train_error.await_args_list]
+        assert counted == [("tenant-001", "exp-001", 2), ("tenant-001", "exp-001", 1)]
+        stats = dispatcher.get_stats(tenant_id="tenant-001", experiment_id="exp-001")
+        assert stats[0]["total"] == 3
+        assert dispatcher._failed_ids == {}
+
+    @pytest.mark.asyncio
+    async def test_a_failed_train_error_count_is_retried_with_the_batch(
+        self, dispatcher, mock_trainer
+    ):
+        mock_trainer.train_experiment.side_effect = ConnectionError("down")
+        mock_trainer.count_train_error.side_effect = [ConnectionError("down"), None]
+        dispatcher.dispatch([("msg-1", _make_event())])
+
+        for _ in range(3):
+            with pytest.raises(ConnectionError):
+                await dispatcher.flush()
+
+        assert mock_trainer.count_train_error.await_count == 2
 
     @pytest.mark.asyncio
     async def test_new_entries_do_not_cut_a_backoff_short(
@@ -208,7 +256,7 @@ class TestDispatcherWorker:
             calls += 1
             if calls == 1:
                 raise ConnectionError("down")
-            return len(messages)
+            return learned(len(messages))
 
         mock_trainer.train_experiment.side_effect = once_down
         dispatcher.dispatch([("msg-1", _make_event())])
@@ -233,7 +281,7 @@ class TestDispatcherWorker:
             if train_call_count == 1:
                 train_started.set()
                 await asyncio.sleep(0.05)
-            return len(events)
+            return learned(len(events))
 
         mock_trainer.train_experiment.side_effect = slow_train
 

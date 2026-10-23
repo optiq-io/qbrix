@@ -113,9 +113,13 @@ class TokenError(BaseAPIError):
 
 
 class TokenExpiredError(TokenError):
-    """raised when token has expired."""
+    """raised when token has expired. its signature verified, so it names the
+    tenant and the experiment the caller selected from."""
 
-    pass
+    def __init__(self, message: str, tenant_id: str, experiment_id: str):
+        super().__init__(message)
+        self.tenant_id = tenant_id
+        self.experiment_id = experiment_id
 
 
 class TokenInvalidError(TokenError):

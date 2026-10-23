@@ -127,7 +127,11 @@ class SelectionToken:
         if max_age_ms is not None:
             age_ms = int(time.time() * 1000) - payload["ts"]
             if age_ms > max_age_ms:
-                raise TokenExpiredError(f"token expired ({age_ms}ms > {max_age_ms}ms)")
+                raise TokenExpiredError(
+                    f"token expired ({age_ms}ms > {max_age_ms}ms)",
+                    tenant_id=payload["tnt_id"],
+                    experiment_id=payload.get("meta_id") or payload["exp_id"],
+                )
 
         return SelectionEntry(
             tenant_id=payload["tnt_id"],

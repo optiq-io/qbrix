@@ -141,12 +141,14 @@ async def agent_select(
 )
 async def agent_feedback(
     body: AgentFeedbackRequest,
+    tenant_id: str = Depends(get_current_tenant_id),
     user_id: str = Depends(get_current_user_id),  # noqa
     _user=Depends(require_scopes(["agent:write"])),
 ):
     try:
         svc = get_proxy_service()
         accepted = await svc.feed(
+            tenant_id=tenant_id,
             request_id=body.request_id,
             reward=body.reward,
         )

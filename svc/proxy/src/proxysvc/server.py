@@ -334,6 +334,7 @@ class ProxyGRPCServicer(proxy_pb2_grpc.ProxyServiceServicer):
         if not request.request_id:  # for paused experiments, request_id is None
             return proxy_pb2.FeedbackResponse(accepted=False)
         accepted = await self._service.feed(
+            tenant_id=self._get_tenant_id(),
             request_id=request.request_id,
             reward=request.reward,
         )

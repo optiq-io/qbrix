@@ -368,8 +368,8 @@ class ProxyService:
             context_properties=context_properties,
         )
 
-    async def feed(self, request_id: str, reward: float) -> bool:
-        return await self._agent_service.feed(request_id, reward)
+    async def feed(self, tenant_id: str, request_id: str, reward: float) -> bool:
+        return await self._agent_service.feed(tenant_id, request_id, reward)
 
     # runtime
 

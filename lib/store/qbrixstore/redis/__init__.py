@@ -1,5 +1,7 @@
 from qbrixstore.redis.client import Learning
 from qbrixstore.redis.client import RedisClient
+from qbrixstore.redis.health import OutcomeDisposition
+from qbrixstore.redis.health import OutcomeHealth
 from qbrixstore.redis.health import SelectErrorReason
 from qbrixstore.redis.health import SelectHealth
 from qbrixstore.redis.health import SelectOutcome
@@ -10,6 +12,8 @@ from qbrixstore.redis.streams import RedisStreamPublisher, RedisStreamConsumer
 __all__ = [
     "BroadcastBus",
     "Learning",
+    "OutcomeDisposition",
+    "OutcomeHealth",
     "RedisClient",
     "RedisPubSubPublisher",
     "RedisPubSubConsumer",
