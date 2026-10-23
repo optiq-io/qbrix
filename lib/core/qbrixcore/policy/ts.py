@@ -12,6 +12,7 @@ from qbrixcore.policy.base import BasePolicy
 from qbrixcore.policy._reward_type import RewardType
 from qbrixcore.context import Context
 from qbrixcore.policy._math import sigmoid
+from qbrixcore.policy._math import argmax_random_tiebreak
 
 # ---------------------------------------------------------------------------
 # Beta-Bernoulli Thompson Sampling (stochastic, binary/bounded)
@@ -334,6 +335,111 @@ class GaussianTSPolicy(BasePolicy):
 
 
 # ---------------------------------------------------------------------------
+# Normal-Inverse-Gamma Gaussian Thompson Sampling (stochastic, continuous)
+# ---------------------------------------------------------------------------
+
+
+class GaussianNIGTSParamState(BaseParamState):
+    """Parameter state for Normal-Inverse-Gamma Gaussian Thompson Sampling.
+
+    Per arm: outcome count, running mean and sum of squared deviations
+    (Welford), which together are sufficient for an unknown mean and variance.
+    """
+
+    T: ArrayParam | None = None
+    mean: ArrayParam | None = None
+    m2: ArrayParam | None = None
+
+    @model_validator(mode="after")
+    def set_defaults(self):
+        if self.T is None:
+            self.T = np.zeros(self.num_arms, dtype=np.int64)
+        if self.mean is None:
+            self.mean = np.zeros(self.num_arms, dtype=np.float64)
+        if self.m2 is None:
+            self.m2 = np.zeros(self.num_arms, dtype=np.float64)
+        return self
+
+
+class GaussianNIGTSPolicy(BasePolicy):
+    """
+    Gaussian Thompson Sampling that learns the spread of outcomes from the data.
+
+    Each arm has a Normal-Inverse-Gamma posterior over its mean and variance.
+    Selection samples a variance, then a mean given it (a Student-t draw), and
+    picks the highest sample, breaking ties at random.
+
+    Nothing about the outcome scale is assumed: an arm with fewer than
+    MIN_OUTCOMES outcomes is maximally uncertain and is tried first, and the
+    variance prior is worth PRIOR_SHAPE * 2 outcomes at the pooled within-arm
+    variance, so euros, minutes and unit-scale values all work unscaled.
+    """
+
+    name: ClassVar[str] = "GaussianNIGTSPolicy"
+    category: ClassVar[str] = "stochastic"
+    reward_types: ClassVar[list[RewardType]] = [RewardType.CONTINUOUS]
+    param_state_cls: type[BaseParamState] = GaussianNIGTSParamState
+
+    MIN_OUTCOMES: ClassVar[int] = 2
+    PRIOR_SHAPE: ClassVar[float] = 1.0
+
+    @classmethod
+    def _pooled_variance(cls, ps: GaussianNIGTSParamState) -> float:
+        warm = ps.T >= cls.MIN_OUTCOMES
+        dof = np.sum(ps.T[warm] - 1)
+        if dof <= 0:
+            return 0.0
+        return float(np.sum(ps.m2[warm]) / dof)
+
+    @classmethod
+    def _sample_means(cls, ps: GaussianNIGTSParamState) -> np.ndarray:
+        """one posterior draw of each arm's mean; +inf for arms still cold."""
+        samples = np.full(ps.num_arms, np.inf, dtype=np.float64)
+        warm = ps.T >= cls.MIN_OUTCOMES
+        if not np.any(warm):
+            return samples
+
+        n = ps.T[warm].astype(np.float64)
+        shape = cls.PRIOR_SHAPE + (n - 1.0) / 2.0
+        scale = cls.PRIOR_SHAPE * cls._pooled_variance(ps) + ps.m2[warm] / 2.0
+        variance = scale / np.random.gamma(shape)
+        samples[warm] = np.random.normal(ps.mean[warm], np.sqrt(variance / n))
+        return samples
+
+    @classmethod
+    def select(cls, ps: GaussianNIGTSParamState, context: Context) -> int:
+        """Arm selection using Normal-Inverse-Gamma Thompson Sampling."""
+        return argmax_random_tiebreak(cls._sample_means(ps))
+
+    @classmethod
+    def train(
+        cls,
+        ps: GaussianNIGTSParamState,
+        context: Context,
+        choice: int,
+        reward: Union[int, float, np.float64],
+    ) -> GaussianNIGTSParamState:
+        """Update the chosen arm's count, mean and M2 with Welford's method."""
+        y = float(reward)
+        new_T = ps.T.copy()
+        new_mean = ps.mean.copy()
+        new_m2 = ps.m2.copy()
+
+        new_T[choice] += 1
+        delta = y - ps.mean[choice]
+        new_mean[choice] = ps.mean[choice] + delta / new_T[choice]
+        new_m2[choice] = ps.m2[choice] + delta * (y - new_mean[choice])
+
+        return ps.model_copy(
+            update={
+                "T": new_T,
+                "mean": new_mean,
+                "m2": new_m2,
+            }
+        )
+
+
+# ---------------------------------------------------------------------------
 # Linear Thompson Sampling (contextual, all reward types)
 # ---------------------------------------------------------------------------
 
@@ -450,6 +556,155 @@ class LinTSPolicy(BasePolicy):
             update={
                 "d": new_d,
                 "r": new_r,
+            }
+        )
+
+
+# ---------------------------------------------------------------------------
+# Normal-Inverse-Gamma Linear Thompson Sampling (contextual, continuous)
+# ---------------------------------------------------------------------------
+
+
+class LinNIGTSParamState(BaseParamState):
+    """Parameter state for Normal-Inverse-Gamma Linear Thompson Sampling.
+
+    Per arm: the posterior precision matrix, the outcome-weighted context sum,
+    and the count, sum and sum of squares of outcomes. dim is derived from the
+    experiment's context schema, never chosen by a person.
+    """
+
+    dim: int = Field(..., gt=0)
+    precision: ArrayParam | None = None  # (num_arms, dim, dim)
+    b: ArrayParam | None = None  # (num_arms, dim)
+    y_sum: ArrayParam | None = None
+    y_sq_sum: ArrayParam | None = None
+    T: ArrayParam | None = None
+
+    @model_validator(mode="after")
+    def set_defaults(self):
+        if self.precision is None:
+            self.precision = np.array(
+                [
+                    LinNIGTSPolicy.RIDGE * np.identity(self.dim, dtype=np.float64)
+                    for _ in range(self.num_arms)
+                ]
+            )
+        if self.b is None:
+            self.b = np.zeros((self.num_arms, self.dim), dtype=np.float64)
+        if self.y_sum is None:
+            self.y_sum = np.zeros(self.num_arms, dtype=np.float64)
+        if self.y_sq_sum is None:
+            self.y_sq_sum = np.zeros(self.num_arms, dtype=np.float64)
+        if self.T is None:
+            self.T = np.zeros(self.num_arms, dtype=np.int64)
+        return self
+
+
+class LinNIGTSPolicy(BasePolicy):
+    """
+    Linear Thompson Sampling that learns the spread of outcomes from the data.
+
+    Each arm is a Bayesian linear regression with a Normal-Inverse-Gamma
+    posterior: weights theta ~ N(mu, sigma^2 * precision^-1), with the noise
+    variance sigma^2 learned from the residuals rather than fixed. Selection
+    samples sigma^2, then theta, and picks the highest theta^T x, breaking ties
+    at random.
+
+    As in GaussianNIGTSPolicy, arms with fewer than MIN_OUTCOMES outcomes are
+    tried first, and the noise prior sits at the pooled within-arm outcome
+    variance, so the outcome scale never needs rescaling.
+    """
+
+    name: ClassVar[str] = "LinNIGTSPolicy"
+    category: ClassVar[str] = "contextual"
+    reward_types: ClassVar[list[RewardType]] = [RewardType.CONTINUOUS]
+    param_state_cls: type[BaseParamState] = LinNIGTSParamState
+
+    MIN_OUTCOMES: ClassVar[int] = 2
+    PRIOR_SHAPE: ClassVar[float] = 1.0
+    RIDGE: ClassVar[float] = 1.0
+
+    @staticmethod
+    def _to_vector(context: Context) -> np.ndarray:
+        v = context.vector
+        if isinstance(v, list):
+            v = np.array(v, dtype=np.float64)
+        return v.ravel()
+
+    @classmethod
+    def _pooled_variance(cls, ps: LinNIGTSParamState) -> float:
+        warm = ps.T >= cls.MIN_OUTCOMES
+        dof = np.sum(ps.T[warm] - 1)
+        if dof <= 0:
+            return 0.0
+        m2 = ps.y_sq_sum[warm] - ps.y_sum[warm] ** 2 / ps.T[warm]
+        return float(max(np.sum(m2), 0.0) / dof)
+
+    @classmethod
+    def _noise_posterior(
+        cls, ps: LinNIGTSParamState, arm: int, mu: np.ndarray
+    ) -> tuple[float, float]:
+        """inverse-gamma (shape, scale) of an arm's noise variance."""
+        shape = cls.PRIOR_SHAPE + ps.T[arm] / 2.0
+        explained = float(mu @ ps.precision[arm] @ mu)
+        residual = max(float(ps.y_sq_sum[arm]) - explained, 0.0)
+        scale = cls.PRIOR_SHAPE * cls._pooled_variance(ps) + residual / 2.0
+        return shape, scale
+
+    @classmethod
+    def _sample_theta(cls, ps: LinNIGTSParamState, arm: int) -> np.ndarray:
+        try:
+            chol = np.linalg.cholesky(ps.precision[arm])
+            mu = np.linalg.solve(ps.precision[arm], ps.b[arm])
+        except np.linalg.LinAlgError:
+            return np.linalg.pinv(ps.precision[arm]) @ ps.b[arm]
+
+        shape, scale = cls._noise_posterior(ps, arm, mu)
+        variance = scale / np.random.gamma(shape)
+        z = np.random.standard_normal(ps.dim)
+        return mu + np.sqrt(variance) * np.linalg.solve(chol.T, z)
+
+    @classmethod
+    def select(cls, ps: LinNIGTSParamState, context: Context) -> int:
+        """Arm selection using Normal-Inverse-Gamma Linear Thompson Sampling."""
+        x = cls._to_vector(context)
+        scores = np.full(ps.num_arms, np.inf, dtype=np.float64)
+        for arm in range(ps.num_arms):
+            if ps.T[arm] >= cls.MIN_OUTCOMES:
+                scores[arm] = float(cls._sample_theta(ps, arm) @ x)
+        return argmax_random_tiebreak(scores)
+
+    @classmethod
+    def train(
+        cls,
+        ps: LinNIGTSParamState,
+        context: Context,
+        choice: int,
+        reward: Union[int, float, np.float64],
+    ) -> LinNIGTSParamState:
+        """Update the chosen arm's sufficient statistics."""
+        x = cls._to_vector(context)
+        y = float(reward)
+
+        new_precision = ps.precision.copy()
+        new_b = ps.b.copy()
+        new_y_sum = ps.y_sum.copy()
+        new_y_sq_sum = ps.y_sq_sum.copy()
+        new_T = ps.T.copy()
+
+        new_precision[choice] = ps.precision[choice] + np.outer(x, x)
+        new_b[choice] = ps.b[choice] + y * x
+        new_y_sum[choice] += y
+        new_y_sq_sum[choice] += y * y
+        new_T[choice] += 1
+
+        return ps.model_copy(
+            update={
+                "precision": new_precision,
+                "b": new_b,
+                "y_sum": new_y_sum,
+                "y_sq_sum": new_y_sq_sum,
+                "T": new_T,
             }
         )
 
