@@ -13,6 +13,7 @@ class MotorClientSettings(BaseSettings):
     grpc_keepalive_timeout_ms: int = 10000
     grpc_keepalive_permit_without_calls: bool = True
     grpc_http2_max_pings_without_data: int = 0
+    select_timeout_ms: int = Field(default=1000, gt=0)
 
 
 class CortexClientSettings(BaseSettings):

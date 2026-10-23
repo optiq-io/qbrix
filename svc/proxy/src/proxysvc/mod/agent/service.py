@@ -3,15 +3,24 @@ from __future__ import annotations
 import time
 import uuid
 
+import grpc
+from pydantic import ValidationError
+from redis.exceptions import RedisError
+
 from qbrixlog import get_logger
 from qbrixstore.event import FeedbackEvent
 from qbrixstore.event import SelectionEvent
+from qbrixstore.redis import RedisClient
+from qbrixstore.redis import SelectErrorReason
+from qbrixstore.redis import SelectOutcome
 
 from qbrixcore.context_schema import ContextEncodeError
 
 from proxysvc.config import ProxySettings
+from proxysvc.core.error import BaseAPIError
 from proxysvc.core.error import ContextPropertiesError
 from proxysvc.core.error import ContextVectorError
+from proxysvc.core.error import ExperimentNotFoundError
 from proxysvc.core.entitlements import Entitlements
 from proxysvc.core.events import EventEmitter
 from proxysvc.mod.agent.token import SelectionToken
@@ -21,6 +30,31 @@ from proxysvc.mod.gate import GateService
 from proxysvc.transport.grpc.client import MotorClient
 
 logger = get_logger(__name__)
+
+_MOTOR_REASONS = {
+    grpc.StatusCode.DEADLINE_EXCEEDED: SelectErrorReason.MOTOR_TIMEOUT,
+    grpc.StatusCode.UNAVAILABLE: SelectErrorReason.MOTOR_UNAVAILABLE,
+}
+
+
+class NoControlArmError(ValueError):
+    """raised when a paused experiment has no arm to serve as its control."""
+
+
+def _classify(error: Exception) -> tuple[SelectOutcome, SelectErrorReason | None]:
+    """whose failure a select error is: the caller's, or qbrix's and why."""
+    if isinstance(error, ExperimentNotFoundError):
+        return SelectOutcome.NOT_FOUND, None
+    if isinstance(error, BaseAPIError):
+        return SelectOutcome.CLIENT, None
+    if isinstance(error, grpc.aio.AioRpcError):
+        reason = _MOTOR_REASONS.get(error.code(), SelectErrorReason.MOTOR_INTERNAL)
+        return SelectOutcome.ERROR, reason
+    if isinstance(error, (RedisError, ValidationError)):
+        return SelectOutcome.ERROR, SelectErrorReason.STORE
+    if isinstance(error, NoControlArmError):
+        return SelectOutcome.ERROR, SelectErrorReason.CONFIG
+    return SelectOutcome.ERROR, SelectErrorReason.INTERNAL
 
 
 def _validate_context_vector(
@@ -91,12 +125,14 @@ class AgentService:
     short-circuits paused experiments to a control arm, otherwise evaluates the
     feature gate, routes to motorsvc for algorithmic selection, mints signed
     selection tokens, and emits ee selection/feedback events through the shared
-    EventEmitter (fire-and-forget).
+    EventEmitter (fire-and-forget). every select call is counted by outcome in
+    its minute, off the request path.
     """
 
     def __init__(
         self,
         *,
+        redis: RedisClient,
         gate_service: GateService,
         motor_client: MotorClient,
         events: EventEmitter,
@@ -104,6 +140,7 @@ class AgentService:
         experiment_service: ExperimentService,
         entitlements: Entitlements,
     ):
+        self._redis = redis
         self._gate_service = gate_service
         self._motor_client = motor_client
         self._events = events
@@ -120,6 +157,33 @@ class AgentService:
         context_metadata: dict | None = None,
         context_properties: dict | None = None,
     ) -> dict:
+        try:
+            result, reason = await self._select(
+                tenant_id=tenant_id,
+                experiment_id=experiment_id,
+                context_id=context_id,
+                context_vector=context_vector,
+                context_metadata=context_metadata,
+                context_properties=context_properties,
+            )
+        except Exception as e:
+            self._count(tenant_id, experiment_id, *_classify(e))
+            raise
+        outcome = SelectOutcome.OK if reason is None else SelectOutcome.ERROR
+        self._count(tenant_id, experiment_id, outcome, reason)
+        return result
+
+    async def _select(
+        self,
+        *,
+        tenant_id: str,
+        experiment_id: str,
+        context_id: str,
+        context_vector: list[float] | None,
+        context_metadata: dict | None,
+        context_properties: dict | None,
+    ) -> tuple[dict, SelectErrorReason | None]:
+        """select an arm, and the reason qbrix answered degraded, if it did."""
         state = await self._experiment_service.get_state(tenant_id, experiment_id)
 
         # encode before metering so a malformed request is not billed, and
@@ -133,7 +197,7 @@ class AgentService:
         await self._entitlements.on_selection(tenant_id)
 
         if state is not None and not state.enabled:
-            return await self._paused_response(
+            paused = await self._paused_response(
                 tenant_id=tenant_id,
                 experiment_id=experiment_id,
                 state=state,
@@ -141,14 +205,22 @@ class AgentService:
                 context_vector=context_vector,
                 context_metadata=context_metadata,
             )
+            return paused, None
 
-        # evaluate feature gate first
-        committed_arm = await self._gate_service.evaluate(
-            tenant_id=tenant_id,
-            experiment_id=experiment_id,
-            context_id=context_id,
-            context_metadata=context_metadata,
-        )
+        degraded = None
+        try:
+            committed_arm = await self._gate_service.evaluate(
+                tenant_id=tenant_id,
+                experiment_id=experiment_id,
+                context_id=context_id,
+                context_metadata=context_metadata,
+            )
+        except Exception as e:
+            logger.warning(
+                f"gate evaluation failed for {experiment_id}, falling back to bandit: {e}"
+            )
+            committed_arm = None
+            degraded = SelectErrorReason.GATE
 
         if committed_arm is not None and committed_arm.index is not None:
             # gate will be determined at the gate level, skips selection routing.
@@ -189,7 +261,7 @@ class AgentService:
                 )
             )
 
-            return result
+            return result, None
 
         # gate selection not valid, route to motorsvc for actual algorithmic selection.
         response = await self._motor_client.select(
@@ -251,7 +323,28 @@ class AgentService:
             )
         )
 
-        return response
+        return response, degraded
+
+    def _count(
+        self,
+        tenant_id: str,
+        experiment_id: str,
+        outcome: SelectOutcome,
+        reason: SelectErrorReason | None = None,
+    ) -> None:
+        self._events.dispatch(self._record(tenant_id, experiment_id, outcome, reason))
+
+    async def _record(
+        self,
+        tenant_id: str,
+        experiment_id: str,
+        outcome: SelectOutcome,
+        reason: SelectErrorReason | None,
+    ) -> None:
+        try:
+            await self._redis.record_select(tenant_id, experiment_id, outcome, reason)
+        except Exception as e:
+            logger.warning(f"select health count failed for {experiment_id}: {e}")
 
     async def _paused_response(
         self,
@@ -306,7 +399,7 @@ class AgentService:
 
         arms = state.pool.get("arms") or []
         if not arms:
-            raise ValueError(
+            raise NoControlArmError(
                 f"paused experiment {experiment_id} has no control arm available"
             )
         arm = arms[0]

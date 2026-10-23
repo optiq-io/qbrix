@@ -12,6 +12,7 @@ from qbrixruntime.grpc import serve_until_shutdown
 from qbrixruntime.shutdown import shutdown_signal
 
 from motorsvc.config import MotorSettings
+from motorsvc.service import ExperimentNotFoundError
 from motorsvc.service import MotorService
 
 logger = get_logger(__name__)
@@ -40,7 +41,7 @@ class MotorGRPCServicer(motor_pb2_grpc.MotorServiceServicer):
                 learner_index=result.get("learner_index", 0),
                 policy=result.get("policy", ""),
             )
-        except ValueError as e:
+        except ExperimentNotFoundError as e:
             logger.warning("experiment not found: %s", request.experiment_id)
             context.set_code(grpc.StatusCode.NOT_FOUND)
             context.set_details(str(e))

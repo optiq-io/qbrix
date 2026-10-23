@@ -4,6 +4,7 @@ from unittest.mock import Mock
 
 from qbrixcore.context import Context
 
+from motorsvc.service import ExperimentNotFoundError
 from motorsvc.service import MotorService
 
 
@@ -89,7 +90,7 @@ class TestMotorServiceSelect:
 
         mock_redis_client.get_experiment.return_value = None
 
-        with pytest.raises(ValueError, match="experiment not found"):
+        with pytest.raises(ExperimentNotFoundError, match="experiment not found"):
             await service.select(
                 tenant_id=tenant_id,
                 experiment_id="nonexistent-exp",

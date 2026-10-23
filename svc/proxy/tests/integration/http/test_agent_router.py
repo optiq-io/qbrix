@@ -19,11 +19,13 @@ invariants verified:
 
 from __future__ import annotations
 
+import grpc
 import pytest
 
 from qbrixstore.event import FeedbackEvent
 from qbrixstore.event import SelectionEvent
 
+from proxysvc.core.error import ExperimentNotFoundError
 from proxysvc.mod.gate.config import FeatureGateConfig
 from proxysvc.mod.gate.model.base import ArmConfig
 from proxysvc.mod.gate.model.base import BaseArmModel
@@ -773,3 +775,36 @@ class TestSelectContextProperties:
         assert resp.status_code == 400
         assert "not created with a context schema" in resp.text
         wired_app.motor_mock.select.assert_not_awaited()
+
+
+class TestSelectFailures:
+    async def _select(self, client, experiment_id: str):
+        return await client.post(
+            "/api/v1/agent/select",
+            json={
+                "experiment_id": experiment_id,
+                "context": {"id": "ctx-001", "vector": None, "metadata": {}},
+            },
+        )
+
+    async def test_unknown_experiment_is_404(self, client, wired_app, app_with_db):
+        wired_app.motor_mock.select.side_effect = ExperimentNotFoundError("exp-x")
+        try:
+            resp = await self._select(client, "exp-unknown")
+        finally:
+            wired_app.motor_mock.select.side_effect = None
+
+        assert resp.status_code == 404, resp.text
+        assert resp.json()["code"] == "EXPERIMENT_NOT_FOUND"
+
+    async def test_motor_deadline_is_500(self, client, wired_app, app_with_db):
+        wired_app.motor_mock.select.side_effect = grpc.aio.AioRpcError(
+            grpc.StatusCode.DEADLINE_EXCEEDED, grpc.aio.Metadata(), grpc.aio.Metadata()
+        )
+        try:
+            resp = await self._select(client, "exp-slow")
+        finally:
+            wired_app.motor_mock.select.side_effect = None
+
+        assert resp.status_code == 500, resp.text
+        assert resp.json()["code"] == "SELECTION_FAILED"

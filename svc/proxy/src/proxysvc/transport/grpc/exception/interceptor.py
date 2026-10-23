@@ -11,6 +11,7 @@ from proxysvc.core.error import ContextPropertiesError
 from proxysvc.core.error import ContextSchemaImmutableError
 from proxysvc.core.error import ContextVectorError
 from proxysvc.core.error import ExperimentLimitError
+from proxysvc.core.error import ExperimentNotFoundError
 from proxysvc.core.error import GateExistsError
 from proxysvc.core.error import InvalidIdentityError
 from proxysvc.core.error import LearnerExperimentDeleteError
@@ -23,6 +24,7 @@ from proxysvc.core.error import UsageLimitError
 from proxysvc.transport.grpc.exception.base import AlreadyExistsException
 from proxysvc.transport.grpc.exception.base import BaseGRPCException
 from proxysvc.transport.grpc.exception.base import ExperimentLimitException
+from proxysvc.transport.grpc.exception.base import ExperimentNotFoundException
 from proxysvc.transport.grpc.exception.base import UsageLimitException
 from proxysvc.transport.grpc.exception.base import InternalException
 from proxysvc.transport.grpc.exception.base import ContextDimImmutableException
@@ -49,6 +51,7 @@ _DOMAIN_TO_GRPC: dict[type[BaseAPIError], type[BaseGRPCException]] = {
     ContextDimImmutableError: ContextDimImmutableException,
     ContextPropertiesError: InvalidContextPropertiesException,
     ExperimentLimitError: ExperimentLimitException,
+    ExperimentNotFoundError: ExperimentNotFoundException,
     GateExistsError: AlreadyExistsException,
     UsageLimitError: UsageLimitException,
     SignupClosedError: SignupClosedException,
