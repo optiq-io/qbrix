@@ -229,6 +229,94 @@ class DiscountedTSPolicy(BasePolicy):
 
 
 # ---------------------------------------------------------------------------
+# Bounded Beta Thompson Sampling (stochastic, bounded on a declared range)
+# ---------------------------------------------------------------------------
+
+
+class BoundedBetaTSParamState(BaseParamState):
+    """Parameter state for Bounded Beta Thompson Sampling.
+
+    The range [lo, hi] is construction input from the metric that declares
+    it, not a user setting.
+    """
+
+    lo: float = 0.0
+    hi: float = 1.0
+    alpha: ArrayParam | None = None
+    beta: ArrayParam | None = None
+    T: ArrayParam | None = None
+
+    @model_validator(mode="after")
+    def set_defaults(self):
+        if self.lo >= self.hi:
+            raise ValueError(f"lo must be below hi, got [{self.lo}, {self.hi}]")
+        if self.alpha is None:
+            self.alpha = np.full(
+                self.num_arms, BoundedBetaTSPolicy.PRIOR, dtype=np.float64
+            )
+        if self.beta is None:
+            self.beta = np.full(
+                self.num_arms, BoundedBetaTSPolicy.PRIOR, dtype=np.float64
+            )
+        if self.T is None:
+            self.T = np.zeros(self.num_arms, dtype=np.int64)
+        return self
+
+
+class BoundedBetaTSPolicy(BasePolicy):
+    """
+    Beta Thompson Sampling on a declared range that learns from the whole value.
+
+    Each outcome is rescaled from [lo, hi] onto [0, 1] and clamped there, then
+    added fractionally: alpha grows by the rescaled value and beta by its
+    complement, so a 0.9 teaches more than a 0.51. Each arm's posterior is
+    over the mean of the rescaled outcome. Ties are broken at random.
+
+    Every outcome counts as one Bernoulli trial's worth of evidence, so on
+    tightly spread outcomes the posterior is wider than the data warrants
+    and the policy explores longer than it needs to.
+    """
+
+    name: ClassVar[str] = "BoundedBetaTSPolicy"
+    category: ClassVar[str] = "stochastic"
+    reward_types: ClassVar[list[RewardType]] = [RewardType.BINARY, RewardType.BOUNDED]
+    param_state_cls: type[BaseParamState] = BoundedBetaTSParamState
+
+    PRIOR: ClassVar[float] = 1.0
+
+    @staticmethod
+    def select(ps: BoundedBetaTSParamState, context: Context) -> int:
+        """Arm selection using Thompson Sampling."""
+        return argmax_random_tiebreak(np.random.beta(ps.alpha, ps.beta))
+
+    @classmethod
+    def train(
+        cls,
+        ps: BoundedBetaTSParamState,
+        context: Context,
+        choice: int,
+        reward: Union[int, float, np.float64],
+    ) -> BoundedBetaTSParamState:
+        """Add the rescaled, clamped outcome to alpha and its complement to beta."""
+        y = float(np.clip((float(reward) - ps.lo) / (ps.hi - ps.lo), 0.0, 1.0))
+        new_alpha = ps.alpha.copy()
+        new_beta = ps.beta.copy()
+        new_T = ps.T.copy()
+
+        new_T[choice] += 1
+        new_alpha[choice] += y
+        new_beta[choice] += 1.0 - y
+
+        return ps.model_copy(
+            update={
+                "alpha": new_alpha,
+                "beta": new_beta,
+                "T": new_T,
+            }
+        )
+
+
+# ---------------------------------------------------------------------------
 # Gaussian Thompson Sampling (stochastic, continuous)
 # ---------------------------------------------------------------------------
 

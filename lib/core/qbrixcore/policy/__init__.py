@@ -4,6 +4,7 @@ from qbrixcore.param.spec import PolicyParam
 from qbrixcore.policy.ts import (
     BetaTSPolicy,
     DiscountedTSPolicy,
+    BoundedBetaTSPolicy,
     GaussianTSPolicy,
     GaussianNIGTSPolicy,
     LinTSPolicy,
@@ -30,6 +31,7 @@ POLICIES = [
     # Thompson Sampling
     BetaTSPolicy,
     DiscountedTSPolicy,
+    BoundedBetaTSPolicy,
     GaussianTSPolicy,
     GaussianNIGTSPolicy,
     DirichletTSPolicy,
@@ -64,6 +66,7 @@ __all__ = [
     # Thompson Sampling
     "BetaTSPolicy",
     "DiscountedTSPolicy",
+    "BoundedBetaTSPolicy",
     "GaussianTSPolicy",
     "GaussianNIGTSPolicy",
     "DirichletTSPolicy",
