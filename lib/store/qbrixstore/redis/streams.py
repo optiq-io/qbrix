@@ -171,6 +171,22 @@ class RedisStreamConsumer:
                 self.stage_ack(pipe, message_ids)
                 await pipe.execute()
 
+    @property
+    def _quarantine_key(self) -> str:
+        return f"qbrix:health:quarantined:{self._spec.name}:{self._group}"
+
+    async def quarantine(self, message_ids: list[str]) -> None:
+        """ack entries that cannot be decoded and add them to this group's
+        install-wide total, in one transaction."""
+        if self._client is None:
+            raise RuntimeError("consumer not connected. call connect() first.")
+        if message_ids:
+            async with self._client.pipeline(transaction=True) as pipe:
+                self.stage_ack(pipe, message_ids)
+                # noinspection PyAsyncCall
+                pipe.incrby(self._quarantine_key, len(message_ids))
+                await pipe.execute()
+
     def stage_ack(self, pipe: Pipeline, message_ids: list[str]) -> None:
         """queue this group's ack onto a caller's transaction, so the ack lands
         with whatever else the caller writes, or not at all."""

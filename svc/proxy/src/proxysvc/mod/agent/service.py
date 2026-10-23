@@ -10,6 +10,7 @@ from redis.exceptions import RedisError
 from qbrixlog import get_logger
 from qbrixstore.event import FeedbackEvent
 from qbrixstore.event import SelectionEvent
+from qbrixstore.redis import OutcomeDisposition
 from qbrixstore.redis import RedisClient
 from qbrixstore.redis import SelectErrorReason
 from qbrixstore.redis import SelectOutcome
@@ -21,6 +22,8 @@ from proxysvc.core.error import BaseAPIError
 from proxysvc.core.error import ContextPropertiesError
 from proxysvc.core.error import ContextVectorError
 from proxysvc.core.error import ExperimentNotFoundError
+from proxysvc.core.error import TokenExpiredError
+from proxysvc.core.error import TokenInvalidError
 from proxysvc.core.entitlements import Entitlements
 from proxysvc.core.events import EventEmitter
 from proxysvc.mod.agent.token import SelectionToken
@@ -346,6 +349,20 @@ class AgentService:
         except Exception as e:
             logger.warning(f"select health count failed for {experiment_id}: {e}")
 
+    async def _count_outcome(
+        self, tenant_id: str, experiment_id: str, disposition: OutcomeDisposition
+    ) -> None:
+        try:
+            await self._redis.count_outcomes(tenant_id, experiment_id, {disposition: 1})
+        except Exception as e:
+            logger.warning(f"outcome health count failed for {experiment_id}: {e}")
+
+    async def _count_invalid_outcome(self, tenant_id: str) -> None:
+        try:
+            await self._redis.count_invalid_outcome(tenant_id)
+        except Exception as e:
+            logger.warning(f"invalid outcome count failed for {tenant_id}: {e}")
+
     async def _paused_response(
         self,
         *,
@@ -405,11 +422,12 @@ class AgentService:
         arm = arms[0]
         return {"id": arm["id"], "name": arm["name"], "index": arm["index"]}
 
-    async def feed(self, request_id: str, reward: float) -> bool:
+    async def feed(self, tenant_id: str, request_id: str, reward: float) -> bool:
         """
         process feedback for a prior selection.
 
         args:
+            tenant_id: the authenticated principal's tenant
             request_id: signed token from select() containing selection context
             reward: observed reward value
 
@@ -423,11 +441,24 @@ class AgentService:
         if not request_id:
             return False
 
-        selection = SelectionToken.decode(
-            secret=self._settings.token_secret_bytes,
-            token=request_id,
-            max_age_ms=self._settings.token_max_age_ms,
-        )
+        try:
+            selection = SelectionToken.decode(
+                secret=self._settings.token_secret_bytes,
+                token=request_id,
+                max_age_ms=self._settings.token_max_age_ms,
+            )
+        except TokenExpiredError as e:
+            self._events.dispatch(
+                self._count_outcome(
+                    e.tenant_id,
+                    e.experiment_id,
+                    OutcomeDisposition.REJECTED_TOKEN_EXPIRED,
+                )
+            )
+            raise
+        except TokenInvalidError:
+            self._events.dispatch(self._count_invalid_outcome(tenant_id))
+            raise
 
         now_ms = int(time.time() * 1000)
 

@@ -9,6 +9,7 @@ from cortexsvc.trainer import BatchTrainer
 from cortexsvc.trainer import POLICY_MAP
 from cortexsvc.trainer import _build_policy_map
 from qbrixstore.event import FeedbackEvent
+from qbrixstore.redis import OutcomeDisposition
 from qbrixstore.redis.client import Learning
 from qbrixstore.redis.client import RedisClient
 from qbrixstore.redis.streams import RedisStreamConsumer
@@ -114,6 +115,11 @@ async def pending(control) -> int:
     return (await control.xpending(topology.FEEDBACK.name, "cortex"))["pending"]
 
 
+async def outcomes(store, tenant_id: str) -> dict[str, int]:
+    health = await store.outcome_health(tenant_id, EXPERIMENT, window_minutes=5)
+    return {"learned": health.learned, **health.by_reason}
+
+
 @pytest.mark.asyncio
 class TestTrainExperiment:
 
@@ -124,9 +130,10 @@ class TestTrainExperiment:
             consumer, [feedback(tenant_id), feedback(tenant_id, 1, 0.0)]
         )
 
-        count = await trainer.train_experiment(tenant_id, EXPERIMENT, messages)
+        counts = await trainer.train_experiment(tenant_id, EXPERIMENT, messages)
 
-        assert count == 2
+        assert counts == {OutcomeDisposition.LEARNED: 2}
+        assert await outcomes(store, tenant_id) == {"learned": 2}
         learning = await store.read_learning(tenant_id, EXPERIMENT)
         assert learning.applied == 2
         assert learning.last_id == messages[-1][0]
@@ -165,6 +172,7 @@ class TestTrainExperiment:
 
         assert await store.read_learning(tenant_id, EXPERIMENT) == Learning(params=None)
         assert await pending(control) == 2
+        assert await outcomes(store, tenant_id) == {"learned": 0}
 
         _, redelivered = await consumer.claim_pending(count=10)
         assert [mid for mid, _ in redelivered] == [mid for mid, _ in messages]
@@ -178,6 +186,7 @@ class TestTrainExperiment:
         assert learning.applied == 2
         assert learning.params["alpha"] == [2.0, 1.0, 2.0]
         assert await pending(control) == 0
+        assert await outcomes(store, tenant_id) == {"learned": 2}
 
     async def test_a_batch_redelivered_after_its_write_is_acked_not_trained(
         self, trainer, store, consumer, control, tenant_id, experiment
@@ -198,9 +207,10 @@ class TestTrainExperiment:
             store._learning_key(tenant_id, EXPERIMENT), applied.encode_record()
         )
 
-        count = await trainer.train_experiment(tenant_id, EXPERIMENT, messages)
+        counts = await trainer.train_experiment(tenant_id, EXPERIMENT, messages)
 
-        assert count == 0
+        assert counts == {}
+        assert await outcomes(store, tenant_id) == {"learned": 0}
         learning = await store.read_learning(tenant_id, EXPERIMENT)
         assert learning.params == {"marker": 1}
         assert learning.applied == 2
@@ -213,23 +223,30 @@ class TestTrainExperiment:
         await trainer.train_experiment(tenant_id, EXPERIMENT, first)
         rest = await deliver(consumer, [feedback(tenant_id)])
 
-        count = await trainer.train_experiment(tenant_id, EXPERIMENT, first + rest)
+        counts = await trainer.train_experiment(tenant_id, EXPERIMENT, first + rest)
 
-        assert count == 1
+        assert counts == {OutcomeDisposition.LEARNED: 1}
+        assert await outcomes(store, tenant_id) == {"learned": 2}
         learning = await store.read_learning(tenant_id, EXPERIMENT)
         assert learning.applied == 2
         assert learning.params["alpha"][0] == 3.0
 
     @pytest.mark.parametrize(
-        "record",
+        "record, disposition",
         [
-            None,
-            {"policy": "unknown_policy", "pool": {"arms": [{"id": "a", "index": 0}]}},
-            {"enabled": False},
+            (None, OutcomeDisposition.UNKNOWN_EXPERIMENT),
+            (
+                {
+                    "policy": "unknown_policy",
+                    "pool": {"arms": [{"id": "a", "index": 0}]},
+                },
+                OutcomeDisposition.UNKNOWN_POLICY,
+            ),
+            ({"enabled": False}, OutcomeDisposition.PAUSED),
         ],
         ids=["missing", "unknown-policy", "paused"],
     )
-    async def test_acks_without_learning_when_the_experiment_cannot_learn(
+    async def test_acks_and_counts_without_learning_when_the_experiment_cannot_learn(
         self,
         trainer,
         store,
@@ -238,18 +255,23 @@ class TestTrainExperiment:
         tenant_id,
         sample_experiment_record,
         record,
+        disposition,
     ):
         if record is not None:
             await store.set_experiment(
                 tenant_id, EXPERIMENT, {**sample_experiment_record, **record}
             )
-        messages = await deliver(consumer, [feedback(tenant_id)])
+        messages = await deliver(consumer, [feedback(tenant_id)] * 3)
 
-        count = await trainer.train_experiment(tenant_id, EXPERIMENT, messages)
+        counts = await trainer.train_experiment(tenant_id, EXPERIMENT, messages)
 
-        assert count == 0
+        assert counts == {disposition: 3}
+        assert await outcomes(store, tenant_id) == {"learned": 0, disposition.value: 3}
         assert await store.read_learning(tenant_id, EXPERIMENT) == Learning(params=None)
         assert await pending(control) == 0
+
+        _, redelivered = await consumer.claim_pending(count=10)
+        assert redelivered == []
 
     async def test_trains_when_explicitly_enabled(
         self, trainer, store, consumer, tenant_id, sample_experiment_record
@@ -259,7 +281,26 @@ class TestTrainExperiment:
         )
         messages = await deliver(consumer, [feedback(tenant_id)])
 
-        assert await trainer.train_experiment(tenant_id, EXPERIMENT, messages) == 1
+        assert await trainer.train_experiment(tenant_id, EXPERIMENT, messages) == {
+            OutcomeDisposition.LEARNED: 1
+        }
+
+    async def test_records_the_latest_arrival(
+        self, trainer, store, consumer, tenant_id, experiment
+    ):
+        early, late = feedback(tenant_id), feedback(tenant_id)
+        early.timestamp_ms, late.timestamp_ms = 1_000, 2_000
+        messages = await deliver(consumer, [early, late])
+
+        await trainer.train_experiment(tenant_id, EXPERIMENT, messages)
+
+        health = await store.outcome_health(tenant_id, EXPERIMENT, window_minutes=5)
+        assert health.last_arrival_ms == 2_000
+
+    async def test_counts_a_train_error_on_its_own(self, trainer, store, tenant_id):
+        await trainer.count_train_error(tenant_id, EXPERIMENT, 4)
+
+        assert await outcomes(store, tenant_id) == {"learned": 0, "train_error": 4}
 
     async def test_initializes_params_from_policy_params(
         self, trainer, store, consumer, tenant_id

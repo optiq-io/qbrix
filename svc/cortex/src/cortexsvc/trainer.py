@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import numpy as np
+from redis.asyncio.client import Pipeline
 
 from qbrixcore.context import Context
 from qbrixcore.policy import BasePolicy
 from qbrixlog import get_logger
 from qbrixstore.event import FeedbackEvent
+from qbrixstore.redis import OutcomeDisposition
 from qbrixstore.redis.client import Learning
 from qbrixstore.redis.client import RedisClient
 from qbrixstore.redis.streams import RedisStreamConsumer
@@ -40,25 +42,23 @@ class BatchTrainer:
         tenant_id: str,
         experiment_id: str,
         messages: list[tuple[str, FeedbackEvent]],
-    ) -> int:
-        """train on a batch and ack it in the same transaction.
+    ) -> dict[OutcomeDisposition, int]:
+        """train on a batch and ack it in the same transaction, with the
+        outcome counts.
 
-        returns how many outcomes were learned from. entries the learning
-        already includes, and batches for a missing, paused or unknown-policy
-        experiment, are acked without training.
+        returns how the batch's new entries ended: learned from, or not and
+        why. entries the learning already includes were counted when they were
+        applied, so they are acked without training or counting.
         """
         message_ids = [message_id for message_id, _ in messages]
-        trained = 0
+        last_arrival_ms = max(
+            (event.timestamp_ms for _, event in messages), default=None
+        )
+        counts: dict[OutcomeDisposition, int] = {}
 
         def train(experiment: dict | None, current: Learning) -> Learning | None:
-            nonlocal trained
-            trained = 0
-
-            if experiment is None or not experiment.get("enabled", True):
-                return None
-            policy_cls = POLICY_MAP.get(experiment["policy"])
-            if policy_cls is None:
-                return None
+            nonlocal counts
+            counts = {}
 
             fresh = [(mid, ev) for mid, ev in messages if not current.includes(mid)]
             if len(fresh) < len(messages):
@@ -69,6 +69,17 @@ class BatchTrainer:
                     len(messages) - len(fresh),
                 )
             if not fresh:
+                return None
+
+            if experiment is None:
+                counts = {OutcomeDisposition.UNKNOWN_EXPERIMENT: len(fresh)}
+                return None
+            if not experiment.get("enabled", True):
+                counts = {OutcomeDisposition.PAUSED: len(fresh)}
+                return None
+            policy_cls = POLICY_MAP.get(experiment["policy"])
+            if policy_cls is None:
+                counts = {OutcomeDisposition.UNKNOWN_POLICY: len(fresh)}
                 return None
 
             if current.params is None:
@@ -92,13 +103,21 @@ class BatchTrainer:
                     reward=event.reward,
                 )
 
-            trained = len(fresh)
+            counts = {OutcomeDisposition.LEARNED: len(fresh)}
             return current.advance(param_state.model_dump(), [mid for mid, _ in fresh])
 
-        await self._redis.apply_learning(
-            tenant_id,
-            experiment_id,
-            train,
-            lambda pipe: self._consumer.stage_ack(pipe, message_ids),
+        def ack(pipe: Pipeline) -> None:
+            self._consumer.stage_ack(pipe, message_ids)
+            self._redis.stage_outcomes(
+                pipe, tenant_id, experiment_id, counts, last_arrival_ms
+            )
+
+        await self._redis.apply_learning(tenant_id, experiment_id, train, ack)
+        return counts
+
+    async def count_train_error(
+        self, tenant_id: str, experiment_id: str, count: int
+    ) -> None:
+        await self._redis.count_outcomes(
+            tenant_id, experiment_id, {OutcomeDisposition.TRAIN_ERROR: count}
         )
-        return trained

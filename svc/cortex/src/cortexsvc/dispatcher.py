@@ -8,6 +8,7 @@ from collections import deque
 from qbrixlog import get_logger
 from qbrixstore.event import AuditEvent
 from qbrixstore.event import FeedbackEvent
+from qbrixstore.redis import OutcomeDisposition
 from qbrixstore.redis.streams import RedisStreamPublisher
 
 from cortexsvc.trainer import BatchTrainer
@@ -49,6 +50,9 @@ class TrainingDispatcher:
         # experiments waiting out a retry backoff, and the backoff they are on
         self._retry_timers: dict[ExperimentKey, asyncio.TimerHandle] = {}
         self._retry_delay: dict[ExperimentKey, float] = {}
+
+        # entries already counted as train_error, so a retried batch counts once
+        self._failed_ids: dict[ExperimentKey, set[str]] = {}
 
         # work queue: experiment keys ready to be picked up by workers
         self._work_queue: asyncio.Queue[ExperimentKey] = asyncio.Queue()
@@ -205,7 +209,7 @@ class TrainingDispatcher:
 
     async def _train_batch(self, key: ExperimentKey) -> int:
         """take the experiment's whole queue and train it, putting it back at the
-        head if training fails. returns how many entries were taken."""
+        head if training fails. returns how many entries were learned from."""
         queue = self._experiment_queues.get(key)
         if not queue:
             return 0
@@ -215,20 +219,37 @@ class TrainingDispatcher:
         tenant_id, experiment_id = key
 
         try:
-            count = await self._trainer.train_experiment(
+            counts = await self._trainer.train_experiment(
                 tenant_id, experiment_id, batch
             )
         except Exception:
             queue.extendleft(reversed(batch))
+            await self._count_train_error(key, batch)
             raise
 
         self._retry_delay.pop(key, None)
+        self._failed_ids.pop(key, None)
+        count = counts.get(OutcomeDisposition.LEARNED, 0)
 
         stats_key = f"{tenant_id}:{experiment_id}"
         self._stats[stats_key]["total"] += count
         self._stats[stats_key]["pending"] -= len(batch)
         self._stats[stats_key]["last_train"] = int(time.time() * 1000)
         return count
+
+    async def _count_train_error(
+        self, key: ExperimentKey, batch: list[Message]
+    ) -> None:
+        counted = self._failed_ids.setdefault(key, set())
+        new_ids = [mid for mid, _ in batch if mid not in counted]
+        if not new_ids:
+            return
+        try:
+            await self._trainer.count_train_error(key[0], key[1], len(new_ids))
+        except Exception as e:  # noqa
+            logger.warning("train_error count failed for %s/%s: %s", key[0], key[1], e)
+            return
+        counted.update(new_ids)
 
     async def _publish_audit_event(
         self,

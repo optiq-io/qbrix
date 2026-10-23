@@ -10,12 +10,14 @@ import pytest_asyncio
 from fakeredis.aioredis import FakeRedis
 
 from qbrixstore.config import RedisSettings
+from qbrixstore.redis import OutcomeDisposition
 from qbrixstore.stream import topology
 
 from proxysvc.core.events import EventEmitter
 from proxysvc.service import ProxyService
 from proxysvc.core.error import PoolHasExperimentsError
 from proxysvc.core.error import ExperimentRunningError
+from proxysvc.core.error import TokenExpiredError
 from proxysvc.core.error import TokenInvalidError
 from proxysvc.mod.agent.token import SelectionToken
 from proxysvc.mod.gate.model.base import BaseArmModel
@@ -316,7 +318,7 @@ class TestProxyServiceFeed:
             context_metadata={"k": "v"},
         )
 
-        result = await service.feed(request_id=token, reward=1.0)
+        result = await service.feed(tenant_id="t-1", request_id=token, reward=1.0)
         await service._events.drain()
 
         assert result is True
@@ -329,17 +331,95 @@ class TestProxyServiceFeed:
     @pytest.mark.asyncio
     async def test_feed_invalid_token_raises(self, service):
         with pytest.raises(TokenInvalidError):
-            await service.feed(request_id="bad-token", reward=1.0)
+            await service.feed(tenant_id="t-1", request_id="bad-token", reward=1.0)
 
     @pytest.mark.asyncio
     async def test_feed_empty_token_noops(self, service):
         # a client echoing back the null token from a paused selection must not
         # error; feed returns False and publishes nothing.
-        result = await service.feed(request_id="", reward=1.0)
+        result = await service.feed(tenant_id="t-1", request_id="", reward=1.0)
         await service._events.drain()
 
         assert result is False
         service._events._feedback.publish.assert_not_called()
+
+
+class TestProxyServiceFeedRejections:
+
+    @staticmethod
+    def _token(service, **kwargs) -> str:
+        return SelectionToken.encode(
+            secret=service._settings.token_secret_bytes,
+            tenant_id="t-1",
+            experiment_id="exp-1",
+            arm_index=0,
+            context_id="ctx-1",
+            context_vector=[1.0],
+            context_metadata={},
+            **kwargs,
+        )
+
+    @pytest.mark.asyncio
+    async def test_an_expired_token_is_counted_against_its_experiment(self, service):
+        token = self._token(service)
+        service._settings.token_max_age_ms = -1
+
+        with pytest.raises(TokenExpiredError):
+            await service.feed(tenant_id="t-1", request_id=token, reward=1.0)
+        await service._events.drain()
+
+        service._redis.count_outcomes.assert_awaited_once_with(
+            "t-1", "exp-1", {OutcomeDisposition.REJECTED_TOKEN_EXPIRED: 1}
+        )
+        service._redis.count_invalid_outcome.assert_not_awaited()
+        service._events._feedback.publish.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_an_expired_meta_token_is_counted_against_the_meta_experiment(
+        self, service
+    ):
+        token = self._token(
+            service,
+            meta_experiment_id="meta-1",
+            learner_index=0,
+            learner_experiment_id="exp-1",
+        )
+        service._settings.token_max_age_ms = -1
+
+        with pytest.raises(TokenExpiredError):
+            await service.feed(tenant_id="t-1", request_id=token, reward=1.0)
+        await service._events.drain()
+
+        service._redis.count_outcomes.assert_awaited_once_with(
+            "t-1", "meta-1", {OutcomeDisposition.REJECTED_TOKEN_EXPIRED: 1}
+        )
+
+    @pytest.mark.asyncio
+    async def test_an_invalid_token_is_counted_per_tenant_only(self, service):
+        with pytest.raises(TokenInvalidError):
+            await service.feed(tenant_id="t-2", request_id="bad-token", reward=1.0)
+        await service._events.drain()
+
+        service._redis.count_invalid_outcome.assert_awaited_once_with("t-2")
+        service._redis.count_outcomes.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_failed_count_does_not_change_the_error(self, service):
+        service._redis.count_invalid_outcome.side_effect = RuntimeError("down")
+
+        with pytest.raises(TokenInvalidError):
+            await service.feed(tenant_id="t-1", request_id="bad-token", reward=1.0)
+        await service._events.drain()
+
+    @pytest.mark.asyncio
+    async def test_an_accepted_outcome_is_not_counted_by_the_proxy(self, service):
+        token = self._token(service)
+
+        assert await service.feed(tenant_id="t-1", request_id=token, reward=1.0)
+        await service._events.drain()
+
+        service._redis.count_outcomes.assert_not_awaited()
+        service._redis.count_invalid_outcome.assert_not_awaited()
 
 
 class TestProxyServiceHealth:

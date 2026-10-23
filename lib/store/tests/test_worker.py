@@ -443,6 +443,20 @@ class TestPoisonQuarantine:
         pending = await control.xpending(topology.SELECTION.name, "trace")
         assert pending["pending"] == 0
 
+    async def test_a_quarantined_entry_adds_to_the_install_wide_total(
+        self, redis_server, control
+    ):
+        """the process counter dies with the pod; the total is what an
+        operator can read."""
+        worker, handler = await make_worker(flush_interval_sec=0.05)
+        await control.xadd(topology.SELECTION.name, {"tenant_id": "only-this-field"})
+        await control.xadd(topology.SELECTION.name, {"tenant_id": "only-this-field"})
+
+        await run_until(worker, lambda: worker.quarantined == 2)
+
+        key = f"qbrix:health:quarantined:{topology.SELECTION.name}:trace"
+        assert await control.get(key) == "2"
+
     async def test_an_unparseable_collection_field_is_quarantined(
         self, redis_server, control
     ):

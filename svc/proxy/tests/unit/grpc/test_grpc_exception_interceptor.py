@@ -176,7 +176,9 @@ class TestUnaryUnaryExceptionMapping:
 
     async def test_token_expired_error_maps_to_deadline_exceeded(self):
         async def behavior(request, context):
-            raise TokenExpiredError("token expired (5000ms > 3600000ms)")
+            raise TokenExpiredError(
+                "token expired (5000ms > 3600000ms)", tenant_id="t", experiment_id="e"
+            )
 
         wrapper = _wrap_unary_unary(behavior)
         context = _make_context()
