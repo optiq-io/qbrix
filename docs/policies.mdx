@@ -127,6 +127,17 @@ These assume rewards are drawn from a stationary distribution. Best for standard
 - **Pros**: Adapts to distribution shifts without resetting; tunable memory window via gamma
 - **Cons**: Requires choosing gamma; too-low gamma forgets useful history, too-high gamma is slow to adapt
 
+### BoundedBetaTSPolicy
+
+**Beta Thompson Sampling that learns from the whole value.** Each outcome is rescaled from its range onto 0–1 and counted fractionally: a 0.9 adds 0.9 to the arm's successes and 0.1 to its failures, where `BetaTSPolicy` would count it as a plain success. The range is 0–1 unless `lo` and `hi` are given in `policy_params` (a 1–5 rating is `lo: 1, hi: 5`); values outside it count as its nearest end.
+
+No tunable parameters.
+
+- **Reward type**: Binary or Bounded
+- **Best for**: Satisfaction scores, ratings, completion fractions: values where 0.49 and 0.51 should teach nearly the same thing
+- **Pros**: Learns the mean score rather than how often it crosses 0.5; on 0/1 rewards it is exactly `BetaTSPolicy`
+- **Cons**: Treats each score as one coin flip's worth of evidence, so on tightly clustered scores it explores longer than it needs to
+
 ### GaussianTSPolicy
 
 **Thompson Sampling with Gaussian priors.** For continuous reward values.
