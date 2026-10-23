@@ -142,6 +142,17 @@ These assume rewards are drawn from a stationary distribution. Best for standard
 - **Pros**: Handles continuous rewards, principled Bayesian updates
 - **Cons**: Assumes Gaussian reward distribution
 
+### GaussianNIGTSPolicy
+
+**Gaussian Thompson Sampling that learns the spread of outcomes.** Each arm keeps a Normal-Inverse-Gamma posterior over its mean *and* variance, so the uncertainty comes from the data rather than from a fixed `noise_precision`. Every arm is tried twice before any comparison, and the scale is taken from the outcomes themselves, so euros, minutes and 0–1 values all work without rescaling.
+
+No parameters.
+
+- **Reward type**: Continuous (any float)
+- **Best for**: Revenue, order value, time-on-page: anything whose spread you don't know upfront
+- **Pros**: Calibrated uncertainty on any scale; nothing to tune
+- **Cons**: Assumes a stationary reward distribution
+
 ### DirichletTSPolicy
 
 **Dirichlet-Categorical Thompson Sampling.** For discrete, multi-outcome rewards. Each arm keeps a Dirichlet posterior over `k` outcome categories; rewards are integer category indices in `[0, k-1]`.
@@ -282,6 +293,19 @@ These personalize selections from per-request context. You declare a [context sc
 - **Reward type**: Binary, Bounded, or Continuous
 - **Best for**: Personalized recommendations when you want randomized exploration
 - **Pros**: Better empirical performance than LinUCB in many settings
+- **Cons**: Assumes linear reward model, more computation per selection
+
+### LinNIGTSPolicy
+
+**Linear Thompson Sampling that learns the spread of outcomes.** A Bayesian linear regression per arm with a Normal-Inverse-Gamma posterior: the noise variance is learned from the residuals instead of being fixed by `v`, so exploration is sized to the metric's real scale.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `dim` | int | — | Context width. Derived from `context_schema`; supply it only for a pre-encoded `vector` |
+
+- **Reward type**: Continuous (any float)
+- **Best for**: Personalizing revenue-like or other continuous outcomes by context
+- **Pros**: Calibrated exploration on any scale; nothing to tune
 - **Cons**: Assumes linear reward model, more computation per selection
 
 ### LogisticTSPolicy

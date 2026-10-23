@@ -5,7 +5,9 @@ from qbrixcore.policy.ts import (
     BetaTSPolicy,
     DiscountedTSPolicy,
     GaussianTSPolicy,
+    GaussianNIGTSPolicy,
     LinTSPolicy,
+    LinNIGTSPolicy,
     LogisticTSPolicy,
     DirichletTSPolicy,
 )
@@ -29,8 +31,10 @@ POLICIES = [
     BetaTSPolicy,
     DiscountedTSPolicy,
     GaussianTSPolicy,
+    GaussianNIGTSPolicy,
     DirichletTSPolicy,
     LinTSPolicy,
+    LinNIGTSPolicy,
     LogisticTSPolicy,
     # Upper Confidence Bound
     UCB1TunedPolicy,
@@ -61,8 +65,10 @@ __all__ = [
     "BetaTSPolicy",
     "DiscountedTSPolicy",
     "GaussianTSPolicy",
+    "GaussianNIGTSPolicy",
     "DirichletTSPolicy",
     "LinTSPolicy",
+    "LinNIGTSPolicy",
     "LogisticTSPolicy",
     # Upper Confidence Bound
     "UCB1TunedPolicy",
