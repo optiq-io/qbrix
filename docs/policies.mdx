@@ -319,6 +319,19 @@ These personalize selections from per-request context. You declare a [context sc
 - **Pros**: Calibrated exploration on any scale; nothing to tune
 - **Cons**: Assumes linear reward model, more computation per selection
 
+### BoundedLinNIGTSPolicy
+
+**`LinNIGTSPolicy` for scores on a known range.** Each outcome is rescaled from its range onto 0–1 before it is learned. The range is 0–1 unless `lo` and `hi` are given in `policy_params` (a 1–5 rating is `lo: 1, hi: 5`); values outside it count as its nearest end.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `dim` | int | — | Context width. Derived from `context_schema`; supply it only for a pre-encoded `vector` |
+
+- **Reward type**: Binary or Bounded
+- **Best for**: Personalizing satisfaction scores, ratings or completion fractions by context
+- **Pros**: Calibrated exploration; nothing to tune
+- **Cons**: Assumes linear reward model, more computation per selection
+
 ### LogisticTSPolicy
 
 **Laplace-approximated Logistic Thompson Sampling.** Maintains per-arm weight vectors and a diagonal Hessian approximation. At selection time, samples from the posterior N(w, diag(1/h)) and scores each arm via the logistic function.

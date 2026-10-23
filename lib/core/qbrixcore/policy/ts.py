@@ -13,6 +13,7 @@ from qbrixcore.policy._reward_type import RewardType
 from qbrixcore.context import Context
 from qbrixcore.policy._math import sigmoid
 from qbrixcore.policy._math import argmax_random_tiebreak
+from qbrixcore.policy._math import unit_interval
 
 # ---------------------------------------------------------------------------
 # Beta-Bernoulli Thompson Sampling (stochastic, binary/bounded)
@@ -298,7 +299,7 @@ class BoundedBetaTSPolicy(BasePolicy):
         reward: Union[int, float, np.float64],
     ) -> BoundedBetaTSParamState:
         """Add the rescaled, clamped outcome to alpha and its complement to beta."""
-        y = float(np.clip((float(reward) - ps.lo) / (ps.hi - ps.lo), 0.0, 1.0))
+        y = unit_interval(reward, ps.lo, ps.hi)
         new_alpha = ps.alpha.copy()
         new_beta = ps.beta.copy()
         new_T = ps.T.copy()
@@ -795,6 +796,53 @@ class LinNIGTSPolicy(BasePolicy):
                 "T": new_T,
             }
         )
+
+
+# ---------------------------------------------------------------------------
+# Bounded Normal-Inverse-Gamma Linear Thompson Sampling (contextual, bounded)
+# ---------------------------------------------------------------------------
+
+
+class BoundedLinNIGTSParamState(LinNIGTSParamState):
+    """Parameter state for Bounded Normal-Inverse-Gamma Linear Thompson Sampling.
+
+    The range [lo, hi] is construction input from the metric that declares
+    it, not a user setting.
+    """
+
+    lo: float = 0.0
+    hi: float = 1.0
+
+    @model_validator(mode="after")
+    def check_range(self):
+        if self.lo >= self.hi:
+            raise ValueError(f"lo must be below hi, got [{self.lo}, {self.hi}]")
+        return self
+
+
+class BoundedLinNIGTSPolicy(LinNIGTSPolicy):
+    """
+    LinNIGTSPolicy on a declared range.
+
+    Each outcome is rescaled from [lo, hi] onto [0, 1] and clamped there
+    before it is learned, so a score is modelled on the same scale whatever
+    range its metric declares.
+    """
+
+    name: ClassVar[str] = "BoundedLinNIGTSPolicy"
+    reward_types: ClassVar[list[RewardType]] = [RewardType.BINARY, RewardType.BOUNDED]
+    param_state_cls: type[BaseParamState] = BoundedLinNIGTSParamState
+
+    @classmethod
+    def train(
+        cls,
+        ps: BoundedLinNIGTSParamState,
+        context: Context,
+        choice: int,
+        reward: Union[int, float, np.float64],
+    ) -> BoundedLinNIGTSParamState:
+        """Learn the rescaled, clamped outcome."""
+        return super().train(ps, context, choice, unit_interval(reward, ps.lo, ps.hi))
 
 
 # ---------------------------------------------------------------------------
