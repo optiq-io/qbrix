@@ -454,12 +454,12 @@ class TestFeedbackTamperedToken:
 
 
 class TestSelectPausedExperiment:
-    async def test_paused_experiment_serves_control_arm_without_token(
+    async def test_paused_experiment_serves_default_arm_without_token(
         self, client, wired_app, app_with_db
     ):
         """
         invariant: POST /agent/select on a paused (enabled=false) experiment
-        returns 200 with is_default=true, the control arm (pool arm 0 when no
+        returns 200 with is_default=true, the default arm (pool arm 0 when no
         gate default is set), and a null request_id — motor is never called.
         feeding the null token back is a no-op, not an error.
         """

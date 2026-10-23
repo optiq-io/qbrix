@@ -37,8 +37,8 @@ _MOTOR_REASONS = {
 }
 
 
-class NoControlArmError(ValueError):
-    """raised when a paused experiment has no arm to serve as its control."""
+class NoDefaultArmError(ValueError):
+    """raised when a paused experiment has no default arm to serve."""
 
 
 def _classify(error: Exception) -> tuple[SelectOutcome, SelectErrorReason | None]:
@@ -52,7 +52,7 @@ def _classify(error: Exception) -> tuple[SelectOutcome, SelectErrorReason | None
         return SelectOutcome.ERROR, reason
     if isinstance(error, (RedisError, ValidationError)):
         return SelectOutcome.ERROR, SelectErrorReason.STORE
-    if isinstance(error, NoControlArmError):
+    if isinstance(error, NoDefaultArmError):
         return SelectOutcome.ERROR, SelectErrorReason.CONFIG
     return SelectOutcome.ERROR, SelectErrorReason.INTERNAL
 
@@ -122,7 +122,7 @@ def _resolve_context_vector(
 class AgentService:
     """selection + feedback hot path.
 
-    short-circuits paused experiments to a control arm, otherwise evaluates the
+    short-circuits paused experiments to the default arm, otherwise evaluates the
     feature gate, routes to motorsvc for algorithmic selection, mints signed
     selection tokens, and emits ee selection/feedback events through the shared
     EventEmitter (fire-and-forget). every select call is counted by outcome in
@@ -356,11 +356,11 @@ class AgentService:
         context_vector: list[float],
         context_metadata: dict,
     ) -> dict:
-        """build the control-arm response for a paused experiment.
+        """build the default-arm response for a paused experiment.
 
         no token is minted, so the selection can never be fed back as learning.
         """
-        arm = await self._control_arm(tenant_id, experiment_id, state)
+        arm = await self._default_arm(tenant_id, experiment_id, state)
         result = {"arm": arm, "request_id": None, "is_default": True}
 
         self._events.emit_selection(
@@ -383,10 +383,10 @@ class AgentService:
 
         return result
 
-    async def _control_arm(
+    async def _default_arm(
         self, tenant_id: str, experiment_id: str, state: ExperimentState
     ) -> dict:
-        """resolve the control arm: gate default_arm if defined, else pool arm 0."""
+        """resolve the default arm: the gate's if defined, else pool arm 0."""
         config = await self._gate_service.get_config(tenant_id, experiment_id)
         if config is not None:
             committed = config.experiment.arm.committed
@@ -399,8 +399,8 @@ class AgentService:
 
         arms = state.pool.get("arms") or []
         if not arms:
-            raise NoControlArmError(
-                f"paused experiment {experiment_id} has no control arm available"
+            raise NoDefaultArmError(
+                f"paused experiment {experiment_id} has no default arm to serve"
             )
         arm = arms[0]
         return {"id": arm["id"], "name": arm["name"], "index": arm["index"]}

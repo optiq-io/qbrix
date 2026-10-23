@@ -28,7 +28,7 @@ from proxysvc.mod.gate.model.base import BaseArmModel
 
 TENANT = "t-1"
 EXPERIMENT = "exp-1"
-ARM = {"id": "arm-1", "name": "control", "index": 0}
+ARM = {"id": "arm-1", "name": "first", "index": 0}
 
 
 def rpc_error(code: grpc.StatusCode) -> grpc.aio.AioRpcError:
@@ -222,7 +222,7 @@ class TestError:
             error=1, by_reason={"store": 1}
         )
 
-    async def test_paused_without_a_control_arm_counts_config(self, agent, redis):
+    async def test_paused_without_a_default_arm_counts_config(self, agent, redis):
         agent._experiment_service.get_state.return_value = ExperimentState(
             enabled=False, pool={"arms": []}
         )
