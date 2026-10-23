@@ -88,6 +88,7 @@ class SelectionToken:
     def decode(
         secret: bytes,
         token: str,
+        tenant_id: str,
         max_age_ms: int | None = None,
     ) -> SelectionEntry:
         """
@@ -96,13 +97,15 @@ class SelectionToken:
         args:
             secret: hmac signing key (must match key used to create token)
             token: base64-encoded signed token
+            tenant_id: the tenant the token must have been issued to
             max_age_ms: maximum token age in milliseconds (None = no expiry check)
 
         returns:
             SelectionData with decoded selection context
 
         raises:
-            TokenInvalidError: if signature verification fails
+            TokenInvalidError: if signature verification fails, or the token was
+                issued to another tenant
             TokenExpiredError: if token has expired
         """
         try:
@@ -123,6 +126,11 @@ class SelectionToken:
             payload = json.loads(data)
         except json.JSONDecodeError as e:
             raise TokenInvalidError(f"failed to parse token payload: {e}")
+
+        # before the age check, so a foreign token is never counted as the
+        # issuing tenant's expired outcome
+        if payload["tnt_id"] != tenant_id:
+            raise TokenInvalidError("token was not issued to this workspace")
 
         if max_age_ms is not None:
             age_ms = int(time.time() * 1000) - payload["ts"]

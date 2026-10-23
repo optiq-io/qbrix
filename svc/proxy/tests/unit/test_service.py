@@ -161,7 +161,7 @@ class TestProxyServiceSelect:
 
         token = result["request_id"]
         entry = SelectionToken.decode(
-            secret=service._settings.token_secret_bytes, token=token
+            secret=service._settings.token_secret_bytes, token=token, tenant_id="t-1"
         )
         assert entry.tenant_id == "t-1"
         assert entry.experiment_id == "exp-1"
@@ -188,6 +188,7 @@ class TestProxyServiceSelect:
         entry = SelectionToken.decode(
             secret=service._settings.token_secret_bytes,
             token=result["request_id"],
+            tenant_id="t-1",
         )
         assert entry.experiment_id == "exp-1"
 
@@ -402,6 +403,60 @@ class TestProxyServiceFeedRejections:
 
         service._redis.count_invalid_outcome.assert_awaited_once_with("t-2")
         service._redis.count_outcomes.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_foreign_token_is_counted_for_the_caller_only(self, service):
+        token = self._token(service)
+
+        with pytest.raises(TokenInvalidError):
+            await service.feed(tenant_id="t-2", request_id=token, reward=1.0)
+        await service._events.drain()
+
+        service._redis.count_invalid_outcome.assert_awaited_once_with("t-2")
+        service._redis.count_outcomes.assert_not_awaited()
+        service._events._feedback.publish.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_an_expired_foreign_token_is_not_counted_against_its_issuer(
+        self, service
+    ):
+        token = self._token(
+            service,
+            meta_experiment_id="meta-1",
+            learner_index=0,
+            learner_experiment_id="exp-1",
+        )
+        service._settings.token_max_age_ms = -1
+
+        with pytest.raises(TokenInvalidError):
+            await service.feed(tenant_id="t-2", request_id=token, reward=1.0)
+        await service._events.drain()
+
+        service._redis.count_invalid_outcome.assert_awaited_once_with("t-2")
+        service._redis.count_outcomes.assert_not_awaited()
+        service._events._feedback.publish.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_meta_token_trains_the_learner_and_the_meta_experiment(
+        self, service
+    ):
+        token = self._token(
+            service,
+            meta_experiment_id="meta-1",
+            learner_index=2,
+            learner_experiment_id="exp-1",
+        )
+
+        assert await service.feed(tenant_id="t-1", request_id=token, reward=1.0)
+        await service._events.drain()
+
+        published = [
+            call.args[0] for call in service._events._feedback.publish.call_args_list
+        ]
+        assert [(e.tenant_id, e.experiment_id, e.arm_index) for e in published] == [
+            ("t-1", "exp-1", 0),
+            ("t-1", "meta-1", 2),
+        ]
 
     @pytest.mark.asyncio
     async def test_a_failed_count_does_not_change_the_error(self, service):

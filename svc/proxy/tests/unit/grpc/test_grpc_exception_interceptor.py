@@ -200,6 +200,24 @@ class TestUnaryUnaryExceptionMapping:
         assert code == grpc.StatusCode.INVALID_ARGUMENT
         assert detail
 
+    async def test_every_invalid_token_reads_the_same_to_the_client(self):
+        async def aborted_with(error):
+            async def behavior(request, context):
+                raise error
+
+            context = _make_context()
+            await _wrap_unary_unary(behavior)(MagicMock(), context)
+            return context.abort.call_args[0]
+
+        tampered = await aborted_with(TokenInvalidError("invalid token signature"))
+        foreign = await aborted_with(
+            TokenInvalidError("token was not issued to this workspace")
+        )
+
+        assert (
+            tampered == foreign == (grpc.StatusCode.INVALID_ARGUMENT, "invalid token")
+        )
+
     async def test_base_token_error_maps_to_invalid_argument(self):
         async def behavior(request, context):
             raise TokenError("generic token error")

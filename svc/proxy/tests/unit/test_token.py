@@ -27,7 +27,7 @@ class TestSelectionTokenEncodeDecode:
             context_vector=[1.0, 2.5, 3.0],
             context_metadata={"region": "us", "device": "mobile"},
         )
-        entry = SelectionToken.decode(secret=token_secret, token=token)
+        entry = SelectionToken.decode(secret=token_secret, token=token, tenant_id="t-1")
 
         assert isinstance(entry, SelectionEntry)
         assert entry.tenant_id == "t-1"
@@ -48,7 +48,7 @@ class TestSelectionTokenEncodeDecode:
             context_vector=[],
             context_metadata={},
         )
-        entry = SelectionToken.decode(secret=token_secret, token=token)
+        entry = SelectionToken.decode(secret=token_secret, token=token, tenant_id="t-1")
 
         assert entry.context_id == ""
         assert entry.context_vector == []
@@ -75,6 +75,7 @@ class TestSelectionTokenExpiry:
             SelectionToken.decode(
                 secret=token_secret,
                 token=token,
+                tenant_id="t-1",
                 max_age_ms=5000,
             )
 
@@ -92,6 +93,7 @@ class TestSelectionTokenExpiry:
         entry = SelectionToken.decode(
             secret=token_secret,
             token=token,
+            tenant_id="t-1",
             max_age_ms=None,
         )
         assert entry.tenant_id == "t-1"
@@ -115,16 +117,22 @@ class TestSelectionTokenInvalid:
         tampered_token = base64.urlsafe_b64encode(tampered).decode()
 
         with pytest.raises(TokenInvalidError):
-            SelectionToken.decode(secret=token_secret, token=tampered_token)
+            SelectionToken.decode(
+                secret=token_secret, token=tampered_token, tenant_id="t-1"
+            )
 
     def test_malformed_base64_raises(self, token_secret):
         with pytest.raises(TokenInvalidError):
-            SelectionToken.decode(secret=token_secret, token="not-valid-base64!!!")
+            SelectionToken.decode(
+                secret=token_secret, token="not-valid-base64!!!", tenant_id="t-1"
+            )
 
     def test_token_too_short_raises(self, token_secret):
         short_data = base64.urlsafe_b64encode(b"short").decode()
         with pytest.raises(TokenInvalidError, match="token too short"):
-            SelectionToken.decode(secret=token_secret, token=short_data)
+            SelectionToken.decode(
+                secret=token_secret, token=short_data, tenant_id="t-1"
+            )
 
     def test_wrong_secret_raises(self, token_secret):
         token = SelectionToken.encode(
@@ -138,4 +146,48 @@ class TestSelectionTokenInvalid:
         )
         wrong_secret = b"completely-different-secret"
         with pytest.raises(TokenInvalidError, match="invalid token signature"):
-            SelectionToken.decode(secret=wrong_secret, token=token)
+            SelectionToken.decode(secret=wrong_secret, token=token, tenant_id="t-1")
+
+
+class TestSelectionTokenTenant:
+
+    @staticmethod
+    def _token(token_secret, **kwargs) -> str:
+        return SelectionToken.encode(
+            secret=token_secret,
+            tenant_id="t-1",
+            experiment_id="exp-1",
+            arm_index=0,
+            context_id="ctx-1",
+            context_vector=[],
+            context_metadata={},
+            **kwargs,
+        )
+
+    def test_a_token_issued_to_another_tenant_is_invalid(self, token_secret):
+        token = self._token(token_secret)
+
+        with pytest.raises(TokenInvalidError, match="not issued to this workspace"):
+            SelectionToken.decode(secret=token_secret, token=token, tenant_id="t-2")
+
+    def test_the_tenant_is_checked_before_the_age(self, token_secret):
+        with patch("proxysvc.mod.agent.token.time.time", return_value=time.time() - 10):
+            token = self._token(token_secret)
+
+        with pytest.raises(TokenInvalidError):
+            SelectionToken.decode(
+                secret=token_secret, token=token, tenant_id="t-2", max_age_ms=5000
+            )
+
+    def test_a_meta_token_decodes_for_its_own_tenant(self, token_secret):
+        token = self._token(
+            token_secret,
+            meta_experiment_id="meta-1",
+            learner_index=1,
+            learner_experiment_id="exp-1",
+        )
+
+        entry = SelectionToken.decode(secret=token_secret, token=token, tenant_id="t-1")
+
+        assert entry.meta_experiment_id == "meta-1"
+        assert entry.learner_index == 1

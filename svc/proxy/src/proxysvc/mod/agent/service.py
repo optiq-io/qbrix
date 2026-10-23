@@ -445,6 +445,7 @@ class AgentService:
             selection = SelectionToken.decode(
                 secret=self._settings.token_secret_bytes,
                 token=request_id,
+                tenant_id=tenant_id,
                 max_age_ms=self._settings.token_max_age_ms,
             )
         except TokenExpiredError as e:

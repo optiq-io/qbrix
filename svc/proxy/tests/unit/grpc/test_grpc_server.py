@@ -1008,8 +1008,8 @@ class TestSelect:
 
 
 class TestFeedbackTenant:
-    """feedback learns for the token's tenant, and passes the principal's
-    tenant only to attribute a token that fails verification."""
+    """feedback passes the principal's tenant, which the token must have been
+    issued to."""
 
     async def test_feedback_passes_the_principal_tenant(
         self, servicer, mock_service, grpc_context
