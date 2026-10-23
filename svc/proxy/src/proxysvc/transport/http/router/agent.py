@@ -11,12 +11,14 @@ from proxysvc.transport.http.auth.dependencies import get_current_user_id
 from proxysvc.transport.http.auth.dependencies import get_current_tenant_id
 from proxysvc.transport.http.auth.dependencies import require_scopes
 from proxysvc.transport.http.exception import SelectionException
+from proxysvc.transport.http.exception import ExperimentNotFoundException
 from proxysvc.transport.http.exception import FeedbackException
 from proxysvc.transport.http.exception import InvalidContextPropertiesException
 from proxysvc.transport.http.exception import InvalidContextVectorException
 from proxysvc.transport.http.exception import UsageLimitException
 from proxysvc.core.error import ContextPropertiesError
 from proxysvc.core.error import ContextVectorError
+from proxysvc.core.error import ExperimentNotFoundError
 from proxysvc.core.error import UsageLimitError
 from proxysvc.service import ProxyService
 
@@ -119,6 +121,8 @@ async def agent_select(
         return response
     except SelectionException:
         raise
+    except ExperimentNotFoundError:
+        raise ExperimentNotFoundException()
     except ContextVectorError as e:
         raise InvalidContextVectorException(str(e))
     except ContextPropertiesError as e:

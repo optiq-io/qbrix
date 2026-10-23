@@ -9,6 +9,7 @@ from qbrixproto import common_pb2
 from qbrixproto import motor_pb2
 from qbrixproto import motor_pb2_grpc
 from proxysvc.config import MotorClientSettings, CortexClientSettings
+from proxysvc.core.error import ExperimentNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +110,14 @@ class MotorClient:
                 ),
             ),
         )
-        response = await self._stub.Select(request)
+        try:
+            response = await self._stub.Select(
+                request, timeout=self._settings.select_timeout_ms / 1000
+            )
+        except grpc.aio.AioRpcError as e:
+            if e.code() == grpc.StatusCode.NOT_FOUND:
+                raise ExperimentNotFoundError(e.details()) from e
+            raise
         result = {
             "arm": {
                 "id": response.arm.id,

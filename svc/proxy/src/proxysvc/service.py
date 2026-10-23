@@ -108,6 +108,7 @@ class ProxyService:
             pools=self._pool_service,
         )
         self._agent_service = AgentService(
+            redis=self._redis,
             gate_service=self._gate_service,
             motor_client=self._motor_client,
             events=self._events,

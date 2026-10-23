@@ -73,13 +73,13 @@ class TestGateServiceEvaluate:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_exception_returns_none_fail_open(self, mock_redis, proxy_settings):
+    async def test_failure_propagates_to_the_caller(self, mock_redis, proxy_settings):
         service = GateService(mock_redis, proxy_settings)
         service._cache = cache_mock()
         service._cache.get = AsyncMock(side_effect=RuntimeError("cache exploded"))
 
-        result = await service.evaluate("t-1", "exp-1", "ctx-1", {})
-        assert result is None
+        with pytest.raises(RuntimeError, match="cache exploded"):
+            await service.evaluate("t-1", "exp-1", "ctx-1", {})
 
     @pytest.mark.asyncio
     @patch("proxysvc.mod.gate.service.get_session")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from typing import Callable
 
@@ -9,6 +10,10 @@ from redis.asyncio.client import Pipeline
 from redis.exceptions import WatchError
 
 from qbrixstore.config import RedisSettings
+from qbrixstore.redis.health import SELECT_HEALTH_TTL_SEC
+from qbrixstore.redis.health import SelectErrorReason
+from qbrixstore.redis.health import SelectHealth
+from qbrixstore.redis.health import SelectOutcome
 
 _LEARNING_ATTEMPTS = 5
 
@@ -261,3 +266,83 @@ class RedisClient:
         """read the current selection count for the period without incrementing."""
         value = await self.client.get(self._usage_key(tenant_id, period_key))
         return int(value) if value else 0
+
+    @staticmethod
+    def _select_health_key(
+        tenant_id: str,
+        experiment_id: str,
+        minute: int,
+        outcome: SelectOutcome,
+        reason: SelectErrorReason | None = None,
+    ) -> str:
+        key = (
+            f"qbrix:tenant:{tenant_id}:health:select:{experiment_id}"
+            f":{minute}:{outcome.value}"
+        )
+        return f"{key}:{reason.value}" if reason is not None else key
+
+    async def record_select(
+        self,
+        tenant_id: str,
+        experiment_id: str,
+        outcome: SelectOutcome,
+        reason: SelectErrorReason | None = None,
+        minute: int | None = None,
+    ) -> None:
+        """count one select call in its minute bucket, and its reason if any."""
+        if minute is None:
+            minute = int(time.time()) // 60
+        keys = [self._select_health_key(tenant_id, experiment_id, minute, outcome)]
+        if reason is not None:
+            keys.append(
+                self._select_health_key(
+                    tenant_id, experiment_id, minute, outcome, reason
+                )
+            )
+        pipe = self.client.pipeline(transaction=False)
+        for key in keys:
+            # noinspection PyAsyncCall
+            pipe.incr(key)
+            # noinspection PyAsyncCall
+            pipe.expire(key, SELECT_HEALTH_TTL_SEC)
+        await pipe.execute()
+
+    async def select_health(
+        self,
+        tenant_id: str,
+        experiment_id: str,
+        window_minutes: int,
+        now_minute: int | None = None,
+    ) -> SelectHealth:
+        """sum the select outcomes of the last ``window_minutes`` minutes,
+        the current one included."""
+        if now_minute is None:
+            now_minute = int(time.time()) // 60
+        minutes = range(now_minute - window_minutes + 1, now_minute + 1)
+        slots: list[tuple[SelectOutcome, SelectErrorReason | None]] = [
+            (outcome, None) for outcome in SelectOutcome
+        ] + [(SelectOutcome.ERROR, reason) for reason in SelectErrorReason]
+        keys = [
+            self._select_health_key(tenant_id, experiment_id, m, outcome, reason)
+            for m in minutes
+            for outcome, reason in slots
+        ]
+        values = await self.client.mget(keys) if keys else []
+
+        outcomes = {outcome: 0 for outcome in SelectOutcome}
+        by_reason: dict[str, int] = {}
+        for (outcome, reason), value in zip(slots * len(minutes), values):
+            if not value:
+                continue
+            if reason is None:
+                outcomes[outcome] += int(value)
+            else:
+                by_reason[reason.value] = by_reason.get(reason.value, 0) + int(value)
+
+        return SelectHealth(
+            ok=outcomes[SelectOutcome.OK],
+            client=outcomes[SelectOutcome.CLIENT],
+            error=outcomes[SelectOutcome.ERROR],
+            not_found=outcomes[SelectOutcome.NOT_FOUND],
+            by_reason=by_reason,
+        )

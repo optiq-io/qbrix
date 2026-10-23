@@ -8,6 +8,7 @@ from proxysvc.core.error import (
     BadPolicyParamsError,
     ContextVectorError,
     ExperimentLimitError,
+    ExperimentNotFoundError,
     LearnerExperimentDeleteError,
     PoolHasExperimentsError,
     TokenError,
@@ -113,6 +114,17 @@ class TestUnaryUnaryExceptionMapping:
         code, detail = context.abort.call_args[0]
         assert code == grpc.StatusCode.FAILED_PRECONDITION
         assert detail == "pool has experiments"
+
+    async def test_experiment_not_found_error_maps_to_not_found(self):
+        async def behavior(request, context):
+            raise ExperimentNotFoundError("experiment not found: exp-9")
+
+        wrapper = _wrap_unary_unary(behavior)
+        context = _make_context()
+
+        await wrapper(MagicMock(), context)
+        code, _ = context.abort.call_args[0]
+        assert code == grpc.StatusCode.NOT_FOUND
 
     async def test_bad_policy_params_error_maps_to_invalid_argument(self):
         async def behavior(request, context):

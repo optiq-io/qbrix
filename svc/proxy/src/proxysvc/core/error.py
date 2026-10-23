@@ -23,6 +23,12 @@ class ExperimentLimitError(BaseAPIError):
     pass
 
 
+class ExperimentNotFoundError(BaseAPIError):
+    """raised when selecting for an experiment that does not exist."""
+
+    pass
+
+
 class GateExistsError(BaseAPIError):
     """raised when creating a gate for an experiment that already has one."""
 

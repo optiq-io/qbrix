@@ -11,6 +11,10 @@ from motorsvc.agent_factory import AgentFactory
 logger = get_logger(__name__)
 
 
+class ExperimentNotFoundError(LookupError):
+    pass
+
+
 class MotorService:
 
     def __init__(self, settings: MotorSettings):
@@ -57,7 +61,7 @@ class MotorService:
                 tenant_id, experiment_id
             )
             if experiment_record is None:
-                raise ValueError(f"experiment not found: {experiment_id}")
+                raise ExperimentNotFoundError(f"experiment not found: {experiment_id}")
             self._cache.set_experiment(tenant_id, experiment_id, experiment_record)
 
         context = Context(

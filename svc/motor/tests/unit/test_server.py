@@ -11,6 +11,7 @@ from qbrixproto import motor_pb2
 
 from motorsvc.config import MotorSettings
 from motorsvc.server import MotorGRPCServicer
+from motorsvc.service import ExperimentNotFoundError
 from motorsvc.service import MotorService
 
 
@@ -71,11 +72,13 @@ class TestMotorGRPCServicerSelect:
         assert response.policy == "BetaTSPolicy"
 
     @pytest.mark.asyncio
-    async def test_select_handles_value_error_with_not_found_status(
+    async def test_select_handles_missing_experiment_with_not_found_status(
         self, motor_settings, mock_grpc_context
     ):
         mock_service = AsyncMock(spec=MotorService)
-        mock_service.select.side_effect = ValueError("experiment not found: exp-999")
+        mock_service.select.side_effect = ExperimentNotFoundError(
+            "experiment not found: exp-999"
+        )
 
         servicer = MotorGRPCServicer(mock_service)
 
@@ -88,6 +91,26 @@ class TestMotorGRPCServicerSelect:
 
         mock_grpc_context.set_code.assert_called_once_with(grpc.StatusCode.NOT_FOUND)
         mock_grpc_context.set_details.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_select_reports_other_value_errors_as_internal(
+        self, motor_settings, mock_grpc_context
+    ):
+        mock_service = AsyncMock(spec=MotorService)
+        mock_service.select.side_effect = ValueError(
+            "meta-bandit learner index 3 out of range (M=2)"
+        )
+
+        servicer = MotorGRPCServicer(mock_service)
+
+        request = motor_pb2.SelectRequest(
+            experiment_id="exp-meta",
+            context=common_pb2.Context(id="ctx-1", vector=[], metadata={}),
+        )
+
+        await servicer.Select(request, mock_grpc_context)  # noqa
+
+        mock_grpc_context.set_code.assert_called_once_with(grpc.StatusCode.INTERNAL)
 
     @pytest.mark.asyncio
     async def test_select_handles_general_exception_with_internal_status(
@@ -113,7 +136,9 @@ class TestMotorGRPCServicerSelect:
         self, motor_settings, mock_grpc_context
     ):
         mock_service = AsyncMock(spec=MotorService)
-        mock_service.select.side_effect = ValueError("experiment not found")
+        mock_service.select.side_effect = ExperimentNotFoundError(
+            "experiment not found"
+        )
 
         servicer = MotorGRPCServicer(mock_service)
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import time
 
 from qbrixstore.postgres.session import get_session
@@ -21,8 +20,6 @@ from proxysvc.mod.gate.model.base import BaseArmModel
 from proxysvc.mod.gate.repository import FeatureGateRepository
 from proxysvc.mod.gate.schema import GateConfigPatchRequest
 from proxysvc.mod.gate.schema import GateConfigRequest
-
-logger = logging.getLogger(__name__)
 
 
 class GateService:
@@ -57,20 +54,13 @@ class GateService:
             BaseArmModel: if gate determines a committed arm (skip bandit)
             None: if bandit selection should proceed
 
-        safety: returns None on any error (fail-open to bandit path)
+        raises on any failure; the caller decides whether to fail open.
         """
-        try:
-            config = await self.get_config(tenant_id, experiment_id)
-            if config is None:
-                return None
-
-            return FeatureGate.control(config, context_id, context_metadata)
-
-        except Exception as e:
-            logger.warning(
-                f"gate evaluation failed for {experiment_id}, falling back to bandit: {e}"
-            )
+        config = await self.get_config(tenant_id, experiment_id)
+        if config is None:
             return None
+
+        return FeatureGate.control(config, context_id, context_metadata)
 
     async def evaluate_trace(
         self, tenant_id: str, experiment_id: str, context_id: str, metadata: dict
