@@ -1,14 +1,116 @@
 from __future__ import annotations
 
-from qbrixstore.postgres.session import get_session
+from typing import TYPE_CHECKING
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from qbrixstore.postgres.models import Change
+from qbrixstore.postgres.session import get_session
+from qbrixstore.redis import Learning
+
+from proxysvc.core.actor import Actor
+from proxysvc.core.error import ChangeConflictError
+from proxysvc.core.error import ChangeNotUndoableError
 from proxysvc.mod.change.repository import ChangeRepository
+from proxysvc.mod.change.repository import later_change_message
 from proxysvc.mod.change.serialize import change_to_dict
+from proxysvc.mod.change.serialize import snapshot
+from proxysvc.mod.change.undo import NOT_UNDOABLE
+from proxysvc.mod.change.undo import Undoing
+from proxysvc.mod.change.undo import is_undoable
+from proxysvc.mod.experiment.repository import ExperimentRepository
+from proxysvc.mod.experiment.serialize import experiment_to_dict
+from proxysvc.mod.gate.repository import FeatureGateRepository
+from proxysvc.mod.gate.schema import GateConfigRequest
+from proxysvc.mod.pool.repository import PoolRepository
+from proxysvc.mod.pool.serialize import pool_to_dict
+from proxysvc.util import _parse_datetime
+
+if TYPE_CHECKING:
+    from proxysvc.mod.experiment.service import ExperimentService
+    from proxysvc.mod.gate import GateService
+    from proxysvc.mod.pool.service import PoolService
+
+_RESTORABLE_EXPERIMENT_FIELDS = ("name", "enabled", "policy_params")
+_LEARNING_KINDS = ("experiment.reset", "experiment.restore")
+_UNVERSIONED = ("version", "updated_at")
+
+
+def _changed_fields(change: Change) -> list[str]:
+    return [
+        name
+        for name in _RESTORABLE_EXPERIMENT_FIELDS
+        if change.before[name] != change.after[name]
+    ]
+
+
+def _unversioned_gate(config: dict | None) -> dict | None:
+    """a gate as an undo compares it. a period keeps the offset it was written
+    with but reads back in utc, so it compares as an instant."""
+    if config is None:
+        return None
+    stripped = {k: v for k, v in config.items() if k not in _UNVERSIONED}
+    experiment = {
+        k: v for k, v in config["experiment"].items() if k not in _UNVERSIONED
+    }
+    period = experiment["schedule"]["period"]
+    experiment["schedule"] = {
+        **experiment["schedule"],
+        "period": {
+            **period,
+            "start": _parse_datetime(period["start"]),
+            "end": _parse_datetime(period["end"]),
+        },
+    }
+    stripped["experiment"] = experiment
+    return stripped
+
+
+def _restored_part(change: Change, state: dict | None) -> dict | None:
+    """the part of a target's state an undo of this change writes back."""
+    if change.target_type == "gate":
+        return _unversioned_gate(state)
+    if state is None:
+        return None
+    if change.kind == "experiment.update":
+        return {name: state[name] for name in _changed_fields(change)}
+    return {"name": state["name"]}
+
+
+async def _current_state(
+    session: AsyncSession, tenant_id: str, change: Change
+) -> dict | None:
+    if change.target_type == "experiment":
+        experiment = await ExperimentRepository(session, tenant_id).get(
+            change.target_id
+        )
+        return snapshot(experiment_to_dict(experiment)) if experiment else None
+    if change.target_type == "gate":
+        repo = FeatureGateRepository(session, tenant_id)
+        gate = await repo.get(change.target_id)
+        return repo.to_config(gate).model_dump(mode="json") if gate else None
+    pool = await PoolRepository(session, tenant_id).get(change.target_id)
+    return pool_to_dict(pool) if pool else None
 
 
 class ChangeService:
-    """reads the change log. writes record their own change, inside their own
-    transaction, through ChangeRepository."""
+    """reads the change log, and undoes a change as a new one.
+
+    writes record their own change, inside their own transaction, through
+    ChangeRepository. an undo goes through the owning service's write path, so
+    the redis sync and cache invalidation run as for any other write.
+    """
+
+    def __init__(
+        self,
+        *,
+        experiments: ExperimentService,
+        gates: GateService,
+        pools: PoolService,
+    ):
+        self._experiments = experiments
+        self._gates = gates
+        self._pools = pools
 
     async def list_changes(
         self, tenant_id: str, target_type: str, target_id: str, limit: int = 50
@@ -23,3 +125,162 @@ class ChangeService:
             repo = ChangeRepository(session, tenant_id)
             change = await repo.get(change_id)
             return change_to_dict(change) if change else None
+
+    async def undo(
+        self,
+        tenant_id: str,
+        change_id: str,
+        *,
+        actor: Actor,
+        reason: str | None = None,
+        plan_tier: str = "free",
+    ) -> dict | None:
+        """undo a change by writing its inverse, and return the new change.
+
+        refused when the kind cannot be undone, when it was already undone, or
+        when a later change moved what the undo would restore: undo never
+        merges.
+        """
+        async with get_session() as session:
+            repo = ChangeRepository(session, tenant_id)
+            change = await repo.get(change_id)
+            if change is None:
+                return None
+            await self._check_undoable(repo, change)
+            later = await repo.list_after(change)
+            await self._check_unchanged_since(session, tenant_id, change, later)
+            baseline_applied = await self._baseline_applied(repo, change)
+
+        undoing = Undoing(
+            change_id=change.id,
+            latest_id=later[0].id if later else change.id,
+            reason=reason,
+        )
+        applied = await self._apply_inverse(
+            tenant_id,
+            change,
+            actor=actor,
+            undoing=undoing,
+            plan_tier=plan_tier,
+            baseline_applied=baseline_applied,
+        )
+        if not applied:
+            raise ChangeConflictError(
+                f"the {change.target_type} {change.target_id} no longer exists"
+            )
+
+        async with get_session() as session:
+            undo = await ChangeRepository(session, tenant_id).undone_by(change.id)
+            return change_to_dict(undo)
+
+    @staticmethod
+    async def _check_undoable(repo: ChangeRepository, change: Change) -> None:
+        if not is_undoable(change.kind):
+            raise ChangeNotUndoableError(
+                NOT_UNDOABLE.get(change.kind, f"{change.kind} cannot be undone")
+            )
+        if change.status == "undone":
+            undo = await repo.undone_by(change.id)
+            raise ChangeConflictError(
+                f"change {change.id} was already undone by {undo.id if undo else 'another change'}"
+            )
+
+    @staticmethod
+    async def _check_unchanged_since(
+        session: AsyncSession, tenant_id: str, change: Change, later: list[Change]
+    ) -> None:
+        """refuse when what the undo restores no longer equals what the change
+        left: a learning restore after a later reset or restore, otherwise
+        the restored fields as they are now against the change's after."""
+        if not later:
+            return
+        if change.kind in _LEARNING_KINDS:
+            for newer in later:
+                if newer.kind in _LEARNING_KINDS:
+                    raise ChangeConflictError(later_change_message(newer))
+            return
+        current = await _current_state(session, tenant_id, change)
+        if _restored_part(change, current) != _restored_part(change, change.after):
+            raise ChangeConflictError(later_change_message(later[0]))
+
+    @staticmethod
+    async def _baseline_applied(repo: ChangeRepository, change: Change) -> int:
+        """the applied count the change left behind: none after a reset, the
+        restored count after a restore."""
+        if change.kind != "experiment.restore":
+            return 0
+        undone = await repo.get(change.undoes_id)
+        return undone.learning[change.target_id]["applied"]
+
+    async def _apply_inverse(
+        self,
+        tenant_id: str,
+        change: Change,
+        *,
+        actor: Actor,
+        undoing: Undoing,
+        plan_tier: str,
+        baseline_applied: int,
+    ) -> bool:
+        target_id = change.target_id
+        before = change.before
+
+        if change.kind == "experiment.update":
+            restored = await self._experiments.restore_experiment(
+                tenant_id,
+                target_id,
+                {name: before[name] for name in _changed_fields(change)},
+                actor=actor,
+                undoing=undoing,
+                plan_tier=plan_tier,
+            )
+            return restored is not None
+
+        if change.kind in _LEARNING_KINDS:
+            entry = change.learning[target_id]
+            restored = await self._experiments.restore_learning(
+                tenant_id,
+                target_id,
+                Learning(
+                    params=entry["params"],
+                    applied=entry["applied"],
+                    last_id=entry["last_id"],
+                ),
+                baseline_applied=baseline_applied,
+                actor=actor,
+                undoing=undoing,
+            )
+            return restored is not None
+
+        if change.kind == "gate.create":
+            return await self._gates.delete_gate_config(
+                tenant_id, target_id, actor=actor, undoing=undoing
+            )
+
+        if change.kind == "gate.delete":
+            restored = await self._gates.create_gate_config(
+                tenant_id,
+                target_id,
+                GateConfigRequest.from_snapshot(before),
+                actor=actor,
+                undoing=undoing,
+            )
+            return restored is not None
+
+        if change.kind in ("gate.replace", "gate.patch"):
+            restored = await self._gates.update_gate_config(
+                tenant_id,
+                target_id,
+                GateConfigRequest.from_snapshot(before),
+                actor=actor,
+                undoing=undoing,
+            )
+            return restored is not None
+
+        if change.kind == "pool.update":
+            restored = await self._pools.update_pool(
+                tenant_id, target_id, actor=actor, undoing=undoing, name=before["name"]
+            )
+            return restored is not None
+
+        raise ChangeNotUndoableError(f"{change.kind} cannot be undone")

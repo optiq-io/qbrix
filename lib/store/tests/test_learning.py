@@ -266,6 +266,57 @@ class TestResetAndDelete:
         assert not await control.exists(store._learning_key(TENANT, EXPERIMENT))
 
 
+class TestRestoreLearning:
+    async def test_writes_params_and_record_and_returns_what_it_replaced(self, store):
+        await store.apply_learning(
+            TENANT, EXPERIMENT, counting(["1-0", "2-0"]), lambda pipe: None
+        )
+        snapshot = Learning(params={"n": 9}, applied=9, last_id="1-5")
+
+        replaced = await store.restore_learning(TENANT, EXPERIMENT, snapshot)
+
+        assert replaced == Learning(params={"n": 2}, applied=2, last_id="2-0")
+        assert await store.read_learning(TENANT, EXPERIMENT) == snapshot
+
+    async def test_restoring_nothing_learned_clears_the_params(self, store, control):
+        await store.apply_learning(
+            TENANT, EXPERIMENT, counting(["1-0"]), lambda pipe: None
+        )
+
+        await store.restore_learning(TENANT, EXPERIMENT, Learning(params=None))
+
+        assert await store.read_learning(TENANT, EXPERIMENT) == Learning(params=None)
+        assert not await control.exists(store._param_key(TENANT, EXPERIMENT))
+
+    async def test_training_during_the_restore_is_counted_as_replaced(
+        self, store, redis_server, monkeypatch
+    ):
+        """the replaced learning is the one overwritten, not an earlier read."""
+        other = fakeredis.FakeRedis(server=redis_server, decode_responses=True)
+        mget = Pipeline.mget
+        calls = 0
+
+        async def racing_mget(self, *args, **kwargs):
+            nonlocal calls
+            calls += 1
+            result = await mget(self, *args, **kwargs)
+            if calls == 1:
+                other.set(
+                    store._learning_key(TENANT, EXPERIMENT),
+                    Learning(params=None, applied=4, last_id="4-0").encode_record(),
+                )
+            return result
+
+        monkeypatch.setattr(Pipeline, "mget", racing_mget)
+
+        replaced = await store.restore_learning(
+            TENANT, EXPERIMENT, Learning(params={"n": 1}, applied=1, last_id="1-0")
+        )
+
+        assert calls == 2
+        assert replaced.applied == 4
+
+
 class TestStageAck:
     async def test_ack_keeps_entries_on_a_fanned_out_stream(
         self, redis_server, control

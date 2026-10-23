@@ -103,6 +103,18 @@ class ExperimentRepository:
         await self._session.flush()
         return experiment
 
+    async def restore(self, experiment_id: str, fields: dict) -> Experiment | None:
+        """assign every field as given, nulls included, unlike update()."""
+        experiment = await self.get(experiment_id)
+        if experiment is None:
+            return None
+
+        for key, value in fields.items():
+            setattr(experiment, key, dict(value) if isinstance(value, dict) else value)
+
+        await self._session.flush()
+        return experiment
+
     async def delete(self, experiment_id: str) -> bool:
         experiment = await self.get(experiment_id)
         if experiment is None:
