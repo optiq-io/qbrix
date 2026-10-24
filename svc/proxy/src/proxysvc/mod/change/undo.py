@@ -13,6 +13,8 @@ UNDOABLE_KINDS = frozenset(
         "gate.delete",
         "pool.update",
         "metric.create",
+        "loop.create",
+        "loop.rename",
     }
 )
 
@@ -23,6 +25,8 @@ NOT_UNDOABLE = {
     "pool.create": "creating a pool cannot be undone",
     "pool.delete": "deleting a pool removes its arms, so it cannot be undone",
     "metric.delete": "deleting a metric cannot be undone",
+    "loop.launch": "launching a loop starts its first cycle, so it cannot be undone",
+    "loop.delete": "deleting a loop cannot be undone",
 }
 
 

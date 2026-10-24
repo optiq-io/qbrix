@@ -1,3 +1,6 @@
+from typing import Any
+
+from qbrixcore.engine import ENGINES
 from qbrixlog import get_logger
 from qbrixstore.postgres.session import init_db
 from qbrixstore.redis.client import RedisClient
@@ -19,6 +22,7 @@ from proxysvc.mod.gate import GateService
 from proxysvc.mod.gate.config import FeatureGateConfig
 from proxysvc.mod.gate.schema import GateConfigPatchRequest
 from proxysvc.mod.gate.schema import GateConfigRequest
+from proxysvc.mod.loop.service import LoopService
 from proxysvc.mod.metric.service import DEFAULT_WINDOW_SECONDS
 from proxysvc.mod.metric.service import MetricService
 from proxysvc.mod.pool.service import PoolService
@@ -45,6 +49,7 @@ class ProxyService:
         self._pool_service: PoolService | None = None
         self._change_service: ChangeService | None = None
         self._metric_service: MetricService | None = None
+        self._loop_service: LoopService | None = None
         self._experiment_service: ExperimentService | None = None
         self._entitlements: Entitlements | None = None
 
@@ -106,11 +111,13 @@ class ProxyService:
             entitlements=self._entitlements,
         )
         self._metric_service = MetricService()
+        self._loop_service = LoopService(redis=self._redis)
         self._change_service = ChangeService(
             experiments=self._experiment_service,
             gates=self._gate_service,
             pools=self._pool_service,
             metrics=self._metric_service,
+            loops=self._loop_service,
         )
         self._agent_service = AgentService(
             redis=self._redis,
@@ -381,6 +388,54 @@ class ProxyService:
 
     async def list_metrics(self, tenant_id: str) -> list[dict]:
         return await self._metric_service.list_metrics(tenant_id)
+
+    # loops
+
+    async def create_loop(
+        self,
+        tenant_id: str,
+        *,
+        name: str,
+        key: str | None = None,
+        purpose: str = "",
+        metric: str | None,
+        engine: str = ENGINES.DEFAULT,
+        options: list[dict[str, Any]],
+        fallback: str | None = None,
+        actor: Actor,
+    ) -> dict:
+        return await self._loop_service.create_loop(
+            tenant_id,
+            name=name,
+            key=key,
+            purpose=purpose,
+            metric=metric,
+            engine=engine,
+            options=options,
+            fallback=fallback,
+            actor=actor,
+        )
+
+    async def launch_loop(
+        self, tenant_id: str, ref: str, *, actor: Actor
+    ) -> dict | None:
+        return await self._loop_service.launch_loop(tenant_id, ref, actor=actor)
+
+    async def rename_loop(
+        self,
+        tenant_id: str,
+        ref: str,
+        *,
+        name: str | None = None,
+        key: str | None = None,
+        actor: Actor,
+    ) -> dict | None:
+        return await self._loop_service.rename_loop(
+            tenant_id, ref, name=name, key=key, actor=actor
+        )
+
+    async def get_loop(self, tenant_id: str, ref: str) -> dict | None:
+        return await self._loop_service.get_loop(tenant_id, ref)
 
     # agent
 

@@ -352,3 +352,31 @@ class MetricNameTakenException(ConflictException):
 
     detail = "a metric with that name already exists"
     code = "METRIC_NAME_TAKEN"
+
+
+class LoopNotFoundException(NotFoundException):
+    """loop resource not found."""
+
+    detail = "loop not found"
+    code = "LOOP_NOT_FOUND"
+
+
+class InvalidLoopException(BadRequestException):
+    """a loop's name, key, metric, engine, options or fallback is refused."""
+
+    detail = "invalid loop"
+    code = "INVALID_LOOP"
+
+
+class LoopKeyTakenException(ConflictException):
+    """the workspace already has a loop with that key."""
+
+    detail = "a loop with that key already exists"
+    code = "LOOP_KEY_TAKEN"
+
+
+class LoopNotDraftException(ConflictException):
+    """the change needs a draft loop."""
+
+    detail = "the loop is no longer a draft"
+    code = "LOOP_NOT_DRAFT"

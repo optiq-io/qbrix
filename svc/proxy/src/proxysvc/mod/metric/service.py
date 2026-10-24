@@ -10,10 +10,12 @@ from qbrixcore.engine import check_metric
 from qbrixstore.postgres.session import get_session
 
 from proxysvc.core.actor import Actor
+from proxysvc.core.error import ChangeConflictError
 from proxysvc.core.error import MetricInvalidError
 from proxysvc.core.error import MetricNameTakenError
 from proxysvc.mod.change.repository import ChangeRepository
 from proxysvc.mod.change.undo import Undoing
+from proxysvc.mod.loop.repository import LoopRepository
 from proxysvc.mod.metric.repository import MetricRepository
 from proxysvc.mod.metric.serialize import metric_to_dict
 
@@ -108,6 +110,14 @@ class MetricService:
             metric = await repo.get(metric_id)
             if metric is None:
                 return False
+            loop = await LoopRepository(session, tenant_id).first_using_metric(
+                metric_id
+            )
+            if loop is not None:
+                raise ChangeConflictError(
+                    f"the loop {loop.key!r} uses the metric {metric.name!r}, "
+                    f"so it cannot be deleted"
+                )
             before = metric_to_dict(metric)
             await repo.delete(metric)
             await ChangeRepository(session, tenant_id).record(
