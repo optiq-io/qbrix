@@ -13,6 +13,9 @@ logger = get_logger(__name__)
 def next_routes(app: FastAPI, settings: ProxySettings) -> None:
     if not settings.next_enabled:
         return
+    from proxysvc.transport.http.router.metric import router as metric_router
+
+    app.include_router(metric_router, prefix="/api/v1")
     logger.info("next routes registered")
 
 

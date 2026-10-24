@@ -179,3 +179,9 @@ class TestNextSwitch:
     def test_on_keeps_todays_surface(self, oss_with_next):
         assert set(oss_with_next["routes"]) >= TODAY_ROUTES
         assert set(oss_with_next["grpc_services"]) >= TODAY_GRPC_SERVICES
+
+    def test_on_mounts_the_next_routes(self, oss_with_next):
+        assert set(oss_with_next["routes"]) - TODAY_ROUTES == {
+            "/api/v1/metrics",
+            "/api/v1/metrics/{metric}",
+        }

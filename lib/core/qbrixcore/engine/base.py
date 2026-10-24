@@ -11,6 +11,7 @@ from typing import Mapping
 
 from qbrixcore.engine.metric import MetricType
 from qbrixcore.engine.metric import ScoreRange
+from qbrixcore.engine.metric import check_metric
 from qbrixcore.engine.spec import EngineError
 from qbrixcore.engine.spec import EngineVersion
 from qbrixcore.policy.base import BasePolicy
@@ -49,18 +50,11 @@ class BaseEngine(ABC):
         context_dim: int | None = None,
         settings: Mapping[str, Any] | None = None,
     ) -> Resolved:
-        try:
-            metric_type = MetricType(metric_type)
-        except ValueError as e:
-            raise EngineError(f"unknown metric type {metric_type!r}") from e
+        metric_type = check_metric(metric_type, score_range)
         if settings:
             raise EngineError(
                 f"engines take no settings, got {sorted(settings)} for {cls.name}"
             )
-        if metric_type is MetricType.SCORE and score_range is None:
-            raise EngineError("a score metric needs its declared range")
-        if metric_type is not MetricType.SCORE and score_range is not None:
-            raise EngineError(f"a {metric_type.value} metric has no range")
         if cls.needs_context and context_dim is None:
             raise EngineError(
                 f"{cls.name} learns from context; declare a context schema"

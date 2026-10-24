@@ -12,6 +12,7 @@ UNDOABLE_KINDS = frozenset(
         "gate.patch",
         "gate.delete",
         "pool.update",
+        "metric.create",
     }
 )
 
@@ -21,6 +22,7 @@ NOT_UNDOABLE = {
     "so it cannot be undone",
     "pool.create": "creating a pool cannot be undone",
     "pool.delete": "deleting a pool removes its arms, so it cannot be undone",
+    "metric.delete": "deleting a metric cannot be undone",
 }
 
 

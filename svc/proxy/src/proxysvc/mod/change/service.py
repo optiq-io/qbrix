@@ -22,6 +22,8 @@ from proxysvc.mod.experiment.repository import ExperimentRepository
 from proxysvc.mod.experiment.serialize import experiment_to_dict
 from proxysvc.mod.gate.repository import FeatureGateRepository
 from proxysvc.mod.gate.schema import GateConfigRequest
+from proxysvc.mod.metric.repository import MetricRepository
+from proxysvc.mod.metric.serialize import metric_to_dict
 from proxysvc.mod.pool.repository import PoolRepository
 from proxysvc.mod.pool.serialize import pool_to_dict
 from proxysvc.util import _parse_datetime
@@ -29,6 +31,7 @@ from proxysvc.util import _parse_datetime
 if TYPE_CHECKING:
     from proxysvc.mod.experiment.service import ExperimentService
     from proxysvc.mod.gate import GateService
+    from proxysvc.mod.metric.service import MetricService
     from proxysvc.mod.pool.service import PoolService
 
 _RESTORABLE_EXPERIMENT_FIELDS = ("name", "enabled", "policy_params")
@@ -89,6 +92,9 @@ async def _current_state(
         repo = FeatureGateRepository(session, tenant_id)
         gate = await repo.get(change.target_id)
         return repo.to_config(gate).model_dump(mode="json") if gate else None
+    if change.target_type == "metric":
+        metric = await MetricRepository(session, tenant_id).get(change.target_id)
+        return metric_to_dict(metric) if metric else None
     pool = await PoolRepository(session, tenant_id).get(change.target_id)
     return pool_to_dict(pool) if pool else None
 
@@ -107,10 +113,12 @@ class ChangeService:
         experiments: ExperimentService,
         gates: GateService,
         pools: PoolService,
+        metrics: MetricService,
     ):
         self._experiments = experiments
         self._gates = gates
         self._pools = pools
+        self._metrics = metrics
 
     async def list_changes(
         self, tenant_id: str, target_type: str, target_id: str, limit: int = 50
@@ -282,5 +290,10 @@ class ChangeService:
                 tenant_id, target_id, actor=actor, undoing=undoing, name=before["name"]
             )
             return restored is not None
+
+        if change.kind == "metric.create":
+            return await self._metrics.delete_metric(
+                tenant_id, target_id, actor=actor, undoing=undoing
+            )
 
         raise ChangeNotUndoableError(f"{change.kind} cannot be undone")

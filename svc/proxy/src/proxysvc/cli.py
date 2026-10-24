@@ -65,10 +65,18 @@ def build_http_server(settings: ProxySettings, runtime: ProxyRuntime) -> uvicorn
         set_proxy_service as set_experiment,
     )
     from proxysvc.transport.http.router.gate import set_proxy_service as set_gate
+    from proxysvc.transport.http.router.metric import set_proxy_service as set_metric
     from proxysvc.transport.http.router.pool import set_proxy_service as set_pool
     from proxysvc.transport.http.router.runtime import set_proxy_service as set_runtime
 
-    for wire in (set_pool, set_experiment, set_gate, set_agent, set_runtime):
+    for wire in (
+        set_pool,
+        set_experiment,
+        set_gate,
+        set_agent,
+        set_runtime,
+        set_metric,
+    ):
         wire(runtime.proxy_service)
 
     return uvicorn.Server(
