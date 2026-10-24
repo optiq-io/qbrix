@@ -19,6 +19,8 @@ from proxysvc.mod.gate import GateService
 from proxysvc.mod.gate.config import FeatureGateConfig
 from proxysvc.mod.gate.schema import GateConfigPatchRequest
 from proxysvc.mod.gate.schema import GateConfigRequest
+from proxysvc.mod.metric.service import DEFAULT_WINDOW_SECONDS
+from proxysvc.mod.metric.service import MetricService
 from proxysvc.mod.pool.service import PoolService
 
 logger = get_logger(__name__)
@@ -42,6 +44,7 @@ class ProxyService:
         self._agent_service: AgentService | None = None
         self._pool_service: PoolService | None = None
         self._change_service: ChangeService | None = None
+        self._metric_service: MetricService | None = None
         self._experiment_service: ExperimentService | None = None
         self._entitlements: Entitlements | None = None
 
@@ -102,10 +105,12 @@ class ProxyService:
             settings=self._settings,
             entitlements=self._entitlements,
         )
+        self._metric_service = MetricService()
         self._change_service = ChangeService(
             experiments=self._experiment_service,
             gates=self._gate_service,
             pools=self._pool_service,
+            metrics=self._metric_service,
         )
         self._agent_service = AgentService(
             redis=self._redis,
@@ -347,6 +352,35 @@ class ProxyService:
         return await self._change_service.undo(
             tenant_id, change_id, actor=actor, reason=reason, plan_tier=plan_tier
         )
+
+    # metrics
+
+    async def create_metric(
+        self,
+        tenant_id: str,
+        *,
+        name: str,
+        semantic: str,
+        metric_type: str,
+        score_range: tuple[float, float] | None = None,
+        window_seconds: int = DEFAULT_WINDOW_SECONDS,
+        actor: Actor,
+    ) -> dict:
+        return await self._metric_service.create_metric(
+            tenant_id,
+            name=name,
+            semantic=semantic,
+            metric_type=metric_type,
+            score_range=score_range,
+            window_seconds=window_seconds,
+            actor=actor,
+        )
+
+    async def get_metric(self, tenant_id: str, ref: str) -> dict | None:
+        return await self._metric_service.get_metric(tenant_id, ref)
+
+    async def list_metrics(self, tenant_id: str) -> list[dict]:
+        return await self._metric_service.list_metrics(tenant_id)
 
     # agent
 

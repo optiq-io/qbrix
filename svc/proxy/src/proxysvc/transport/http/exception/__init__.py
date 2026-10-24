@@ -38,6 +38,9 @@ from proxysvc.transport.http.exception.base import LearnerExperimentDeleteExcept
 from proxysvc.transport.http.exception.base import ContextDimImmutableException
 from proxysvc.transport.http.exception.base import ContextSchemaImmutableException
 from proxysvc.transport.http.exception.base import ExperimentRunningException
+from proxysvc.transport.http.exception.base import MetricNotFoundException
+from proxysvc.transport.http.exception.base import InvalidMetricException
+from proxysvc.transport.http.exception.base import MetricNameTakenException
 
 __all__ = [
     "BaseAPIException",
@@ -80,4 +83,7 @@ __all__ = [
     "ContextDimImmutableException",
     "ContextSchemaImmutableException",
     "ExperimentRunningException",
+    "MetricNotFoundException",
+    "InvalidMetricException",
+    "MetricNameTakenException",
 ]

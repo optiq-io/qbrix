@@ -60,6 +60,9 @@ class Tenant(Base):
     changes: Mapped[list["Change"]] = relationship(
         "Change", back_populates="tenant", cascade="all, delete-orphan"
     )
+    metrics: Mapped[list["Metric"]] = relationship(
+        "Metric", back_populates="tenant", cascade="all, delete-orphan"
+    )
 
 
 class Pool(Base):
@@ -454,3 +457,70 @@ class Change(Base):
     )
 
     tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="changes")
+
+
+class Metric(Base):
+    """what a loop improves. its type and range are fixed; what it means and
+    how long a decision waits for it are versioned."""
+
+    __tablename__ = "metrics"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "name", name="uq_metric_tenant_name"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: uuid4().hex
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("tenants.id"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    type: Mapped[str] = mapped_column(String(16), nullable=False)
+    score_lo: Mapped[float | None] = mapped_column(Float, nullable=True)
+    score_hi: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="metrics")
+    versions: Mapped[list["MetricVersion"]] = relationship(
+        "MetricVersion",
+        back_populates="metric",
+        cascade="all, delete-orphan",
+        order_by=lambda: [MetricVersion.major, MetricVersion.minor],
+    )
+
+
+class MetricVersion(Base):
+    """one version of a metric. never changed in place: the newest is current,
+    and a decision is sealed by the version it was opened under."""
+
+    __tablename__ = "metric_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "metric_id", "major", "minor", name="uq_metric_version_number"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: uuid4().hex
+    )
+    metric_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("metrics.id", ondelete="CASCADE"), nullable=False
+    )
+    major: Mapped[int] = mapped_column(Integer, nullable=False)
+    minor: Mapped[int] = mapped_column(Integer, nullable=False)
+    semantic: Mapped[str] = mapped_column(Text, nullable=False)
+    window_sec: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    metric: Mapped["Metric"] = relationship("Metric", back_populates="versions")

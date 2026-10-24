@@ -4,6 +4,7 @@ from qbrixcore.engine.buridan import Buridan
 from qbrixcore.engine.leibniz import Leibniz
 from qbrixcore.engine.metric import MetricType
 from qbrixcore.engine.metric import ScoreRange
+from qbrixcore.engine.metric import check_metric
 from qbrixcore.engine.registry import EngineRegistry
 from qbrixcore.engine.spec import EngineError
 from qbrixcore.engine.spec import EngineSpec
@@ -17,6 +18,7 @@ __all__ = [
     "Resolved",
     "MetricType",
     "ScoreRange",
+    "check_metric",
     "EngineError",
     "EngineSpec",
     "EngineVersion",

@@ -86,6 +86,14 @@ class ChangeConflictError(BaseAPIError):
     already undone, a later change exists, or its target is gone."""
 
 
+class MetricInvalidError(BaseAPIError):
+    """raised when a metric's name, type, range, window or semantic is refused."""
+
+
+class MetricNameTakenError(BaseAPIError):
+    """raised when the workspace already has a metric with that name."""
+
+
 class SignupClosedError(BaseAPIError):
     """raised when public registration is closed by the deployment's signup mode."""
 

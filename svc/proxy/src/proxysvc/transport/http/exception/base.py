@@ -331,3 +331,24 @@ class ExperimentRunningException(ConflictException):
 
     detail = "pause the experiment before resetting its parameters"
     code = "EXPERIMENT_RUNNING"
+
+
+class MetricNotFoundException(NotFoundException):
+    """metric resource not found."""
+
+    detail = "metric not found"
+    code = "METRIC_NOT_FOUND"
+
+
+class InvalidMetricException(BadRequestException):
+    """a metric's name, type, range, window or semantic is refused."""
+
+    detail = "invalid metric"
+    code = "INVALID_METRIC"
+
+
+class MetricNameTakenException(ConflictException):
+    """the workspace already has a metric with that name."""
+
+    detail = "a metric with that name already exists"
+    code = "METRIC_NAME_TAKEN"
