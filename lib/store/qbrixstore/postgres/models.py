@@ -63,6 +63,9 @@ class Tenant(Base):
     metrics: Mapped[list["Metric"]] = relationship(
         "Metric", back_populates="tenant", cascade="all, delete-orphan"
     )
+    loops: Mapped[list["Loop"]] = relationship(
+        "Loop", back_populates="tenant", cascade="all, delete-orphan"
+    )
 
 
 class Pool(Base):
@@ -524,3 +527,104 @@ class MetricVersion(Base):
     )
 
     metric: Mapped["Metric"] = relationship("Metric", back_populates="versions")
+
+
+class Loop(Base):
+    """a place in the product where qbrix decides on every request. the key is
+    what code calls; it locks when the loop is launched. the current cycle is
+    the highest-numbered one."""
+
+    __tablename__ = "loops"
+    __table_args__ = (UniqueConstraint("tenant_id", "key", name="uq_loop_tenant_key"),)
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: uuid4().hex
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("tenants.id"), nullable=False
+    )
+    key: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    purpose: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    metric_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("metrics.id"), nullable=False, index=True
+    )
+    engine: Mapped[str] = mapped_column(String(32), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
+    paused_from: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    owner_user_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    fallback_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="loops")
+    metric: Mapped["Metric"] = relationship("Metric")
+    options: Mapped[list["LoopOption"]] = relationship(
+        "LoopOption",
+        back_populates="loop",
+        cascade="all, delete-orphan",
+        order_by=lambda: LoopOption.position,
+    )
+    cycles: Mapped[list["Cycle"]] = relationship(
+        "Cycle",
+        back_populates="loop",
+        cascade="all, delete-orphan",
+        order_by=lambda: Cycle.number,
+    )
+
+
+class LoopOption(Base):
+    """one thing a loop can serve, with the config the app renders it from."""
+
+    __tablename__ = "loop_options"
+    __table_args__ = (UniqueConstraint("loop_id", "key", name="uq_loop_option_key"),)
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: uuid4().hex
+    )
+    loop_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("loops.id", ondelete="CASCADE"), nullable=False
+    )
+    key: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    config: Mapped[dict] = mapped_column(JSON, default=dict)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    loop: Mapped["Loop"] = relationship("Loop", back_populates="options")
+
+
+class Cycle(Base):
+    """a version of a loop's options, engine and learning. its id is the id
+    the learning path serves and trains it under."""
+
+    __tablename__ = "cycles"
+    __table_args__ = (UniqueConstraint("loop_id", "number", name="uq_cycle_number"),)
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: uuid4().hex
+    )
+    loop_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("loops.id", ondelete="CASCADE"), nullable=False
+    )
+    number: Mapped[int] = mapped_column(Integer, nullable=False)
+    engine: Mapped[str] = mapped_column(String(32), nullable=False)
+    engine_version: Mapped[str] = mapped_column(String(16), nullable=False)
+    metric_version_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("metric_versions.id"), nullable=False
+    )
+    options: Mapped[list] = mapped_column(JSON, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    ended_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    loop: Mapped["Loop"] = relationship("Loop", back_populates="cycles")
+    metric_version: Mapped["MetricVersion"] = relationship("MetricVersion")

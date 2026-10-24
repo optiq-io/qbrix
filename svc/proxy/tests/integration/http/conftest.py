@@ -169,6 +169,7 @@ async def wired_app(
         set_proxy_service as set_experiment,
     )
     from proxysvc.transport.http.router.gate import set_proxy_service as set_gate
+    from proxysvc.transport.http.router.loop import set_proxy_service as set_loop
     from proxysvc.transport.http.router.metric import set_proxy_service as set_metric
     from proxysvc.transport.http.router.pool import set_proxy_service as set_pool
     from proxysvc.transport.http.router.runtime import set_proxy_service as set_runtime
@@ -226,6 +227,7 @@ async def wired_app(
     set_agent(svc)
     set_runtime(svc)
     set_metric(svc)
+    set_loop(svc)
 
     wired = _WiredApp(
         app=app,
@@ -248,6 +250,7 @@ async def wired_app(
     set_agent(None)  # type: ignore[arg-type]
     set_runtime(None)  # type: ignore[arg-type]
     set_metric(None)  # type: ignore[arg-type]
+    set_loop(None)  # type: ignore[arg-type]
 
 
 # ── http client ───────────────────────────────────────────────────────────────

@@ -184,4 +184,7 @@ class TestNextSwitch:
         assert set(oss_with_next["routes"]) - TODAY_ROUTES == {
             "/api/v1/metrics",
             "/api/v1/metrics/{metric}",
+            "/api/v1/loops",
+            "/api/v1/loops/{loop}",
+            "/api/v1/loops/{loop}/launch",
         }

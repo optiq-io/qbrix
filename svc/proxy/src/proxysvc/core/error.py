@@ -94,6 +94,18 @@ class MetricNameTakenError(BaseAPIError):
     """raised when the workspace already has a metric with that name."""
 
 
+class LoopInvalidError(BaseAPIError):
+    """raised when a loop's name, key, metric, engine, options or fallback is refused."""
+
+
+class LoopKeyTakenError(BaseAPIError):
+    """raised when the workspace already has a loop with that key."""
+
+
+class LoopStateError(BaseAPIError):
+    """raised when a change needs a draft loop and the loop is past it."""
+
+
 class SignupClosedError(BaseAPIError):
     """raised when public registration is closed by the deployment's signup mode."""
 

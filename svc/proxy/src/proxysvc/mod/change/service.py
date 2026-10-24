@@ -22,6 +22,8 @@ from proxysvc.mod.experiment.repository import ExperimentRepository
 from proxysvc.mod.experiment.serialize import experiment_to_dict
 from proxysvc.mod.gate.repository import FeatureGateRepository
 from proxysvc.mod.gate.schema import GateConfigRequest
+from proxysvc.mod.loop.repository import LoopRepository
+from proxysvc.mod.loop.serialize import loop_to_dict
 from proxysvc.mod.metric.repository import MetricRepository
 from proxysvc.mod.metric.serialize import metric_to_dict
 from proxysvc.mod.pool.repository import PoolRepository
@@ -31,12 +33,14 @@ from proxysvc.util import _parse_datetime
 if TYPE_CHECKING:
     from proxysvc.mod.experiment.service import ExperimentService
     from proxysvc.mod.gate import GateService
+    from proxysvc.mod.loop.service import LoopService
     from proxysvc.mod.metric.service import MetricService
     from proxysvc.mod.pool.service import PoolService
 
 _RESTORABLE_EXPERIMENT_FIELDS = ("name", "enabled", "policy_params")
 _LEARNING_KINDS = ("experiment.reset", "experiment.restore")
 _UNVERSIONED = ("version", "updated_at")
+_RESTORABLE_LOOP_FIELDS = ("name", "key", "state")
 
 
 def _changed_fields(change: Change) -> list[str]:
@@ -77,6 +81,8 @@ def _restored_part(change: Change, state: dict | None) -> dict | None:
         return None
     if change.kind == "experiment.update":
         return {name: state[name] for name in _changed_fields(change)}
+    if change.target_type == "loop":
+        return {name: state[name] for name in _RESTORABLE_LOOP_FIELDS}
     return {"name": state["name"]}
 
 
@@ -95,6 +101,9 @@ async def _current_state(
     if change.target_type == "metric":
         metric = await MetricRepository(session, tenant_id).get(change.target_id)
         return metric_to_dict(metric) if metric else None
+    if change.target_type == "loop":
+        loop = await LoopRepository(session, tenant_id).get(change.target_id)
+        return loop_to_dict(loop) if loop else None
     pool = await PoolRepository(session, tenant_id).get(change.target_id)
     return pool_to_dict(pool) if pool else None
 
@@ -114,11 +123,13 @@ class ChangeService:
         gates: GateService,
         pools: PoolService,
         metrics: MetricService,
+        loops: LoopService,
     ):
         self._experiments = experiments
         self._gates = gates
         self._pools = pools
         self._metrics = metrics
+        self._loops = loops
 
     async def list_changes(
         self, tenant_id: str, target_type: str, target_id: str, limit: int = 50
@@ -295,5 +306,21 @@ class ChangeService:
             return await self._metrics.delete_metric(
                 tenant_id, target_id, actor=actor, undoing=undoing
             )
+
+        if change.kind == "loop.create":
+            return await self._loops.delete_loop(
+                tenant_id, target_id, actor=actor, undoing=undoing
+            )
+
+        if change.kind == "loop.rename":
+            restored = await self._loops.rename_loop(
+                tenant_id,
+                target_id,
+                name=before["name"],
+                key=before["key"],
+                actor=actor,
+                undoing=undoing,
+            )
+            return restored is not None
 
         raise ChangeNotUndoableError(f"{change.kind} cannot be undone")
