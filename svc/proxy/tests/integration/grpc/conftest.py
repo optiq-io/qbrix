@@ -54,14 +54,15 @@ class SpyPublisher:
         self.events.append(event)
 
 
-def _emitter_with_spies(feedback, selection, audit) -> EventEmitter:
-    """build an EventEmitter whose three streams are spy publishers."""
+def _emitter_with_spies(feedback, selection, audit, metric) -> EventEmitter:
+    """build an EventEmitter whose streams are spy publishers."""
     from qbrixstore.config import RedisSettings
 
     em = EventEmitter(RedisSettings())
     em._feedback = feedback
     em._selection = selection
     em._audit = audit
+    em._metric = metric
     return em
 
 
@@ -147,7 +148,8 @@ async def wired_grpc(monkeypatch) -> AsyncGenerator[_WiredGRPC, Any]:
     feedback_spy = SpyPublisher()
     selection_spy = SpyPublisher()
     audit_spy = SpyPublisher()
-    events = _emitter_with_spies(feedback_spy, selection_spy, audit_spy)
+    metric_spy = SpyPublisher()
+    events = _emitter_with_spies(feedback_spy, selection_spy, audit_spy, metric_spy)
     svc._events = events
 
     gate_svc = GateService(redis_client, test_settings, events=events)
@@ -175,6 +177,7 @@ async def wired_grpc(monkeypatch) -> AsyncGenerator[_WiredGRPC, Any]:
         audit_spy=audit_spy,
         selection_spy=selection_spy,
         feedback_spy=feedback_spy,
+        metric_spy=metric_spy,
         motor_mock=svc._motor_client,
         gate_svc=gate_svc,
         fake_redis=fake_redis,

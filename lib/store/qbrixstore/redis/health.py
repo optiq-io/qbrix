@@ -51,6 +51,7 @@ class OutcomeDisposition(str, Enum):
     UNKNOWN_POLICY = "unknown_policy"
     TRAIN_ERROR = "train_error"
     REJECTED_TOKEN_EXPIRED = "rejected_token_expired"
+    INVALID = "invalid"
 
 
 @dataclass(frozen=True)

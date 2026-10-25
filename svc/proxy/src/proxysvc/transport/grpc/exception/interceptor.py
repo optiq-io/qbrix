@@ -15,6 +15,7 @@ from proxysvc.core.error import ExperimentLimitError
 from proxysvc.core.error import ExperimentNotFoundError
 from proxysvc.core.error import GateExistsError
 from proxysvc.core.error import InvalidIdentityError
+from proxysvc.core.error import InvalidOutcomeError
 from proxysvc.core.error import LearnerExperimentDeleteError
 from proxysvc.core.error import LoopNotFoundError
 from proxysvc.core.error import PoolHasExperimentsError
@@ -35,6 +36,7 @@ from proxysvc.transport.grpc.exception.base import InvalidContextPropertiesExcep
 from proxysvc.transport.grpc.exception.base import InvalidContextVectorException
 from proxysvc.transport.grpc.exception.base import InvalidDecisionContextException
 from proxysvc.transport.grpc.exception.base import InvalidIdentityException
+from proxysvc.transport.grpc.exception.base import InvalidOutcomeException
 from proxysvc.transport.grpc.exception.base import InvalidPolicyParamsException
 from proxysvc.transport.grpc.exception.base import LearnerExperimentDeleteException
 from proxysvc.transport.grpc.exception.base import LoopNotFoundException
@@ -66,6 +68,7 @@ _DOMAIN_TO_GRPC: dict[type[BaseAPIError], type[BaseGRPCException]] = {
     TokenError: TokenInvalidException,
     LoopNotFoundError: LoopNotFoundException,
     DecisionContextError: InvalidDecisionContextException,
+    InvalidOutcomeError: InvalidOutcomeException,
 }
 
 # why a token was rejected would tell the caller whether it verifies elsewhere

@@ -210,3 +210,9 @@ class InvalidDecisionContextException(InvalidArgumentException):
     """a select's context has no unit, or properties that aren't an object."""
 
     detail = "invalid context"
+
+
+class InvalidOutcomeException(InvalidArgumentException):
+    """an outcome's value, id or time breaks a rule of its decision."""
+
+    detail = "invalid outcome"

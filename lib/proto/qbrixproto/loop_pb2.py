@@ -23,23 +23,28 @@ _sym_db = _symbol_database.Default()
 
 
 from google.protobuf import struct_pb2 as google_dot_protobuf_dot_struct__pb2
+from google.protobuf import timestamp_pb2 as google_dot_protobuf_dot_timestamp__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\nloop.proto\x12\nqbrix.loop\x1a\x1cgoogle/protobuf/struct.proto\"D\n\x07\x43ontext\x12\x0c\n\x04unit\x18\x01 \x01(\t\x12+\n\nproperties\x18\x02 \x01(\x0b\x32\x17.google.protobuf.Struct\"L\n\x06Option\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\x0c\n\x04name\x18\x02 \x01(\t\x12\'\n\x06\x63onfig\x18\x03 \x01(\x0b\x32\x17.google.protobuf.Struct\"C\n\rSelectRequest\x12\x0c\n\x04loop\x18\x01 \x01(\t\x12$\n\x07\x63ontext\x18\x02 \x01(\x0b\x32\x13.qbrix.loop.Context\"X\n\x0eSelectResponse\x12\"\n\x06option\x18\x01 \x01(\x0b\x32\x12.qbrix.loop.Option\x12\x12\n\nrequest_id\x18\x02 \x01(\t\x12\x0e\n\x06reason\x18\x03 \x01(\t2N\n\x0bLoopService\x12?\n\x06Select\x12\x19.qbrix.loop.SelectRequest\x1a\x1a.qbrix.loop.SelectResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\nloop.proto\x12\nqbrix.loop\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"D\n\x07\x43ontext\x12\x0c\n\x04unit\x18\x01 \x01(\t\x12+\n\nproperties\x18\x02 \x01(\x0b\x32\x17.google.protobuf.Struct\"L\n\x06Option\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\x0c\n\x04name\x18\x02 \x01(\t\x12\'\n\x06\x63onfig\x18\x03 \x01(\x0b\x32\x17.google.protobuf.Struct\"C\n\rSelectRequest\x12\x0c\n\x04loop\x18\x01 \x01(\t\x12$\n\x07\x63ontext\x18\x02 \x01(\x0b\x32\x13.qbrix.loop.Context\"X\n\x0eSelectResponse\x12\"\n\x06option\x18\x01 \x01(\x0b\x32\x12.qbrix.loop.Option\x12\x12\n\nrequest_id\x18\x02 \x01(\t\x12\x0e\n\x06reason\x18\x03 \x01(\t\"v\n\x0eOutcomeRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x12\n\x05value\x18\x02 \x01(\x01H\x00\x88\x01\x01\x12\n\n\x02id\x18\x03 \x01(\t\x12&\n\x02\x61t\x18\x04 \x01(\x0b\x32\x1a.google.protobuf.TimestampB\x08\n\x06_value\"E\n\x0fOutcomeResponse\x12\n\n\x02id\x18\x01 \x01(\t\x12&\n\x02\x61t\x18\x02 \x01(\x0b\x32\x1a.google.protobuf.Timestamp2\x92\x01\n\x0bLoopService\x12?\n\x06Select\x12\x19.qbrix.loop.SelectRequest\x1a\x1a.qbrix.loop.SelectResponse\x12\x42\n\x07Outcome\x12\x1a.qbrix.loop.OutcomeRequest\x1a\x1b.qbrix.loop.OutcomeResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'loop_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_CONTEXT']._serialized_start=56
-  _globals['_CONTEXT']._serialized_end=124
-  _globals['_OPTION']._serialized_start=126
-  _globals['_OPTION']._serialized_end=202
-  _globals['_SELECTREQUEST']._serialized_start=204
-  _globals['_SELECTREQUEST']._serialized_end=271
-  _globals['_SELECTRESPONSE']._serialized_start=273
-  _globals['_SELECTRESPONSE']._serialized_end=361
-  _globals['_LOOPSERVICE']._serialized_start=363
-  _globals['_LOOPSERVICE']._serialized_end=441
+  _globals['_CONTEXT']._serialized_start=89
+  _globals['_CONTEXT']._serialized_end=157
+  _globals['_OPTION']._serialized_start=159
+  _globals['_OPTION']._serialized_end=235
+  _globals['_SELECTREQUEST']._serialized_start=237
+  _globals['_SELECTREQUEST']._serialized_end=304
+  _globals['_SELECTRESPONSE']._serialized_start=306
+  _globals['_SELECTRESPONSE']._serialized_end=394
+  _globals['_OUTCOMEREQUEST']._serialized_start=396
+  _globals['_OUTCOMEREQUEST']._serialized_end=514
+  _globals['_OUTCOMERESPONSE']._serialized_start=516
+  _globals['_OUTCOMERESPONSE']._serialized_end=585
+  _globals['_LOOPSERVICE']._serialized_start=588
+  _globals['_LOOPSERVICE']._serialized_end=734
 # @@protoc_insertion_point(module_scope)

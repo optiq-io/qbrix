@@ -1,5 +1,6 @@
 from qbrixstore.stream.topology import ALL
 from qbrixstore.stream.topology import AUDIT
+from qbrixstore.stream.topology import EVENT
 from qbrixstore.stream.topology import FEEDBACK
 from qbrixstore.stream.topology import SELECTION
 from qbrixstore.stream.topology import StreamSpec
@@ -12,6 +13,7 @@ from qbrixstore.stream.topology import StreamSpec
 __all__ = [
     "ALL",
     "AUDIT",
+    "EVENT",
     "FEEDBACK",
     "SELECTION",
     "StreamSpec",

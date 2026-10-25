@@ -188,6 +188,7 @@ class TestNextSwitch:
             "/api/v1/loops/{loop}",
             "/api/v1/loops/{loop}/launch",
             "/api/v1/select",
+            "/api/v1/outcome",
         }
 
     def test_on_mounts_the_next_grpc_services(self, oss_with_next):

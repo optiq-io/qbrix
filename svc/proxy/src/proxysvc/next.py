@@ -16,11 +16,13 @@ def next_routes(app: FastAPI, settings: ProxySettings) -> None:
         return
     from proxysvc.transport.http.router.loop import router as loop_router
     from proxysvc.transport.http.router.metric import router as metric_router
+    from proxysvc.transport.http.router.outcome import router as outcome_router
     from proxysvc.transport.http.router.select import router as select_router
 
     app.include_router(metric_router, prefix="/api/v1")
     app.include_router(loop_router, prefix="/api/v1")
     app.include_router(select_router, prefix="/api/v1")
+    app.include_router(outcome_router, prefix="/api/v1")
     logger.info("next routes registered")
 
 

@@ -5,6 +5,7 @@ from qbrixstore.redis.streams import RedisStreamPublisher, RedisStreamConsumer
 from qbrixstore.event import AuditEvent
 from qbrixstore.event import Event
 from qbrixstore.event import FeedbackEvent
+from qbrixstore.event import MetricEvent
 from qbrixstore.event import SelectionEvent
 from qbrixstore.stream import StreamSpec
 from qbrixstore.config import StoreSettings
@@ -27,6 +28,7 @@ __all__ = [
     "Event",
     "AuditEvent",
     "FeedbackEvent",
+    "MetricEvent",
     "SelectionEvent",
     # Stream topology
     "StreamSpec",

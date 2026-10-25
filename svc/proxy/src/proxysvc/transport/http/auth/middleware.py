@@ -10,6 +10,7 @@ from proxysvc.mod.auth.model import APIKey, User
 from proxysvc.mod.auth.scope import ENDPOINT_SCOPES
 from proxysvc.transport.http.auth import util
 from proxysvc.transport.http.constant import AGENT_PATH_PREFIX
+from proxysvc.transport.http.constant import OUTCOME_PATH
 from proxysvc.transport.http.constant import SELECT_PATH
 from proxysvc.transport.http.exception import BaseAPIException
 from proxysvc.transport.http.exception import UnauthorizedException
@@ -46,6 +47,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         self.rate_limited_paths = {
             AGENT_PATH_PREFIX,
             SELECT_PATH,
+            OUTCOME_PATH,
         }
 
     async def dispatch(self, request: Request, call_next):

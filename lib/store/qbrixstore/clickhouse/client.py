@@ -10,6 +10,7 @@ from clickhouse_connect.driver.client import Client
 from qbrixstore.event import AuditEvent
 from qbrixstore.event import SelectionEvent
 from qbrixstore.event import FeedbackEvent
+from qbrixstore.event import MetricEvent
 from qbrixstore.config import ClickHouseSettings
 
 
@@ -65,6 +66,27 @@ class ClickHouseClient:
         "payload",
         "timestamp_ms",
     ]
+
+    METRIC_COLUMNS = [
+        "tenant_id",
+        "metric_id",
+        "metric_version",
+        "value",
+        "decisions",
+        "unit",
+        "event_id",
+        "at_ms",
+        "received_ms",
+        "source",
+    ]
+
+    DECISION_FIELDS = (
+        "decision_id",
+        "loop_id",
+        "cycle_id",
+        "option_index",
+        "opened_ms",
+    )
 
     def __init__(self, settings: ClickHouseSettings | None = None):
         if settings is None:
@@ -181,6 +203,37 @@ class ClickHouseClient:
             event.context_vector,
             json.dumps(event.context_metadata),
             event.timestamp_ms,
+        )
+
+    def insert_metric_events(self, events: Sequence[MetricEvent]) -> None:
+        """batch insert metric events."""
+        if not events:
+            return
+
+        rows = [self._metric_to_row(event) for event in events]
+        self.client.insert(
+            table="metric_events",
+            data=rows,
+            column_names=self.METRIC_COLUMNS,
+        )
+
+    @classmethod
+    def _metric_to_row(cls, event: MetricEvent) -> tuple:
+        """convert metric event to clickhouse row tuple."""
+        return (
+            event.tenant_id,
+            event.metric_id,
+            event.metric_version,
+            event.value,
+            [
+                tuple(decision[name] for name in cls.DECISION_FIELDS)
+                for decision in event.decisions
+            ],
+            event.unit,
+            event.event_id,
+            event.at_ms,
+            event.received_ms,
+            event.source,
         )
 
     def insert_audit_events(self, events: Sequence[AuditEvent]) -> None:
