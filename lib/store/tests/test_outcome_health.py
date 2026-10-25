@@ -62,6 +62,18 @@ async def test_health_sums_the_window_and_splits_learned_from_reasons(store):
     )
 
 
+async def test_an_invalid_outcome_is_not_learned(store):
+    await store.count_outcomes(
+        TENANT, EXPERIMENT, {OutcomeDisposition.INVALID: 2}, minute=NOW
+    )
+
+    health = await store.outcome_health(TENANT, EXPERIMENT, 5, now_minute=NOW)
+
+    assert health.learned == 0
+    assert health.not_learned == 2
+    assert health.by_reason == {"invalid": 2}
+
+
 async def test_health_is_scoped_to_its_experiment_and_tenant(store):
     await store.count_outcomes(
         TENANT, "other", {OutcomeDisposition.LEARNED: 1}, minute=NOW

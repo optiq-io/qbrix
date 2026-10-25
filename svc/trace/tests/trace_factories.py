@@ -5,6 +5,7 @@ from typing import Sequence
 
 from qbrixstore.event import AuditEvent
 from qbrixstore.event import FeedbackEvent
+from qbrixstore.event import MetricEvent
 from qbrixstore.event import SelectionEvent
 
 
@@ -19,6 +20,7 @@ class FakeClickHouse:
         self.selection: list[SelectionEvent] = []
         self.feedback: list[FeedbackEvent] = []
         self.audit: list[AuditEvent] = []
+        self.metric: list[MetricEvent] = []
         self.inserts: list[tuple[str, int]] = []
         self.fail_next = 0
         self.closed = False
@@ -43,6 +45,9 @@ class FakeClickHouse:
 
     def insert_audit_events(self, events: Sequence[AuditEvent]) -> None:
         self._record("audit", events)
+
+    def insert_metric_events(self, events: Sequence[MetricEvent]) -> None:
+        self._record("metric", events)
 
     def health_check(self) -> bool:
         return True
@@ -92,6 +97,29 @@ def make_audit(tenant_id: str = "t1") -> AuditEvent:
         resource_id="exp",
         payload={},
         timestamp_ms=1_000,
+    )
+
+
+def make_metric(tenant_id: str = "t1") -> MetricEvent:
+    return MetricEvent(
+        tenant_id=tenant_id,
+        metric_id="m-1",
+        metric_version="1.0",
+        value=1.0,
+        decisions=[
+            {
+                "decision_id": "dec-1",
+                "loop_id": "loop-1",
+                "cycle_id": "cyc-1",
+                "option_index": 0,
+                "opened_ms": 1_000,
+            }
+        ],
+        unit="user-1",
+        event_id="evt-1",
+        at_ms=2_000,
+        received_ms=2_000,
+        source="outcome",
     )
 
 

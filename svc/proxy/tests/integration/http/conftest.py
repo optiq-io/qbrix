@@ -49,14 +49,15 @@ class SpyPublisher:
         self.events.append(event)
 
 
-def _emitter_with_spies(feedback, selection, audit) -> EventEmitter:
-    """build an EventEmitter whose three streams are spy publishers."""
+def _emitter_with_spies(feedback, selection, audit, metric) -> EventEmitter:
+    """build an EventEmitter whose streams are spy publishers."""
     from qbrixstore.config import RedisSettings
 
     em = EventEmitter(RedisSettings())
     em._feedback = feedback
     em._selection = selection
     em._audit = audit
+    em._metric = metric
     return em
 
 
@@ -159,6 +160,7 @@ async def wired_app(
         audit_spy     — SpyPublisher for audit events
         selection_spy — SpyPublisher for selection events
         feedback_spy  — SpyPublisher for feedback events
+        metric_spy    — SpyPublisher for metric events
         motor_mock    — AsyncMock for MotorClient
         gate_mock     — AsyncMock for GateService
         fake_redis    — FakeRedis instance (already connected to RedisClient)
@@ -171,6 +173,9 @@ async def wired_app(
     from proxysvc.transport.http.router.gate import set_proxy_service as set_gate
     from proxysvc.transport.http.router.loop import set_proxy_service as set_loop
     from proxysvc.transport.http.router.metric import set_proxy_service as set_metric
+    from proxysvc.transport.http.router.outcome import (
+        set_proxy_service as set_outcome,
+    )
     from proxysvc.transport.http.router.pool import set_proxy_service as set_pool
     from proxysvc.transport.http.router.runtime import set_proxy_service as set_runtime
     from proxysvc.transport.http.router.select import set_proxy_service as set_select
@@ -208,7 +213,8 @@ async def wired_app(
     feedback_spy = SpyPublisher()
     selection_spy = SpyPublisher()
     audit_spy = SpyPublisher()
-    events = _emitter_with_spies(feedback_spy, selection_spy, audit_spy)
+    metric_spy = SpyPublisher()
+    events = _emitter_with_spies(feedback_spy, selection_spy, audit_spy, metric_spy)
     svc._events = events
 
     # gate service — backed by fakeredis so set_config/get_config/delete_config
@@ -230,6 +236,7 @@ async def wired_app(
     set_metric(svc)
     set_loop(svc)
     set_select(svc)
+    set_outcome(svc)
 
     wired = _WiredApp(
         app=app,
@@ -238,6 +245,7 @@ async def wired_app(
         audit_spy=audit_spy,
         selection_spy=selection_spy,
         feedback_spy=feedback_spy,
+        metric_spy=metric_spy,
         motor_mock=svc._motor_client,  # noqa
         gate_svc=gate_svc,
         fake_redis=fake_redis_client,
@@ -254,6 +262,7 @@ async def wired_app(
     set_metric(None)  # type: ignore[arg-type]
     set_loop(None)  # type: ignore[arg-type]
     set_select(None)  # type: ignore[arg-type]
+    set_outcome(None)  # type: ignore[arg-type]
 
 
 # ── http client ───────────────────────────────────────────────────────────────

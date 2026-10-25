@@ -6,6 +6,8 @@ from __future__ import annotations
 # policy key off it.
 AGENT_PATH_PREFIX = "/api/v1/agent/"
 
-# select(loop, context), the next request path. it takes the same traffic as
-# the agent prefix, so the same limiter and cors policy cover it.
+# select(loop, context) and outcome(request_id, value), the next request path.
+# they take the same traffic as the agent prefix, so the same limiter and cors
+# policy cover them.
 SELECT_PATH = "/api/v1/select"
+OUTCOME_PATH = "/api/v1/outcome"

@@ -387,3 +387,17 @@ class InvalidDecisionContextException(BadRequestException):
 
     detail = "invalid context"
     code = "INVALID_CONTEXT"
+
+
+class InvalidOutcomeException(BadRequestException):
+    """an outcome's value, id or time breaks a rule of its decision."""
+
+    detail = "invalid outcome"
+    code = "INVALID_OUTCOME"
+
+
+class InvalidRequestIdException(BadRequestException):
+    """a request_id that doesn't verify in this workspace."""
+
+    detail = "invalid request_id"
+    code = "INVALID_REQUEST_ID"

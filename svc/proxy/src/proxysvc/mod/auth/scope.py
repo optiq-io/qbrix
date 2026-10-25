@@ -95,6 +95,7 @@ ENDPOINT_SCOPES = {
     ("POST", "/api/v1/agent/feedback"): "agent:write",
     ("POST", "/api/v1/agent/select"): "agent:read",
     ("POST", "/api/v1/select"): "agent:read",
+    ("POST", "/api/v1/outcome"): "agent:write",
     # metrics
     ("POST", "/api/v1/metric/*"): "metric:read",
     ("GET", "/api/v1/metric/*"): "metric:read",
@@ -130,4 +131,5 @@ RPC_SCOPES: dict[str, str] = {
     "/qbrix.proxy.ProxyService/Select": "agent:read",
     "/qbrix.loop.LoopService/Select": "agent:read",
     "/qbrix.proxy.ProxyService/Feedback": "agent:write",
+    "/qbrix.loop.LoopService/Outcome": "agent:write",
 }

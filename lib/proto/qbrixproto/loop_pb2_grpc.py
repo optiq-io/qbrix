@@ -39,12 +39,23 @@ class LoopServiceStub(object):
                 request_serializer=loop__pb2.SelectRequest.SerializeToString,
                 response_deserializer=loop__pb2.SelectResponse.FromString,
                 _registered_method=True)
+        self.Outcome = channel.unary_unary(
+                '/qbrix.loop.LoopService/Outcome',
+                request_serializer=loop__pb2.OutcomeRequest.SerializeToString,
+                response_deserializer=loop__pb2.OutcomeResponse.FromString,
+                _registered_method=True)
 
 
 class LoopServiceServicer(object):
     """Missing associated documentation comment in .proto file."""
 
     def Select(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Outcome(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -57,6 +68,11 @@ def add_LoopServiceServicer_to_server(servicer, server):
                     servicer.Select,
                     request_deserializer=loop__pb2.SelectRequest.FromString,
                     response_serializer=loop__pb2.SelectResponse.SerializeToString,
+            ),
+            'Outcome': grpc.unary_unary_rpc_method_handler(
+                    servicer.Outcome,
+                    request_deserializer=loop__pb2.OutcomeRequest.FromString,
+                    response_serializer=loop__pb2.OutcomeResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -86,6 +102,33 @@ class LoopService(object):
             '/qbrix.loop.LoopService/Select',
             loop__pb2.SelectRequest.SerializeToString,
             loop__pb2.SelectResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Outcome(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/qbrix.loop.LoopService/Outcome',
+            loop__pb2.OutcomeRequest.SerializeToString,
+            loop__pb2.OutcomeResponse.FromString,
             options,
             channel_credentials,
             insecure,

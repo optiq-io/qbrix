@@ -6,6 +6,7 @@ isort:skip_file
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
 from google.protobuf import struct_pb2 as _struct_pb2
+from google.protobuf import timestamp_pb2 as _timestamp_pb2
 import builtins as _builtins
 import sys
 import typing as _typing
@@ -114,3 +115,57 @@ class SelectResponse(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___SelectResponse: _TypeAlias = SelectResponse  # noqa: Y015
+
+@_typing.final
+class OutcomeRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    REQUEST_ID_FIELD_NUMBER: _builtins.int
+    VALUE_FIELD_NUMBER: _builtins.int
+    ID_FIELD_NUMBER: _builtins.int
+    AT_FIELD_NUMBER: _builtins.int
+    request_id: _builtins.str
+    value: _builtins.float
+    id: _builtins.str
+    @_builtins.property
+    def at(self) -> _timestamp_pb2.Timestamp: ...
+    def __init__(
+        self,
+        *,
+        request_id: _builtins.str = ...,
+        value: _builtins.float | None = ...,
+        id: _builtins.str = ...,
+        at: _timestamp_pb2.Timestamp | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_value", b"_value", "at", b"at", "value", b"value"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_value", b"_value", "at", b"at", "id", b"id", "request_id", b"request_id", "value", b"value"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    _WhichOneofReturnType__value: _TypeAlias = _typing.Literal["value"]  # noqa: Y015
+    _WhichOneofArgType__value: _TypeAlias = _typing.Literal["_value", b"_value"]  # noqa: Y015
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__value) -> _WhichOneofReturnType__value | None: ...
+
+Global___OutcomeRequest: _TypeAlias = OutcomeRequest  # noqa: Y015
+
+@_typing.final
+class OutcomeResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    ID_FIELD_NUMBER: _builtins.int
+    AT_FIELD_NUMBER: _builtins.int
+    id: _builtins.str
+    @_builtins.property
+    def at(self) -> _timestamp_pb2.Timestamp: ...
+    def __init__(
+        self,
+        *,
+        id: _builtins.str = ...,
+        at: _timestamp_pb2.Timestamp | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["at", b"at"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["at", b"at", "id", b"id"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___OutcomeResponse: _TypeAlias = OutcomeResponse  # noqa: Y015

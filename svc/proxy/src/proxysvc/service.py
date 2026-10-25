@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any
 
 from qbrixcore.engine import ENGINES
@@ -22,6 +23,7 @@ from proxysvc.mod.gate import GateService
 from proxysvc.mod.gate.config import FeatureGateConfig
 from proxysvc.mod.gate.schema import GateConfigPatchRequest
 from proxysvc.mod.gate.schema import GateConfigRequest
+from proxysvc.mod.loop.outcome import LoopOutcomeService
 from proxysvc.mod.loop.route import LoopRouteCache
 from proxysvc.mod.loop.select import LoopSelectService
 from proxysvc.mod.loop.service import LoopService
@@ -53,6 +55,7 @@ class ProxyService:
         self._metric_service: MetricService | None = None
         self._loop_service: LoopService | None = None
         self._loop_select_service: LoopSelectService | None = None
+        self._loop_outcome_service: LoopOutcomeService | None = None
         self._experiment_service: ExperimentService | None = None
         self._entitlements: Entitlements | None = None
 
@@ -123,6 +126,12 @@ class ProxyService:
             events=self._events,
             settings=self._settings,
             entitlements=self._entitlements,
+        )
+        self._loop_outcome_service = LoopOutcomeService(
+            redis=self._redis,
+            routes=loop_routes,
+            events=self._events,
+            settings=self._settings,
         )
         self._change_service = ChangeService(
             experiments=self._experiment_service,
@@ -453,6 +462,18 @@ class ProxyService:
         self, tenant_id: str, loop: str, unit: Any, properties: Any = None
     ) -> dict:
         return await self._loop_select_service.select(tenant_id, loop, unit, properties)
+
+    async def outcome(
+        self,
+        tenant_id: str,
+        request_id: str,
+        value: Any,
+        event_id: Any = None,
+        at: datetime | None = None,
+    ) -> dict:
+        return await self._loop_outcome_service.outcome(
+            tenant_id, request_id, value, event_id, at
+        )
 
     # agent
 

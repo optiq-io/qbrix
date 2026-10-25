@@ -21,6 +21,7 @@ from qbrixstore.stream import topology
 
 from trace_factories import make_audit
 from trace_factories import make_feedback
+from trace_factories import make_metric
 from trace_factories import make_selection
 from trace_factories import wait_for
 
@@ -124,19 +125,32 @@ class TestAcking:
 
         assert await control.xlen(topology.AUDIT.name) == 0
 
+    async def test_a_metric_event_reaches_the_ledger_and_leaves_the_stream(
+        self, service, control, clickhouse
+    ):
+        await control.xadd(topology.EVENT.name, make_metric().to_dict())
 
-class TestAllThreeStreams:
+        await wait_for(lambda: len(clickhouse.metric) == 1)
+        await wait_for(lambda: True)
+
+        assert clickhouse.metric[0].decisions[0]["decision_id"] == "dec-1"
+        assert await control.xlen(topology.EVENT.name) == 0
+
+
+class TestEveryStream:
     async def test_each_stream_reaches_its_own_table(
         self, service, control, clickhouse
     ):
         await control.xadd(topology.SELECTION.name, make_selection().to_dict())
         await control.xadd(topology.FEEDBACK.name, make_feedback().to_dict())
         await control.xadd(topology.AUDIT.name, make_audit().to_dict())
+        await control.xadd(topology.EVENT.name, make_metric().to_dict())
 
         await wait_for(
             lambda: len(clickhouse.selection) == 1
             and len(clickhouse.feedback) == 1
             and len(clickhouse.audit) == 1
+            and len(clickhouse.metric) == 1
         )
 
     async def test_a_worker_runs_per_stream(self, service):
@@ -144,6 +158,7 @@ class TestAllThreeStreams:
             "qbrix:selection/trace",
             "qbrix:feedback/trace",
             "qbrix:audit/trace",
+            "qbrix:event/trace",
         ]
 
 
@@ -194,13 +209,12 @@ class TestStopDrainsBufferedRows:
         assert len(clickhouse.selection) == 1
         assert await pending(control, topology.SELECTION) == 0
 
-    async def test_stop_drains_all_three_streams(
-        self, make_service, control, clickhouse
-    ):
+    async def test_stop_drains_every_stream(self, make_service, control, clickhouse):
         service = await make_service(batch_size=500, flush_interval_sec=60)
         await control.xadd(topology.SELECTION.name, make_selection().to_dict())
         await control.xadd(topology.FEEDBACK.name, make_feedback().to_dict())
         await control.xadd(topology.AUDIT.name, make_audit().to_dict())
+        await control.xadd(topology.EVENT.name, make_metric().to_dict())
         await wait_for(lambda: all(w.buffered == 1 for w in service._workers))
 
         await service.stop()
@@ -209,7 +223,8 @@ class TestStopDrainsBufferedRows:
             len(clickhouse.selection),
             len(clickhouse.feedback),
             len(clickhouse.audit),
-        ) == (1, 1, 1)
+            len(clickhouse.metric),
+        ) == (1, 1, 1, 1)
 
     async def test_stop_closes_clickhouse(self, service, clickhouse):
         await service.stop()

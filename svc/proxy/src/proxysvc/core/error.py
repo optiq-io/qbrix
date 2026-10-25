@@ -114,6 +114,10 @@ class DecisionContextError(BaseAPIError):
     """raised when a select's context has no unit, or properties that aren't an object."""
 
 
+class InvalidOutcomeError(BaseAPIError):
+    """raised when an outcome's value, id or time breaks a rule of its decision."""
+
+
 class SignupClosedError(BaseAPIError):
     """raised when public registration is closed by the deployment's signup mode."""
 

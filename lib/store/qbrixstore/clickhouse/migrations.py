@@ -76,9 +76,31 @@ TTL event_date + INTERVAL {ttl_days} DAY
 SETTINGS index_granularity = 8192
 """
 
+METRIC_EVENTS_TABLE = """
+CREATE TABLE IF NOT EXISTS metric_events (
+    tenant_id String,
+    metric_id String,
+    metric_version String,
+    value Float64,
+    decisions Array(Tuple(decision_id String, loop_id String, cycle_id String, option_index UInt16, opened_ms Int64)),
+    unit String,
+    event_id String,
+    at_ms Int64,
+    received_ms Int64,
+    source LowCardinality(String),
+    event_date Date DEFAULT toDate(fromUnixTimestamp64Milli(at_ms))
+)
+ENGINE = MergeTree()
+PARTITION BY (tenant_id, toYYYYMM(event_date))
+ORDER BY (tenant_id, at_ms, event_id)
+TTL event_date + INTERVAL {ttl_days} DAY
+SETTINGS index_granularity = 8192
+"""
+
 DROP_SELECTION_EVENTS = "DROP TABLE IF EXISTS selection_events"
 DROP_FEEDBACK_EVENTS = "DROP TABLE IF EXISTS feedback_events"
 DROP_AUDIT_EVENTS = "DROP TABLE IF EXISTS audit_events"
+DROP_METRIC_EVENTS = "DROP TABLE IF EXISTS metric_events"
 
 # idempotent column additions for tables created before the column existed;
 # there is no versioned clickhouse migration runner, so we alter in place.
@@ -104,6 +126,7 @@ def create_tables(client: Client, ttl_days: int = 90) -> None:
     client.command(SELECTION_EVENTS_TABLE.format(ttl_days=ttl_days))
     client.command(FEEDBACK_EVENTS_TABLE.format(ttl_days=ttl_days))
     client.command(AUDIT_EVENTS_TABLE.format(ttl_days=ttl_days))
+    client.command(METRIC_EVENTS_TABLE.format(ttl_days=ttl_days))
     for alter in SELECTION_EVENTS_ALTERS:
         client.command(alter)
 
@@ -113,6 +136,7 @@ def drop_tables(client: Client) -> None:
     client.command(DROP_SELECTION_EVENTS)
     client.command(DROP_FEEDBACK_EVENTS)
     client.command(DROP_AUDIT_EVENTS)
+    client.command(DROP_METRIC_EVENTS)
 
 
 def create_database(client: Client, database: str) -> None:

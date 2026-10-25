@@ -11,6 +11,7 @@ import pytest
 
 from qbrixstore.event import AuditEvent
 from qbrixstore.event import FeedbackEvent
+from qbrixstore.event import MetricEvent
 from qbrixstore.event import SelectionEvent
 from qbrixstore.stream import topology
 from qbrixstore.stream.topology import StreamSpec
@@ -97,7 +98,7 @@ class TestDeployedTopology:
         assert spec.name == "qbrix:feedback"
         assert spec.event is FeedbackEvent
         assert spec.groups == frozenset({"cortex", "trace"})
-        assert spec.max_len == 200_000
+        assert spec.max_len == 150_000
         assert spec.start_id("cortex") == "0"
         assert spec.start_id("trace") == "0"
 
@@ -124,11 +125,21 @@ class TestDeployedTopology:
         assert spec.delete_on_ack is True
         assert spec.start_id("trace") == "0"
 
+    def test_event(self):
+        spec = topology.EVENT
+        assert spec.name == "qbrix:event"
+        assert spec.event is MetricEvent
+        assert spec.groups == frozenset({"trace"})
+        assert spec.max_len == 100_000
+        assert spec.delete_on_ack is True
+        assert spec.start_id("trace") == "0"
+
     def test_registry_is_complete(self):
         assert set(topology.ALL) == {
             topology.FEEDBACK,
             topology.SELECTION,
             topology.AUDIT,
+            topology.EVENT,
         }
 
 
@@ -136,13 +147,15 @@ class TestMemoryBudget:
     """redis runs noeviction, so a stream at its cap that doesn't fit refuses
     every write instead of trimming. bytes per entry are redis MEMORY USAGE at
     the widest context (64 dims), measured on redis 7.4; audit carries headroom
-    for larger payloads."""
+    for larger payloads, and a metric event is measured with a 256-character
+    unit and id."""
 
     MAXMEMORY = 1024**3
     WORST_BYTES_PER_ENTRY = {
         topology.FEEDBACK: 1_930,
         topology.SELECTION: 1_930,
         topology.AUDIT: 600,
+        topology.EVENT: 1_030,
     }
 
     def test_every_stream_has_a_measured_size(self):

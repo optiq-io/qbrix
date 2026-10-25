@@ -12,6 +12,7 @@ from qbrixstore.clickhouse.migrations import create_tables
 from qbrixstore.event import AuditEvent
 from qbrixstore.event import Event
 from qbrixstore.event import FeedbackEvent
+from qbrixstore.event import MetricEvent
 from qbrixstore.event import SelectionEvent
 from qbrixstore.redis.streams import RedisStreamConsumer
 from qbrixstore.config import RedisSettings
@@ -29,11 +30,12 @@ CONSUMER_GROUP = "trace"
 
 
 class TraceService:
-    """service for persisting selection, feedback and audit events to clickhouse.
+    """service for persisting selection, feedback, audit and metric events to
+    clickhouse.
 
-    all three streams are consumed identically — accumulate a batch, insert it,
-    ack it — so all three run on a StreamWorker and differ only in which insert
-    they call and which counter they bump.
+    every stream is consumed identically — accumulate a batch, insert it, ack
+    it — so each runs on a StreamWorker and differs only in which insert it
+    calls and which counter it bumps.
     """
 
     def __init__(self, settings: TraceSettings):
@@ -42,7 +44,13 @@ class TraceService:
         self._consumers: list[RedisStreamConsumer] = []
         self._workers: list[StreamWorker] = []
         self._stats: dict[str, dict] = defaultdict(
-            lambda: {"selections": 0, "feedback": 0, "audit": 0, "last_write": 0}
+            lambda: {
+                "selections": 0,
+                "feedback": 0,
+                "audit": 0,
+                "metric": 0,
+                "last_write": 0,
+            }
         )
         self._running = False
 
@@ -109,6 +117,9 @@ class TraceService:
             topology.FEEDBACK, redis_settings, self._handle_feedback
         )
         await self._start_worker(topology.AUDIT, redis_settings, self._handle_audit)
+        await self._start_worker(
+            topology.EVENT, redis_settings, self._handle_metric_event
+        )
 
         self._running = True
 
@@ -120,9 +131,9 @@ class TraceService:
         # are memory-only, and on qbrix:feedback cortex's ack may already have
         # deleted them from the stream.
         #
-        # concurrently, because the three drains are independent and a pod's
-        # termination grace has to cover them: in sequence they would cost three
-        # stop timeouts, not one.
+        # concurrently, because the drains are independent and a pod's
+        # termination grace has to cover them: in sequence they would cost one
+        # stop timeout per stream, not one in all.
         await asyncio.gather(*(worker.stop() for worker in self._workers))
         for consumer in self._consumers:
             await consumer.close()
@@ -191,6 +202,17 @@ class TraceService:
             "audit",
             "audit",
             lambda event: f"{event.tenant_id}:audit",
+        )
+
+    async def _handle_metric_event(
+        self, batch: list[tuple[str, MetricEvent]]
+    ) -> Sequence[str]:
+        return await self._persist(
+            batch,
+            self._clickhouse.insert_metric_events,
+            "metric",
+            "metric",
+            lambda event: f"{event.tenant_id}:metric",
         )
 
     def get_stats(

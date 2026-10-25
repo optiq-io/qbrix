@@ -12,6 +12,7 @@ import pytest
 from qbrixstore.event import AuditEvent
 from qbrixstore.event import EventDecodeError
 from qbrixstore.event import FeedbackEvent
+from qbrixstore.event import MetricEvent
 from qbrixstore.event import SelectionEvent
 
 
@@ -63,6 +64,31 @@ def an_audit(**overrides) -> AuditEvent:
     return AuditEvent(**kwargs)
 
 
+def a_metric(**overrides) -> MetricEvent:
+    kwargs = dict(
+        tenant_id="t1",
+        metric_id="m-1",
+        metric_version="1.0",
+        value=1.0,
+        decisions=[
+            {
+                "decision_id": "dec-1",
+                "loop_id": "loop-1",
+                "cycle_id": "cyc-1",
+                "option_index": 2,
+                "opened_ms": 1_000,
+            }
+        ],
+        unit="user-42",
+        event_id="evt-1",
+        at_ms=2_000,
+        received_ms=2_050,
+        source="outcome",
+    )
+    kwargs.update(overrides)
+    return MetricEvent(**kwargs)
+
+
 class TestWireFormat:
     def test_every_value_is_a_string(self):
         assert all(isinstance(v, str) for v in a_selection().to_dict().values())
@@ -99,7 +125,9 @@ class TestWireFormat:
         assert decoded.context_vector == []
         assert decoded.context_metadata == {}
 
-    @pytest.mark.parametrize("event", [a_selection(), a_feedback(), an_audit()])
+    @pytest.mark.parametrize(
+        "event", [a_selection(), a_feedback(), an_audit(), a_metric()]
+    )
     def test_round_trip_is_lossless(self, event):
         assert type(event).from_dict(event.to_dict()) == event
 
@@ -207,3 +235,20 @@ class TestDecisionFields:
         assert decoded.decision_id == ""
         assert decoded.properties == {}
         assert decoded.window_ms == 0
+
+
+class TestMetricEvent:
+    def test_its_decisions_survive_the_wire(self):
+        event = a_metric()
+
+        decoded = MetricEvent.from_dict(event.to_dict())
+
+        assert decoded.decisions == event.decisions
+        assert decoded.decisions[0]["option_index"] == 2
+
+    def test_an_event_without_its_time_is_refused(self):
+        wire = a_metric().to_dict()
+        del wire["at_ms"]
+
+        with pytest.raises(EventDecodeError, match="at_ms"):
+            MetricEvent.from_dict(wire)

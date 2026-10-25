@@ -7,6 +7,7 @@ from typing import Mapping
 from qbrixstore.event import AuditEvent
 from qbrixstore.event import Event
 from qbrixstore.event import FeedbackEvent
+from qbrixstore.event import MetricEvent
 from qbrixstore.event import SelectionEvent
 
 # a group that is not listed on its stream's spec cannot be joined, so the
@@ -68,7 +69,7 @@ class StreamSpec:
 
 
 # redis runs noeviction, and a stream at its cap that doesn't fit maxmemory
-# refuses every write, trimming included. the caps are sized so all three full,
+# refuses every write, trimming included. the caps are sized so all of them full,
 # at the widest context, fit the chart's 1gb; test_topology holds them to it.
 # a stream normally sits far below its cap, trimmed to what its groups have
 # acked; the cap only binds when a group lags by that much, and then drops
@@ -78,7 +79,7 @@ FEEDBACK = StreamSpec(
     name="qbrix:feedback",
     event=FeedbackEvent,
     groups=frozenset({"cortex", "trace"}),
-    max_len=200_000,
+    max_len=150_000,
 )
 
 SELECTION = StreamSpec(
@@ -99,4 +100,11 @@ AUDIT = StreamSpec(
     max_len=100_000,
 )
 
-ALL: tuple[StreamSpec, ...] = (FEEDBACK, SELECTION, AUDIT)
+EVENT = StreamSpec(
+    name="qbrix:event",
+    event=MetricEvent,
+    groups=frozenset({"trace"}),
+    max_len=100_000,
+)
+
+ALL: tuple[StreamSpec, ...] = (FEEDBACK, SELECTION, AUDIT, EVENT)
