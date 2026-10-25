@@ -26,7 +26,7 @@ from proxysvc.transport.grpc.exception.base import PoolNotFoundException
 from proxysvc.transport.grpc.exception.base import UnauthenticatedException
 
 
-def _unstruct(value):
+def unstruct(value):
     """undo Struct's one number type, so a param arrives as it would over http.
 
     Struct stores every number as a double, so an integer sent by the client
@@ -38,9 +38,9 @@ def _unstruct(value):
     if isinstance(value, float) and value.is_integer():
         return int(value)
     if isinstance(value, dict):
-        return {k: _unstruct(v) for k, v in value.items()}
+        return {k: unstruct(v) for k, v in value.items()}
     if isinstance(value, list):
-        return [_unstruct(v) for v in value]
+        return [unstruct(v) for v in value]
     return value
 
 
@@ -52,7 +52,7 @@ def _request_policy_params(request) -> dict:
     still works for the scalar params it can represent.
     """
     if request.HasField("policy_params_json"):
-        return _unstruct(MessageToDict(request.policy_params_json))
+        return unstruct(MessageToDict(request.policy_params_json))
     return dict(request.policy_params)
 
 

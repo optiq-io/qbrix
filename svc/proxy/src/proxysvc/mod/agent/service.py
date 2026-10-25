@@ -44,7 +44,9 @@ class NoDefaultArmError(ValueError):
     """raised when a paused experiment has no default arm to serve."""
 
 
-def _classify(error: Exception) -> tuple[SelectOutcome, SelectErrorReason | None]:
+def classify_select_error(
+    error: Exception,
+) -> tuple[SelectOutcome, SelectErrorReason | None]:
     """whose failure a select error is: the caller's, or qbrix's and why."""
     if isinstance(error, ExperimentNotFoundError):
         return SelectOutcome.NOT_FOUND, None
@@ -170,7 +172,7 @@ class AgentService:
                 context_properties=context_properties,
             )
         except Exception as e:
-            self._count(tenant_id, experiment_id, *_classify(e))
+            self._count(tenant_id, experiment_id, *classify_select_error(e))
             raise
         outcome = SelectOutcome.OK if reason is None else SelectOutcome.ERROR
         self._count(tenant_id, experiment_id, outcome, reason)

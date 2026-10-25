@@ -45,7 +45,7 @@ def build_grpc_server(
         server,
         proxy_pb2.DESCRIPTOR.services_by_name["ProxyService"].full_name,
         auth_pb2.DESCRIPTOR.services_by_name["AuthService"].full_name,
-        *next_servicers(server, settings),
+        *next_servicers(server, settings, runtime.proxy_service),
     )
 
     bind(server, settings)
@@ -69,6 +69,7 @@ def build_http_server(settings: ProxySettings, runtime: ProxyRuntime) -> uvicorn
     from proxysvc.transport.http.router.metric import set_proxy_service as set_metric
     from proxysvc.transport.http.router.pool import set_proxy_service as set_pool
     from proxysvc.transport.http.router.runtime import set_proxy_service as set_runtime
+    from proxysvc.transport.http.router.select import set_proxy_service as set_select
 
     for wire in (
         set_pool,
@@ -78,6 +79,7 @@ def build_http_server(settings: ProxySettings, runtime: ProxyRuntime) -> uvicorn
         set_runtime,
         set_metric,
         set_loop,
+        set_select,
     ):
         wire(runtime.proxy_service)
 

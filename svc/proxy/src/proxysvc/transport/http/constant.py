@@ -5,3 +5,7 @@ from __future__ import annotations
 # frontend, which is why both the abuse rate limiter and the permissive cors
 # policy key off it.
 AGENT_PATH_PREFIX = "/api/v1/agent/"
+
+# select(loop, context), the next request path. it takes the same traffic as
+# the agent prefix, so the same limiter and cors policy cover it.
+SELECT_PATH = "/api/v1/select"

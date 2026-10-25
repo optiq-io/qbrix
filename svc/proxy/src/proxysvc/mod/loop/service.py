@@ -24,6 +24,8 @@ from proxysvc.core.error import LoopStateError
 from proxysvc.mod.change.repository import ChangeRepository
 from proxysvc.mod.change.undo import Undoing
 from proxysvc.mod.loop.repository import LoopRepository
+from proxysvc.mod.loop.route import LoopRouteCache
+from proxysvc.mod.loop.route import route_of
 from proxysvc.mod.loop.serialize import cycle_record
 from proxysvc.mod.loop.serialize import loop_to_dict
 from proxysvc.mod.loop.serialize import option_to_dict
@@ -131,10 +133,12 @@ class LoopService:
 
     a live cycle is written to redis as the record motor serves and cortex
     trains, under the cycle's id, so a new cycle never mixes earlier learning.
+    every write also rewrites the loop's route, which is all select reads.
     """
 
-    def __init__(self, *, redis: RedisClient):
+    def __init__(self, *, redis: RedisClient, routes: LoopRouteCache):
         self._redis = redis
+        self._routes = routes
 
     async def create_loop(
         self,
@@ -190,9 +194,11 @@ class LoopService:
             except IntegrityError as e:
                 raise _taken(key) from e
             loop_dict = loop_to_dict(loop)
+            route = route_of(loop)
             await ChangeRepository(session, tenant_id).record(
                 "loop.create", "loop", loop.id, actor, after=loop_dict
             )
+        await self._routes.put(tenant_id, route)
         return loop_dict
 
     async def launch_loop(
@@ -227,6 +233,7 @@ class LoopService:
                 ) from e
             loop_dict = loop_to_dict(loop)
             record = cycle_record(tenant_id, loop, loop.cycles[-1], resolved)
+            route = route_of(loop)
             await ChangeRepository(session, tenant_id).record(
                 "loop.launch",
                 "loop",
@@ -236,6 +243,7 @@ class LoopService:
                 after=loop_dict,
             )
         await self._redis.set_experiment(tenant_id, record["id"], record)
+        await self._routes.put(tenant_id, route)
         return loop_dict
 
     async def rename_loop(
@@ -269,6 +277,7 @@ class LoopService:
                 if await repo.get_by_key(key) is not None:
                     raise _taken(key)
             before = loop_to_dict(loop)
+            old_key = loop.key
             if name is not None:
                 loop.name = name
             if key is not None:
@@ -278,6 +287,7 @@ class LoopService:
             except IntegrityError as e:
                 raise _taken(key) from e
             loop_dict = loop_to_dict(loop)
+            route = route_of(loop)
             await ChangeRepository(session, tenant_id).record(
                 "loop.rename",
                 "loop",
@@ -287,6 +297,7 @@ class LoopService:
                 after=loop_dict,
                 undoing=undoing,
             )
+        await self._routes.put(tenant_id, route, old_key=old_key)
         return loop_dict
 
     async def delete_loop(
@@ -305,6 +316,7 @@ class LoopService:
             if loop.state != "draft":
                 raise _not_draft(loop.key, loop.state, "only a draft can be deleted")
             before = loop_to_dict(loop)
+            loop_key = loop.key
             await repo.delete(loop)
             await ChangeRepository(session, tenant_id).record(
                 "loop.delete",
@@ -314,6 +326,7 @@ class LoopService:
                 before=before,
                 undoing=undoing,
             )
+        await self._routes.drop(tenant_id, loop_id, loop_key)
         return True
 
     async def get_loop(self, tenant_id: str, ref: str) -> dict | None:

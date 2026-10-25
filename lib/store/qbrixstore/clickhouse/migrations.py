@@ -17,6 +17,18 @@ CREATE TABLE IF NOT EXISTS selection_events (
     context_metadata String,
     timestamp_ms Int64,
     policy String,
+    loop_id String,
+    cycle_id String,
+    decision_id String,
+    reason String,
+    unit String,
+    properties String,
+    metric_id String,
+    metric_version String,
+    metric_type String,
+    score_lo Float64,
+    score_hi Float64,
+    window_ms Int64,
     event_date Date DEFAULT toDate(fromUnixTimestamp64Milli(timestamp_ms))
 )
 ENGINE = MergeTree()
@@ -72,6 +84,18 @@ DROP_AUDIT_EVENTS = "DROP TABLE IF EXISTS audit_events"
 # there is no versioned clickhouse migration runner, so we alter in place.
 SELECTION_EVENTS_ALTERS = [
     "ALTER TABLE selection_events ADD COLUMN IF NOT EXISTS event_id String",
+    "ALTER TABLE selection_events ADD COLUMN IF NOT EXISTS loop_id String",
+    "ALTER TABLE selection_events ADD COLUMN IF NOT EXISTS cycle_id String",
+    "ALTER TABLE selection_events ADD COLUMN IF NOT EXISTS decision_id String",
+    "ALTER TABLE selection_events ADD COLUMN IF NOT EXISTS reason String",
+    "ALTER TABLE selection_events ADD COLUMN IF NOT EXISTS unit String",
+    "ALTER TABLE selection_events ADD COLUMN IF NOT EXISTS properties String",
+    "ALTER TABLE selection_events ADD COLUMN IF NOT EXISTS metric_id String",
+    "ALTER TABLE selection_events ADD COLUMN IF NOT EXISTS metric_version String",
+    "ALTER TABLE selection_events ADD COLUMN IF NOT EXISTS metric_type String",
+    "ALTER TABLE selection_events ADD COLUMN IF NOT EXISTS score_lo Float64",
+    "ALTER TABLE selection_events ADD COLUMN IF NOT EXISTS score_hi Float64",
+    "ALTER TABLE selection_events ADD COLUMN IF NOT EXISTS window_ms Int64",
 ]
 
 

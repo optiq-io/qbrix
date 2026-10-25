@@ -10,11 +10,13 @@ from proxysvc.core.error import ContextDimImmutableError
 from proxysvc.core.error import ContextPropertiesError
 from proxysvc.core.error import ContextSchemaImmutableError
 from proxysvc.core.error import ContextVectorError
+from proxysvc.core.error import DecisionContextError
 from proxysvc.core.error import ExperimentLimitError
 from proxysvc.core.error import ExperimentNotFoundError
 from proxysvc.core.error import GateExistsError
 from proxysvc.core.error import InvalidIdentityError
 from proxysvc.core.error import LearnerExperimentDeleteError
+from proxysvc.core.error import LoopNotFoundError
 from proxysvc.core.error import PoolHasExperimentsError
 from proxysvc.core.error import SignupClosedError
 from proxysvc.core.error import TokenError
@@ -31,9 +33,11 @@ from proxysvc.transport.grpc.exception.base import ContextDimImmutableException
 from proxysvc.transport.grpc.exception.base import ContextSchemaImmutableException
 from proxysvc.transport.grpc.exception.base import InvalidContextPropertiesException
 from proxysvc.transport.grpc.exception.base import InvalidContextVectorException
+from proxysvc.transport.grpc.exception.base import InvalidDecisionContextException
 from proxysvc.transport.grpc.exception.base import InvalidIdentityException
 from proxysvc.transport.grpc.exception.base import InvalidPolicyParamsException
 from proxysvc.transport.grpc.exception.base import LearnerExperimentDeleteException
+from proxysvc.transport.grpc.exception.base import LoopNotFoundException
 from proxysvc.transport.grpc.exception.base import PoolHasExperimentsException
 from proxysvc.transport.grpc.exception.base import SignupClosedException
 from proxysvc.transport.grpc.exception.base import TokenExpiredException
@@ -60,6 +64,8 @@ _DOMAIN_TO_GRPC: dict[type[BaseAPIError], type[BaseGRPCException]] = {
     TokenExpiredError: TokenExpiredException,
     TokenInvalidError: TokenInvalidException,
     TokenError: TokenInvalidException,
+    LoopNotFoundError: LoopNotFoundException,
+    DecisionContextError: InvalidDecisionContextException,
 }
 
 # why a token was rejected would tell the caller whether it verifies elsewhere

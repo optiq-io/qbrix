@@ -32,3 +32,15 @@ class SelectionEvent(Event):
     context_metadata: dict
     timestamp_ms: int
     policy: str
+    loop_id: str = ""
+    cycle_id: str = ""
+    decision_id: str = ""
+    reason: str = ""
+    unit: str = ""
+    properties: dict = field(default_factory=dict)
+    metric_id: str = ""
+    metric_version: str = ""
+    metric_type: str = ""
+    score_lo: float = 0.0
+    score_hi: float = 0.0
+    window_ms: int = 0
