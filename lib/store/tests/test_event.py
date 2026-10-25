@@ -166,3 +166,44 @@ class TestDecodeTolerance:
 
         assert decoded.context_vector == []
         assert decoded.context_metadata == {}
+
+
+class TestDecisionFields:
+    """a loop's decision carries what the sealer needs to seal it by the rules
+    of the metric version it was made under."""
+
+    DECISION = dict(
+        loop_id="loop-1",
+        cycle_id="cyc-1",
+        decision_id="dec-1",
+        reason="live",
+        unit="user-42",
+        properties={"plan": "pro", "seats": 3, "beta": True},
+        metric_id="m-1",
+        metric_version="1.0",
+        metric_type="score",
+        score_lo=1.0,
+        score_hi=5.0,
+        window_ms=86_400_000,
+    )
+
+    def test_round_trip_keeps_every_type(self):
+        event = a_selection(**self.DECISION)
+
+        decoded = SelectionEvent.from_dict(event.to_dict())
+
+        assert decoded == event
+        assert decoded.window_ms == 86_400_000
+        assert decoded.score_hi == 5.0
+        assert decoded.properties == {"plan": "pro", "seats": 3, "beta": True}
+
+    def test_an_experiment_selection_decodes_with_empty_decision_fields(self):
+        data = a_selection().to_dict()
+        for name in self.DECISION:
+            del data[name]
+
+        decoded = SelectionEvent.from_dict(data)
+
+        assert decoded.decision_id == ""
+        assert decoded.properties == {}
+        assert decoded.window_ms == 0

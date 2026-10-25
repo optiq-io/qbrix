@@ -10,6 +10,7 @@ from redis.asyncio.client import Pipeline
 from redis.exceptions import WatchError
 
 from qbrixstore.config import RedisSettings
+from qbrixstore.redis.health import LoopSelectReason
 from qbrixstore.redis.health import OUTCOME_HEALTH_TTL_SEC
 from qbrixstore.redis.health import OutcomeDisposition
 from qbrixstore.redis.health import OutcomeHealth
@@ -349,6 +350,54 @@ class RedisClient:
             not_found=outcomes[SelectOutcome.NOT_FOUND],
             by_reason=by_reason,
         )
+
+    @staticmethod
+    def _loop_select_key(
+        tenant_id: str, loop_id: str, minute: int, reason: LoopSelectReason
+    ) -> str:
+        return (
+            f"qbrix:tenant:{tenant_id}:health:loop_select:{loop_id}"
+            f":{minute}:{reason.value}"
+        )
+
+    async def record_loop_select(
+        self,
+        tenant_id: str,
+        loop_id: str,
+        reason: LoopSelectReason,
+        minute: int | None = None,
+    ) -> None:
+        """count one answered select call for a loop by its reason, in its minute."""
+        if minute is None:
+            minute = int(time.time()) // 60
+        key = self._loop_select_key(tenant_id, loop_id, minute, reason)
+        pipe = self.client.pipeline(transaction=False)
+        # noinspection PyAsyncCall
+        pipe.incr(key)
+        # noinspection PyAsyncCall
+        pipe.expire(key, SELECT_HEALTH_TTL_SEC)
+        await pipe.execute()
+
+    async def loop_selects(
+        self,
+        tenant_id: str,
+        loop_id: str,
+        window_minutes: int,
+        now_minute: int | None = None,
+    ) -> dict[str, int]:
+        """a loop's answered select calls by reason over the last
+        ``window_minutes`` minutes, the current one included."""
+        if now_minute is None:
+            now_minute = int(time.time()) // 60
+        minutes = range(now_minute - window_minutes + 1, now_minute + 1)
+        slots = [(m, reason) for m in minutes for reason in LoopSelectReason]
+        keys = [self._loop_select_key(tenant_id, loop_id, m, r) for m, r in slots]
+        values = await self.client.mget(keys) if keys else []
+        counts = {reason.value: 0 for reason in LoopSelectReason}
+        for (_, reason), value in zip(slots, values):
+            if value:
+                counts[reason.value] += int(value)
+        return counts
 
     @staticmethod
     def _outcome_health_key(

@@ -198,3 +198,15 @@ class MissingRequestIdException(InvalidArgumentException):
     """request_id is required but was not provided."""
 
     detail = "request_id is required"
+
+
+class LoopNotFoundException(NotFoundException):
+    """loop resource not found."""
+
+    detail = "loop not found"
+
+
+class InvalidDecisionContextException(InvalidArgumentException):
+    """a select's context has no unit, or properties that aren't an object."""
+
+    detail = "invalid context"

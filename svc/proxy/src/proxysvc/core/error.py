@@ -106,6 +106,14 @@ class LoopStateError(BaseAPIError):
     """raised when a change needs a draft loop and the loop is past it."""
 
 
+class LoopNotFoundError(BaseAPIError):
+    """raised when select names a loop the workspace doesn't have."""
+
+
+class DecisionContextError(BaseAPIError):
+    """raised when a select's context has no unit, or properties that aren't an object."""
+
+
 class SignupClosedError(BaseAPIError):
     """raised when public registration is closed by the deployment's signup mode."""
 

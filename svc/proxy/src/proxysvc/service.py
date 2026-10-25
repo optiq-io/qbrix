@@ -22,6 +22,8 @@ from proxysvc.mod.gate import GateService
 from proxysvc.mod.gate.config import FeatureGateConfig
 from proxysvc.mod.gate.schema import GateConfigPatchRequest
 from proxysvc.mod.gate.schema import GateConfigRequest
+from proxysvc.mod.loop.route import LoopRouteCache
+from proxysvc.mod.loop.select import LoopSelectService
 from proxysvc.mod.loop.service import LoopService
 from proxysvc.mod.metric.service import DEFAULT_WINDOW_SECONDS
 from proxysvc.mod.metric.service import MetricService
@@ -50,6 +52,7 @@ class ProxyService:
         self._change_service: ChangeService | None = None
         self._metric_service: MetricService | None = None
         self._loop_service: LoopService | None = None
+        self._loop_select_service: LoopSelectService | None = None
         self._experiment_service: ExperimentService | None = None
         self._entitlements: Entitlements | None = None
 
@@ -111,7 +114,16 @@ class ProxyService:
             entitlements=self._entitlements,
         )
         self._metric_service = MetricService()
-        self._loop_service = LoopService(redis=self._redis)
+        loop_routes = LoopRouteCache(self._redis.client, self._settings)
+        self._loop_service = LoopService(redis=self._redis, routes=loop_routes)
+        self._loop_select_service = LoopSelectService(
+            redis=self._redis,
+            routes=loop_routes,
+            motor_client=self._motor_client,
+            events=self._events,
+            settings=self._settings,
+            entitlements=self._entitlements,
+        )
         self._change_service = ChangeService(
             experiments=self._experiment_service,
             gates=self._gate_service,
@@ -436,6 +448,11 @@ class ProxyService:
 
     async def get_loop(self, tenant_id: str, ref: str) -> dict | None:
         return await self._loop_service.get_loop(tenant_id, ref)
+
+    async def select_loop(
+        self, tenant_id: str, loop: str, unit: Any, properties: Any = None
+    ) -> dict:
+        return await self._loop_select_service.select(tenant_id, loop, unit, properties)
 
     # agent
 

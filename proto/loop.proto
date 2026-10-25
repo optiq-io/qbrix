@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package qbrix.loop;
+
+import "google/protobuf/struct.proto";
+
+service LoopService {
+  rpc Select(SelectRequest) returns (SelectResponse);
+}
+
+message Context {
+  string unit = 1;
+  google.protobuf.Struct properties = 2;
+}
+
+message Option {
+  string key = 1;
+  string name = 2;
+  google.protobuf.Struct config = 3;
+}
+
+message SelectRequest {
+  string loop = 1;
+  Context context = 2;
+}
+
+message SelectResponse {
+  Option option = 1;
+  string request_id = 2;
+  string reason = 3;
+}

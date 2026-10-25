@@ -173,6 +173,7 @@ async def wired_app(
     from proxysvc.transport.http.router.metric import set_proxy_service as set_metric
     from proxysvc.transport.http.router.pool import set_proxy_service as set_pool
     from proxysvc.transport.http.router.runtime import set_proxy_service as set_runtime
+    from proxysvc.transport.http.router.select import set_proxy_service as set_select
 
     test_settings = _make_test_settings()
     monkeypatch.setattr(_config_module.settings, "runenv", "dev")
@@ -228,6 +229,7 @@ async def wired_app(
     set_runtime(svc)
     set_metric(svc)
     set_loop(svc)
+    set_select(svc)
 
     wired = _WiredApp(
         app=app,
@@ -251,6 +253,7 @@ async def wired_app(
     set_runtime(None)  # type: ignore[arg-type]
     set_metric(None)  # type: ignore[arg-type]
     set_loop(None)  # type: ignore[arg-type]
+    set_select(None)  # type: ignore[arg-type]
 
 
 # ── http client ───────────────────────────────────────────────────────────────

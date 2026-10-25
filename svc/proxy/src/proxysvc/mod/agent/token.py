@@ -16,6 +16,35 @@ from dataclasses import dataclass
 from proxysvc.core.error import TokenExpiredError, TokenInvalidError
 
 
+def sign(secret: bytes, payload: dict) -> str:
+    """a payload as compact json, signed and base64url-encoded."""
+    data = json.dumps(payload, separators=(",", ":")).encode()
+    sig = hmac.new(secret, data, "sha256").digest()[:16]
+    return base64.urlsafe_b64encode(data + sig).decode()
+
+
+def verify(secret: bytes, token: str) -> dict:
+    """the payload of a token signed with secret; raises TokenInvalidError."""
+    try:
+        raw = base64.urlsafe_b64decode(token)
+    except Exception as e:
+        raise TokenInvalidError(f"failed to decode token: {e}")
+
+    if len(raw) < 17:
+        raise TokenInvalidError("token too short")
+
+    data, sig = raw[:-16], raw[-16:]
+    expected_sig = hmac.new(secret, data, "sha256").digest()[:16]
+
+    if not hmac.compare_digest(sig, expected_sig):
+        raise TokenInvalidError("invalid token signature")
+
+    try:
+        return json.loads(data)
+    except json.JSONDecodeError as e:
+        raise TokenInvalidError(f"failed to parse token payload: {e}")
+
+
 @dataclass
 class SelectionEntry:
     """decoded selection data from token."""
@@ -80,9 +109,7 @@ class SelectionToken:
             payload["lrn_idx"] = learner_index
         if learner_experiment_id is not None:
             payload["lrn_eid"] = learner_experiment_id
-        data = json.dumps(payload, separators=(",", ":")).encode()
-        sig = hmac.new(secret, data, "sha256").digest()[:16]
-        return base64.urlsafe_b64encode(data + sig).decode()
+        return sign(secret, payload)
 
     @staticmethod
     def decode(
@@ -108,24 +135,9 @@ class SelectionToken:
                 issued to another tenant
             TokenExpiredError: if token has expired
         """
-        try:
-            raw = base64.urlsafe_b64decode(token)
-        except Exception as e:
-            raise TokenInvalidError(f"failed to decode token: {e}")
-
-        if len(raw) < 17:
-            raise TokenInvalidError("token too short")
-
-        data, sig = raw[:-16], raw[-16:]
-        expected_sig = hmac.new(secret, data, "sha256").digest()[:16]
-
-        if not hmac.compare_digest(sig, expected_sig):
-            raise TokenInvalidError("invalid token signature")
-
-        try:
-            payload = json.loads(data)
-        except json.JSONDecodeError as e:
-            raise TokenInvalidError(f"failed to parse token payload: {e}")
+        payload = verify(secret, token)
+        if "exp_id" not in payload:
+            raise TokenInvalidError("not a selection token")
 
         # before the age check, so a foreign token is never counted as the
         # issuing tenant's expired outcome

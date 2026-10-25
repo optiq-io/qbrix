@@ -25,6 +25,14 @@ class SelectErrorReason(str, Enum):
     INTERNAL = "internal"
 
 
+class LoopSelectReason(str, Enum):
+    """why a loop's select answered as it did."""
+
+    LIVE = "live"
+    DRAFT = "draft"
+    PAUSED = "paused"
+
+
 @dataclass(frozen=True)
 class SelectHealth:
     """how an experiment's select calls ended over a window of minutes."""

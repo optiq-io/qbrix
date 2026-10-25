@@ -4,7 +4,7 @@ invariants verified:
   the record the proxy writes when a loop is launched is served by motor and
   trained by cortex under the cycle's id: motor chooses one of the loop's
   options, an outcome for that choice is learned, and the next motor reads
-  what was learned.
+  what was learned. select(loop) answers through the same motor.
 """
 
 from __future__ import annotations
@@ -59,7 +59,7 @@ async def cycle(wired_app) -> dict:
         actor=ACTOR,
     )
     loop = await svc.launch_loop(TENANT, draft["key"], actor=ACTOR)
-    return {"id": loop["cycle"]["id"], "options": loop["options"]}
+    return {"id": loop["cycle"]["id"], "key": loop["key"], "options": loop["options"]}
 
 
 async def _motor() -> MotorService:
@@ -125,3 +125,20 @@ async def test_motor_serves_and_cortex_trains_the_cycle(cycle):
     await store.close()
 
     assert list(served.alpha) == expected
+
+
+async def test_select_answers_from_motor_and_records_the_decision(wired_app, cycle):
+    motor = await _motor()
+    wired_app.svc._loop_select_service._motor_client = motor
+
+    answer = await wired_app.svc.select_loop(TENANT, cycle["key"], "unit-1")
+    await wired_app.events.drain()
+    await motor.stop()
+
+    (event,) = wired_app.selection_spy.events
+    option = cycle["options"][event.arm_index]
+    assert answer["reason"] == "live"
+    assert answer["option"]["key"] == option["key"]
+    assert answer["request_id"] == event.request_id
+    assert event.experiment_id == cycle["id"]
+    assert event.policy == "BetaTSPolicy"

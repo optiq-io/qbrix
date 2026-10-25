@@ -30,6 +30,18 @@ class ClickHouseClient:
         "context_metadata",
         "timestamp_ms",
         "policy",
+        "loop_id",
+        "cycle_id",
+        "decision_id",
+        "reason",
+        "unit",
+        "properties",
+        "metric_id",
+        "metric_version",
+        "metric_type",
+        "score_lo",
+        "score_hi",
+        "window_ms",
     ]
 
     FEEDBACK_COLUMNS = [
@@ -142,6 +154,18 @@ class ClickHouseClient:
             json.dumps(event.context_metadata),
             event.timestamp_ms,
             event.policy,
+            event.loop_id,
+            event.cycle_id,
+            event.decision_id,
+            event.reason,
+            event.unit,
+            json.dumps(event.properties),
+            event.metric_id,
+            event.metric_version,
+            event.metric_type,
+            event.score_lo,
+            event.score_hi,
+            event.window_ms,
         )
 
     @staticmethod

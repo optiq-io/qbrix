@@ -94,6 +94,7 @@ ENDPOINT_SCOPES = {
     # agent operations (selection/feedback)
     ("POST", "/api/v1/agent/feedback"): "agent:write",
     ("POST", "/api/v1/agent/select"): "agent:read",
+    ("POST", "/api/v1/select"): "agent:read",
     # metrics
     ("POST", "/api/v1/metric/*"): "metric:read",
     ("GET", "/api/v1/metric/*"): "metric:read",
@@ -127,5 +128,6 @@ RPC_SCOPES: dict[str, str] = {
     "/qbrix.proxy.ProxyService/DeleteGateConfig": "gate:write",
     # agent operations
     "/qbrix.proxy.ProxyService/Select": "agent:read",
+    "/qbrix.loop.LoopService/Select": "agent:read",
     "/qbrix.proxy.ProxyService/Feedback": "agent:write",
 }

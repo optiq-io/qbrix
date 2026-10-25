@@ -45,6 +45,7 @@ from proxysvc.transport.http.exception.base import LoopNotFoundException
 from proxysvc.transport.http.exception.base import InvalidLoopException
 from proxysvc.transport.http.exception.base import LoopKeyTakenException
 from proxysvc.transport.http.exception.base import LoopNotDraftException
+from proxysvc.transport.http.exception.base import InvalidDecisionContextException
 
 __all__ = [
     "BaseAPIException",
@@ -94,4 +95,5 @@ __all__ = [
     "InvalidLoopException",
     "LoopKeyTakenException",
     "LoopNotDraftException",
+    "InvalidDecisionContextException",
 ]

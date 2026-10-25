@@ -187,4 +187,10 @@ class TestNextSwitch:
             "/api/v1/loops",
             "/api/v1/loops/{loop}",
             "/api/v1/loops/{loop}/launch",
+            "/api/v1/select",
+        }
+
+    def test_on_mounts_the_next_grpc_services(self, oss_with_next):
+        assert set(oss_with_next["grpc_services"]) - TODAY_GRPC_SERVICES == {
+            "qbrix.loop.LoopService",
         }

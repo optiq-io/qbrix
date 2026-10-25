@@ -33,6 +33,7 @@ RATE_LIMITED_METHODS = frozenset(
     {
         "/qbrix.proxy.ProxyService/Select",
         "/qbrix.proxy.ProxyService/Feedback",
+        "/qbrix.loop.LoopService/Select",
     }
 )
 

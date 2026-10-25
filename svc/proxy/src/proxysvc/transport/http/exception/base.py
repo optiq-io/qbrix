@@ -380,3 +380,10 @@ class LoopNotDraftException(ConflictException):
 
     detail = "the loop is no longer a draft"
     code = "LOOP_NOT_DRAFT"
+
+
+class InvalidDecisionContextException(BadRequestException):
+    """a select's context has no unit, or properties that aren't an object."""
+
+    detail = "invalid context"
+    code = "INVALID_CONTEXT"
