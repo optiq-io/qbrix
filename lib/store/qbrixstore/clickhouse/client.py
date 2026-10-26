@@ -11,10 +11,14 @@ from typing import Sequence
 import clickhouse_connect
 from clickhouse_connect.driver.client import Client
 
+from qbrixstore.clickhouse.ledger import CycleSpan
+from qbrixstore.clickhouse.ledger import DecisionBucket
+from qbrixstore.clickhouse.ledger import DecisionCount
 from qbrixstore.clickhouse.ledger import LedgerDecision
 from qbrixstore.clickhouse.ledger import LedgerOutcome
 from qbrixstore.clickhouse.ledger import OutcomeRef
 from qbrixstore.clickhouse.ledger import SealedDecision
+from qbrixstore.clickhouse.ledger import SealedStats
 from qbrixstore.event import AuditEvent
 from qbrixstore.event import SelectionEvent
 from qbrixstore.event import FeedbackEvent
@@ -39,6 +43,32 @@ SELECT
     ledger_ms
 FROM selection_events
 """
+
+
+_NO_CUT = 2**63 - 1
+
+
+def _span_filter(time_column: str, cycle_column: str) -> str:
+    """rows of the spans' cycles made inside their own span. the outer bounds
+    keep the read on the order key; the per-cycle bounds pick each span."""
+    span = f"indexOf({{cycles:Array(String)}}, {cycle_column})"
+    return f"""tenant_id = {{tenant:String}}
+              AND {cycle_column} IN {{cycles:Array(String)}}
+              AND {time_column} >= {{lo:Int64}}
+              AND {time_column} < {{hi:Int64}}
+              AND {time_column} >= arrayElement({{since:Array(Int64)}}, {span})
+              AND {time_column} < arrayElement({{until:Array(Int64)}}, {span})"""
+
+
+def _span_parameters(tenant_id: str, spans: Sequence[CycleSpan]) -> dict:
+    return {
+        "tenant": tenant_id,
+        "cycles": [span.cycle_id for span in spans],
+        "since": [span.since_ms for span in spans],
+        "until": [span.until_ms for span in spans],
+        "lo": min(span.since_ms for span in spans),
+        "hi": max(span.until_ms for span in spans),
+    }
 
 
 def _chunks_by_tenant(items: Sequence) -> Iterator[tuple[str, list]]:
@@ -153,6 +183,7 @@ class ClickHouseClient:
             username=self._settings.user,
             password=self._settings.password,
             database=self._settings.database,
+            autogenerate_session_id=False,
         )
 
     def close(self) -> None:
@@ -441,6 +472,118 @@ class ClickHouseClient:
                 )
             ]
         return outcomes
+
+    def decision_series(
+        self,
+        tenant_id: str,
+        cycle_id: str,
+        since_ms: int,
+        until_ms: int,
+        step_ms: int,
+    ) -> list[DecisionBucket]:
+        """a cycle's decisions per option per step in [since, until), each
+        once: a decision written twice has the same time, so the same step."""
+        rows = self._rows(
+            """
+            SELECT
+                intDiv(timestamp_ms, {step:Int64}) * {step:Int64} AS bucket_ms,
+                arm_index AS option_index,
+                uniqExact(decision_id) AS decisions
+            FROM selection_events
+            WHERE tenant_id = {tenant:String}
+              AND experiment_id = {cycle:String}
+              AND timestamp_ms >= {since:Int64}
+              AND timestamp_ms < {until:Int64}
+              AND decision_id != ''
+            GROUP BY bucket_ms, option_index
+            ORDER BY bucket_ms, option_index
+            """,
+            {
+                "tenant": tenant_id,
+                "cycle": cycle_id,
+                "since": since_ms,
+                "until": until_ms,
+                "step": step_ms,
+            },
+        )
+        return [DecisionBucket(**row) for row in rows]
+
+    def decision_counts(
+        self,
+        tenant_id: str,
+        spans: Sequence[CycleSpan],
+        complete_up_to_ms: int | None,
+    ) -> list[DecisionCount]:
+        """each span's decisions per option, each once, and how many of those
+        that reached the ledger before complete up to have sealed. with no
+        complete up to, every decision in the ledger counts."""
+        if not spans:
+            return []
+        rows = self._rows(
+            f"""
+            SELECT
+                cycle_id,
+                option_index,
+                count() AS decisions,
+                countIf(reached AND is_sealed) AS sealed,
+                countIf(reached AND NOT is_sealed) AS waiting
+            FROM (
+                SELECT
+                    cycle_id,
+                    option_index,
+                    reached,
+                    (cycle_id, decision_id) IN (
+                        SELECT cycle_id, decision_id
+                        FROM sealed_decisions
+                        WHERE tenant_id = {{tenant:String}}
+                          AND cycle_id IN {{cycles:Array(String)}}
+                    ) AS is_sealed
+                FROM (
+                    SELECT
+                        experiment_id AS cycle_id,
+                        decision_id,
+                        any(arm_index) AS option_index,
+                        min(ledger_ms) < {{cut:Int64}} AS reached
+                    FROM selection_events
+                    WHERE {_span_filter("timestamp_ms", "experiment_id")}
+                      AND decision_id != ''
+                    GROUP BY cycle_id, decision_id
+                )
+            )
+            GROUP BY cycle_id, option_index
+            """,
+            {
+                **_span_parameters(tenant_id, spans),
+                "cut": (
+                    complete_up_to_ms if complete_up_to_ms is not None else _NO_CUT
+                ),
+            },
+        )
+        return [DecisionCount(**row) for row in rows]
+
+    def sealed_stats(
+        self, tenant_id: str, spans: Sequence[CycleSpan]
+    ) -> list[SealedStats]:
+        """each span's sealed decisions with a value, per option, by when they
+        were made. a decision sealed twice is one row after FINAL."""
+        if not spans:
+            return []
+        rows = self._rows(
+            f"""
+            SELECT
+                cycle_id,
+                option_index,
+                count() AS n,
+                sum(assumeNotNull(value)) AS total,
+                sum(assumeNotNull(value) * assumeNotNull(value)) AS total_sq
+            FROM sealed_decisions FINAL
+            WHERE {_span_filter("opened_ms", "cycle_id")}
+              AND value IS NOT NULL
+            GROUP BY cycle_id, option_index
+            """,
+            _span_parameters(tenant_id, spans),
+        )
+        return [SealedStats(**row) for row in rows]
 
     def query_selection_events(
         self,

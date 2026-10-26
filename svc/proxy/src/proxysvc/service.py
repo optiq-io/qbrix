@@ -5,9 +5,10 @@ from typing import Any
 from qbrixcore.engine import ENGINES
 from qbrixlog import get_logger
 from qbrixstore.postgres.session import init_db
+from qbrixstore.clickhouse.client import ClickHouseClient
 from qbrixstore.redis.client import RedisClient
 from qbrixstore.redis.streams import consumer_group_backlog
-from qbrixstore.config import PostgresSettings, RedisSettings
+from qbrixstore.config import ClickHouseSettings, PostgresSettings, RedisSettings
 from qbrixstore.stream import topology
 
 from proxysvc import edition
@@ -26,6 +27,7 @@ from proxysvc.mod.gate.schema import GateConfigPatchRequest
 from proxysvc.mod.gate.schema import GateConfigRequest
 from proxysvc.mod.loop.outcome import LoopOutcomeService
 from proxysvc.mod.loop.read import LoopReadService
+from proxysvc.mod.loop.results import LoopResultsService
 from proxysvc.mod.loop.route import LoopRouteCache
 from proxysvc.mod.loop.select import LoopSelectService
 from proxysvc.mod.loop.service import LoopService
@@ -47,6 +49,7 @@ class ProxyService:
     def __init__(self, settings: ProxySettings):
         self._settings = settings
         self._redis: RedisClient | None = None
+        self._clickhouse: ClickHouseClient | None = None
         self._events: EventEmitter | None = None
         self._motor_client: MotorClient | None = None
         self._cortex_client: CortexClient | None = None
@@ -58,6 +61,7 @@ class ProxyService:
         self._loop_service: LoopService | None = None
         self._loop_select_service: LoopSelectService | None = None
         self._loop_outcome_service: LoopOutcomeService | None = None
+        self._loop_results_service: LoopResultsService | None = None
         self._experiment_service: ExperimentService | None = None
         self._entitlements: Entitlements | None = None
 
@@ -82,6 +86,16 @@ class ProxyService:
 
         self._events = EventEmitter(redis_settings)
         await self._events.start()
+
+        self._clickhouse = ClickHouseClient(
+            ClickHouseSettings(
+                host=self._settings.clickhouse_host,
+                port=self._settings.clickhouse_port,
+                user=self._settings.clickhouse_user,
+                password=self._settings.clickhouse_password,
+                database=self._settings.clickhouse_database,
+            )
+        )
 
         self._motor_client = MotorClient(
             self._settings.motor_address, self._settings.motor_client_settings
@@ -135,6 +149,9 @@ class ProxyService:
             events=self._events,
             settings=self._settings,
         )
+        self._loop_results_service = LoopResultsService(
+            redis=self._redis, clickhouse=self._clickhouse
+        )
         self._change_service = ChangeService(
             experiments=self._experiment_service,
             gates=self._gate_service,
@@ -167,6 +184,8 @@ class ProxyService:
             await self._events.stop()
         if self._redis:
             await self._redis.close()
+        if self._clickhouse:
+            self._clickhouse.close()
 
     # pool
 
@@ -469,7 +488,23 @@ class ProxyService:
         limit: int,
     ) -> dict:
         return await LoopReadService.list_loops(
-            tenant_id, states=states, cursor=cursor, limit=limit
+            tenant_id,
+            states=states,
+            cursor=cursor,
+            limit=limit,
+            results=self._loop_results_service,
+        )
+
+    async def loop_results(
+        self,
+        tenant_id: str,
+        ref: str,
+        *,
+        cycle_number: int | None = None,
+        period: str,
+    ) -> dict | None:
+        return await self._loop_results_service.results(
+            tenant_id, ref, cycle_number=cycle_number, period=period
         )
 
     async def list_cycles(self, tenant_id: str, ref: str) -> list[dict] | None:

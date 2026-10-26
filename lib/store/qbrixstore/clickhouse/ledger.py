@@ -69,3 +69,46 @@ class SealedDecision:
     sealed_by: str
     value: float | None
     outcomes: int
+
+
+@dataclass(frozen=True)
+class CycleSpan:
+    """a cycle's decisions made in [since, until)."""
+
+    cycle_id: str
+    since_ms: int
+    until_ms: int
+
+
+@dataclass(frozen=True)
+class DecisionBucket:
+    """decisions one option got in one step of a series, each once."""
+
+    bucket_ms: int
+    option_index: int
+    decisions: int
+
+
+@dataclass(frozen=True)
+class DecisionCount:
+    """decisions one option of a cycle got in a span, each once, and of those
+    that reached the ledger before complete up to, how many have sealed and
+    how many are waiting."""
+
+    cycle_id: str
+    option_index: int
+    decisions: int
+    sealed: int
+    waiting: int
+
+
+@dataclass(frozen=True)
+class SealedStats:
+    """the sealed decisions with a value one option of a cycle got in a span:
+    their count, the sum of their values and of their squares."""
+
+    cycle_id: str
+    option_index: int
+    n: int
+    total: float
+    total_sq: float

@@ -361,6 +361,13 @@ class LoopNotFoundException(NotFoundException):
     code = "LOOP_NOT_FOUND"
 
 
+class CycleNotFoundException(NotFoundException):
+    """the loop has no cycle with that number."""
+
+    detail = "cycle not found"
+    code = "CYCLE_NOT_FOUND"
+
+
 class InvalidLoopException(BadRequestException):
     """a loop's name, key, metric, engine, options or fallback is refused."""
 

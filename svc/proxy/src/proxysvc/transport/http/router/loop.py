@@ -15,6 +15,7 @@ from pydantic import Field
 from qbrixcore.engine import ENGINES
 
 from proxysvc.core.actor import Actor
+from proxysvc.core.error import CycleNotFoundError
 from proxysvc.core.error import InvalidCursorError
 from proxysvc.core.error import LoopInvalidError
 from proxysvc.core.error import LoopKeyTakenError
@@ -23,6 +24,7 @@ from proxysvc.service import ProxyService
 from proxysvc.transport.http.auth.dependencies import get_actor
 from proxysvc.transport.http.auth.dependencies import get_current_tenant_id
 from proxysvc.transport.http.auth.dependencies import require_scopes
+from proxysvc.transport.http.exception import CycleNotFoundException
 from proxysvc.transport.http.exception import InvalidCursorException
 from proxysvc.transport.http.exception import InvalidLoopException
 from proxysvc.transport.http.exception import LoopKeyTakenException
@@ -148,8 +150,20 @@ class LoopResponse(LoopSummary):
     options: list[OptionResponse]
 
 
+class OptionShare(BaseModel):
+    key: str
+    share: Optional[float] = None
+
+
+class LoopResults(BaseModel):
+    share: list[OptionShare]
+    lift: Optional[float] = None
+    early: bool
+
+
 class LoopListItem(LoopSummary):
     latest_change: Optional[HistoryEntry] = None
+    results: Optional[LoopResults] = None
 
 
 class LoopListResponse(BaseModel):
@@ -166,7 +180,76 @@ class HistoryResponse(BaseModel):
     next_cursor: Optional[str] = None
 
 
+class ShareOption(BaseModel):
+    key: str
+    name: str
+    decisions: int
+    share: Optional[float] = None
+    sealed: int
+    waiting: int
+
+
+class SeriesPoint(BaseModel):
+    at: str
+    decisions: list[int]
+
+
+class Share(BaseModel):
+    since: str
+    until: str
+    step_seconds: int
+    options: list[ShareOption]
+    series: list[SeriesPoint]
+
+
+class LiftOption(BaseModel):
+    key: str
+    name: str
+    sealed: int
+    mean: Optional[float] = None
+    low: Optional[float] = None
+    high: Optional[float] = None
+
+
+class Lift(BaseModel):
+    value: Optional[float] = None
+    early: bool
+    since: str
+    until: str
+    options: list[LiftOption]
+
+
+class Calls(BaseModel):
+    live: int
+    draft: int
+    paused: int
+
+
+class Outcomes(BaseModel):
+    learned: int
+    late: int
+    duplicate: int
+    earlier_cycle: int
+
+
+class Health(BaseModel):
+    decision_errors: int
+    outcomes: Outcomes
+    last_outcome_at: Optional[str] = None
+    ledger_lag_ms: Optional[int] = None
+
+
+class ResultsResponse(BaseModel):
+    cycle: Optional[CycleSummary] = None
+    range: str
+    share: Optional[Share] = None
+    lift: Optional[Lift] = None
+    calls: Calls
+    health: Health
+
+
 LoopState = Literal["draft", "live", "paused"]
+ResultsPeriod = Literal["24h", "7d"]
 PAGE_LIMIT = 50
 PAGE_LIMIT_MAX = 200
 
@@ -253,6 +336,32 @@ async def loop_history(
     if history is None:
         raise _not_found(loop)
     return HistoryResponse(**history)
+
+
+@router.get(
+    "/{loop}/results",
+    status_code=status.HTTP_200_OK,
+    response_model=ResultsResponse,
+)
+async def loop_results(
+    loop: str,
+    cycle: Optional[int] = Query(default=None, ge=1),
+    period: ResultsPeriod = Query(default="24h", alias="range"),
+    tenant_id: str = Depends(get_current_tenant_id),
+    _scoped=Depends(require_scopes(["loop:read"])),
+):
+    """a cycle's results, the current one unless a number is given: how
+    decisions are shared, what is waiting to seal, lift over an even split,
+    the last hour's calls by reason, and its health counters."""
+    try:
+        results = await get_proxy_service().loop_results(
+            tenant_id, loop, cycle_number=cycle, period=period
+        )
+    except CycleNotFoundError as e:
+        raise CycleNotFoundException(str(e))
+    if results is None:
+        raise _not_found(loop)
+    return ResultsResponse(**results)
 
 
 @router.post(

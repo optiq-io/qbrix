@@ -8,6 +8,7 @@ from proxysvc.core import cursor as pages
 from proxysvc.mod.change.repository import ChangeRepository
 from proxysvc.mod.change.serialize import history_entry
 from proxysvc.mod.loop.repository import LoopRepository
+from proxysvc.mod.loop.results import LoopResultsService
 from proxysvc.mod.loop.serialize import cycle_to_dict
 from proxysvc.mod.loop.serialize import loop_to_dict
 from proxysvc.mod.people import People
@@ -24,7 +25,8 @@ def _page(rows: list, limit: int) -> tuple[list, str | None]:
 
 class LoopReadService:
     """loops as people, agents and the console read them: one loop, the list
-    with each loop's latest change, a loop's cycles and its history.
+    with each loop's latest change and results, a loop's cycles and its
+    history.
 
     every read is a fixed number of queries, whatever the page holds.
     """
@@ -45,6 +47,7 @@ class LoopReadService:
         states: Sequence[str] = (),
         cursor: str | None = None,
         limit: int,
+        results: LoopResultsService,
     ) -> dict:
         before = pages.decode(cursor) if cursor else None
         async with get_session() as session:
@@ -61,20 +64,22 @@ class LoopReadService:
                 [loop.owner_user_id for loop in loops]
                 + [change.actor_user_id for change in latest.values()],
             )
-            return {
-                "loops": [
-                    {
-                        **loop_to_dict(loop, people),
-                        "latest_change": (
-                            history_entry(latest[loop.id], people)
-                            if loop.id in latest
-                            else None
-                        ),
-                    }
-                    for loop in loops
-                ],
-                "next_cursor": next_cursor,
-            }
+            items = [
+                {
+                    **loop_to_dict(loop, people),
+                    "latest_change": (
+                        history_entry(latest[loop.id], people)
+                        if loop.id in latest
+                        else None
+                    ),
+                }
+                for loop in loops
+            ]
+        summaries = await results.summaries(tenant_id, loops)
+        return {
+            "loops": [{**item, "results": summaries.get(item["id"])} for item in items],
+            "next_cursor": next_cursor,
+        }
 
     @staticmethod
     async def list_cycles(tenant_id: str, ref: str) -> list[dict] | None:
