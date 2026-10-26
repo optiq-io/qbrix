@@ -3,3 +3,191 @@ title: Metrics and outcomes
 description: Report what happened with track and outcome, and how qbrix credits each event to the decisions behind it.
 order: 3
 ---
+
+A metric is what a loop improves: purchases, items added, revenue, a rating. It says which values count, how long a decision waits for its outcome, and what no outcome means, so qbrix can learn from every decision the same way without you getting those rules right by hand.
+
+## What a metric is
+
+A metric is a workspace object with four parts:
+
+- **Name:** what your code sends with each outcome, such as `purchase` or `answer.rating`.
+- **Semantic:** one sentence saying what the metric stands for, such as "The visitor completes a checkout." It is how people and agents tell two metrics apart.
+- **Type:** conversion, count, value or score. It decides which values are valid and how outcomes add up.
+- **Window:** how long a decision waits for its outcome.
+
+Each [loop](/docs/loops) improves one metric, named when the loop is created. Several loops can share the same metric.
+
+## Metric types
+
+| Type | For | Valid values | Repeated outcomes | No outcome by the end of the window | Sealed |
+|---|---|---|---|---|---|
+| **Conversion** | Did it happen: a purchase, a sign-up, a click | 0 or 1 | The first one counts | 0 | At the first outcome, or when the window closes |
+| **Count** | How many times: items added, messages sent | Whole numbers, 0 or more | Added up | 0 | When the window closes |
+| **Value** | How much: revenue, minutes watched | Any number | Added up | 0 | When the window closes |
+| **Score** | A rating on a known scale: satisfaction, a quality grade | Within the metric's range | The last one counts | Ignored: the decision teaches nothing | When the window closes |
+
+A decision is **sealed** when its outcome is final. Nothing changes it after that, and only sealed decisions are learned from and counted in results.
+
+- An outcome that isn't valid for its metric is refused with an error. qbrix never rounds a revenue figure into a conversion.
+- A score metric declares its range when it is created, such as 1 to 5. No other type takes a range.
+- The type also decides how a loop learns, so you never declare a reward type or rescale values yourself.
+- An outcome sent twice with the same event id counts once, so retries are safe.
+
+## The window
+
+Every metric has a window, set when the metric is created. It defaults to 24 hours. The window starts at the moment of the decision.
+
+- **When the window closes without an outcome,** qbrix seals the decision itself, with the type's value for no outcome. You never send zeros.
+- **An outcome counts only if it happened and reached qbrix within the window.** Anything later is late: qbrix records it and never learns from it.
+
+Choose the window from how long the outcome usually takes: minutes for a click, a day or two for a purchase. Too short, and real outcomes arrive late and teach nothing. Too long, and count, value and score decisions take longer to seal, so the loop learns more slowly. A conversion is sealed at its first outcome, so a long window costs it less.
+
+<Callout type="tip">
+A checkout loop improves `purchase`, a conversion with a 2 day window. On Monday at 10:00 a visitor sees option B. If they buy on Tuesday, the decision is sealed at that moment with 1. If they never buy, it is sealed on Wednesday at 10:00 with 0. If they buy on Thursday, the purchase is late and teaches nothing.
+</Callout>
+
+## Versions
+
+A new metric starts at version `1.0`. Every cycle of a loop records the metric version it runs under, and every decision is sealed by that version's rules.
+
+A metric can't be changed once it is created. To measure something different, create a new metric.
+
+## Outcomes
+
+How to report outcomes with `outcome` and `track` will be documented here.
+
+## Metrics API
+
+The examples use the same variables as the [API reference](/docs/api-reference):
+
+```bash
+export QBRIX_BASE_URL="http://localhost:8000"
+export QBRIX_API_KEY="your-api-key"
+```
+
+Every role can read metrics. Admins and members can create them ([Roles and limits](/docs/roles-and-limits)). Creating a metric is recorded as a change in the workspace's history.
+
+### Create a metric
+
+<Endpoint method="POST" path="/api/v1/metrics" description="Create a metric at version 1.0" />
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | What code sends. Lowercase letters, digits, `_`, `-` and `.`, starting with a letter or digit, at most 64 characters. Unique in the workspace. |
+| `semantic` | string | What the metric stands for, in one sentence. Required. |
+| `type` | string | `conversion`, `count`, `value` or `score` |
+| `range` | object | `{"lo": number, "hi": number}`, with `lo` below `hi`. Required for `score`, refused for every other type. |
+| `window_seconds` | integer | How long a decision waits for its outcome, in seconds. Optional, default `86400` (24 hours). |
+
+```bash
+curl -X POST $QBRIX_BASE_URL/api/v1/metrics \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "purchase",
+    "semantic": "The visitor completes a checkout.",
+    "type": "conversion",
+    "window_seconds": 172800
+  }'
+```
+
+Response, `201 Created`:
+
+```json
+{
+  "id": "070cc3402ef4412ebfda78d4852d2ee7",
+  "name": "purchase",
+  "type": "conversion",
+  "range": null,
+  "version": "1.0",
+  "semantic": "The visitor completes a checkout.",
+  "window_seconds": 172800,
+  "created_by": "<user-id>",
+  "created_at": "2026-10-26T12:54:14.848723+00:00",
+  "updated_at": "2026-10-26T12:54:14.848724+00:00"
+}
+```
+
+A score metric declares its range:
+
+```bash
+curl -X POST $QBRIX_BASE_URL/api/v1/metrics \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "answer.rating",
+    "semantic": "The rating a user gives an answer, from 1 to 5.",
+    "type": "score",
+    "range": {"lo": 1, "hi": 5}
+  }'
+```
+
+### List metrics
+
+<Endpoint method="GET" path="/api/v1/metrics" description="List every metric in the workspace, by name" />
+
+```bash
+curl $QBRIX_BASE_URL/api/v1/metrics \
+  -H "X-API-Key: $QBRIX_API_KEY"
+```
+
+Response, `200 OK`:
+
+```json
+{
+  "metrics": [
+    {
+      "id": "fff692548ecf49a0b31de58c06013d70",
+      "name": "answer.rating",
+      "type": "score",
+      "range": {"lo": 1.0, "hi": 5.0},
+      "version": "1.0",
+      "semantic": "The rating a user gives an answer, from 1 to 5.",
+      "window_seconds": 86400,
+      "created_by": "<user-id>",
+      "created_at": "2026-10-26T12:54:14.864384+00:00",
+      "updated_at": "2026-10-26T12:54:14.864385+00:00"
+    },
+    {
+      "id": "070cc3402ef4412ebfda78d4852d2ee7",
+      "name": "purchase",
+      "type": "conversion",
+      "range": null,
+      "version": "1.0",
+      "semantic": "The visitor completes a checkout.",
+      "window_seconds": 172800,
+      "created_by": "<user-id>",
+      "created_at": "2026-10-26T12:54:14.848723+00:00",
+      "updated_at": "2026-10-26T12:54:14.848724+00:00"
+    }
+  ]
+}
+```
+
+### Get a metric
+
+<Endpoint method="GET" path="/api/v1/metrics/{metric}" description="Get a metric by its name or its id" />
+
+```bash
+curl $QBRIX_BASE_URL/api/v1/metrics/purchase \
+  -H "X-API-Key: $QBRIX_API_KEY"
+```
+
+The response, `200 OK`, is the metric, in the same shape as when it was created.
+
+### Errors
+
+Errors carry a stable `code` and a `detail` that says what was wrong:
+
+```json
+{
+  "code": "INVALID_METRIC",
+  "detail": "a score metric needs its declared range"
+}
+```
+
+| Status | Code | When |
+|---|---|---|
+| `400` | `INVALID_METRIC` | The name, type, range, window or semantic is refused. The detail names the rule. |
+| `409` | `METRIC_NAME_TAKEN` | The workspace already has a metric with that name |
+| `404` | `METRIC_NOT_FOUND` | No metric has that name or id |
