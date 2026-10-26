@@ -515,7 +515,7 @@ def register(
 
         return await once("metric_create", arguments, call)
 
-    for fn, annotations in (
+    for fn, hints in (
         (loops_list, _READ),
         (loop_get, _READ),
         (loop_results, _READ),
@@ -524,4 +524,4 @@ def register(
         (loop_launch, _LAUNCH),
         (metric_create, _CREATE),
     ):
-        server.add_tool(fn, annotations=annotations)
+        server.add_tool(fn, annotations=hints)
