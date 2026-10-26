@@ -24,6 +24,7 @@ from proxysvc.mod.gate.repository import FeatureGateRepository
 from proxysvc.mod.gate.schema import GateConfigRequest
 from proxysvc.mod.loop.repository import LoopRepository
 from proxysvc.mod.loop.serialize import loop_to_dict
+from proxysvc.mod.people import People
 from proxysvc.mod.metric.repository import MetricRepository
 from proxysvc.mod.metric.serialize import metric_to_dict
 from proxysvc.mod.pool.repository import PoolRepository
@@ -103,7 +104,10 @@ async def _current_state(
         return metric_to_dict(metric) if metric else None
     if change.target_type == "loop":
         loop = await LoopRepository(session, tenant_id).get(change.target_id)
-        return loop_to_dict(loop) if loop else None
+        if loop is None:
+            return None
+        people = await People.load(session, tenant_id, [loop.owner_user_id])
+        return loop_to_dict(loop, people)
     pool = await PoolRepository(session, tenant_id).get(change.target_id)
     return pool_to_dict(pool) if pool else None
 

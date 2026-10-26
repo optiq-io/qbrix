@@ -5,6 +5,8 @@ from qbrixstore.postgres.models import Cycle
 from qbrixstore.postgres.models import Loop
 from qbrixstore.postgres.models import LoopOption
 
+from proxysvc.mod.people import People
+
 
 def _stamp(value) -> str | None:
     return value.isoformat() if value else None
@@ -32,17 +34,26 @@ def cycle_to_dict(cycle: Cycle) -> dict:
     }
 
 
-def loop_to_dict(loop: Loop) -> dict:
+def loop_to_dict(loop: Loop, people: People) -> dict:
+    metric = loop.metric
     return {
         "id": loop.id,
         "key": loop.key,
         "name": loop.name,
         "purpose": loop.purpose,
-        "metric": {"id": loop.metric.id, "name": loop.metric.name},
+        "metric": {
+            "id": metric.id,
+            "name": metric.name,
+            "type": metric.type,
+            "window_seconds": metric.versions[-1].window_sec,
+        },
         "engine": loop.engine,
         "state": loop.state,
         "paused_from": loop.paused_from,
-        "owner": loop.owner_user_id,
+        "owner": {
+            "id": loop.owner_user_id,
+            "name": people.name(loop.owner_user_id),
+        },
         "fallback": loop.fallback_key,
         "options": [option_to_dict(option) for option in loop.options],
         "cycle": cycle_to_dict(loop.cycles[-1]) if loop.cycles else None,

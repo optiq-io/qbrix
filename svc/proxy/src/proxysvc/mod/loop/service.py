@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from qbrixcore.engine import ENGINES
 from qbrixcore.engine import EngineError
@@ -12,6 +13,7 @@ from qbrixcore.engine import Resolved
 from qbrixcore.engine import ScoreRange
 from qbrixcore.engine import check_metric
 from qbrixstore.postgres.models import Cycle
+from qbrixstore.postgres.models import Loop
 from qbrixstore.postgres.models import LoopOption
 from qbrixstore.postgres.models import Metric
 from qbrixstore.postgres.session import get_session
@@ -30,6 +32,7 @@ from proxysvc.mod.loop.serialize import cycle_record
 from proxysvc.mod.loop.serialize import loop_to_dict
 from proxysvc.mod.loop.serialize import option_to_dict
 from proxysvc.mod.metric.repository import MetricRepository
+from proxysvc.mod.people import People
 
 KEY_MAX_LENGTH = 64
 MIN_OPTIONS = 2
@@ -115,6 +118,10 @@ def _engine(engine: str) -> str:
         raise LoopInvalidError(str(e)) from e
 
 
+async def _owner(session: AsyncSession, tenant_id: str, loop: Loop) -> People:
+    return await People.load(session, tenant_id, [loop.owner_user_id])
+
+
 def _resolve(engine: str, metric: Metric) -> Resolved:
     score_range = (
         ScoreRange(metric.score_lo, metric.score_hi)
@@ -193,7 +200,8 @@ class LoopService:
                 )
             except IntegrityError as e:
                 raise _taken(key) from e
-            loop_dict = loop_to_dict(loop)
+            people = await _owner(session, tenant_id, loop)
+            loop_dict = loop_to_dict(loop, people)
             route = route_of(loop)
             await ChangeRepository(session, tenant_id).record(
                 "loop.create", "loop", loop.id, actor, after=loop_dict
@@ -214,7 +222,8 @@ class LoopService:
                 raise _not_draft(loop_key, loop.state, "only a draft can be launched")
             resolved = _resolve(loop.engine, loop.metric)
             pinned = ENGINES.pin(loop.engine)
-            before = loop_to_dict(loop)
+            people = await _owner(session, tenant_id, loop)
+            before = loop_to_dict(loop, people)
             loop.cycles.append(
                 Cycle(
                     number=1,
@@ -231,7 +240,7 @@ class LoopService:
                 raise _not_draft(
                     loop_key, "live", "only a draft can be launched"
                 ) from e
-            loop_dict = loop_to_dict(loop)
+            loop_dict = loop_to_dict(loop, people)
             record = cycle_record(tenant_id, loop, loop.cycles[-1], resolved)
             route = route_of(loop)
             await ChangeRepository(session, tenant_id).record(
@@ -276,7 +285,8 @@ class LoopService:
                     )
                 if await repo.get_by_key(key) is not None:
                     raise _taken(key)
-            before = loop_to_dict(loop)
+            people = await _owner(session, tenant_id, loop)
+            before = loop_to_dict(loop, people)
             old_key = loop.key
             if name is not None:
                 loop.name = name
@@ -286,7 +296,7 @@ class LoopService:
                 loop = await repo.reload(loop)
             except IntegrityError as e:
                 raise _taken(key) from e
-            loop_dict = loop_to_dict(loop)
+            loop_dict = loop_to_dict(loop, people)
             route = route_of(loop)
             await ChangeRepository(session, tenant_id).record(
                 "loop.rename",
@@ -315,7 +325,7 @@ class LoopService:
                 return False
             if loop.state != "draft":
                 raise _not_draft(loop.key, loop.state, "only a draft can be deleted")
-            before = loop_to_dict(loop)
+            before = loop_to_dict(loop, await _owner(session, tenant_id, loop))
             loop_key = loop.key
             await repo.delete(loop)
             await ChangeRepository(session, tenant_id).record(
@@ -328,8 +338,3 @@ class LoopService:
             )
         await self._routes.drop(tenant_id, loop_id, loop_key)
         return True
-
-    async def get_loop(self, tenant_id: str, ref: str) -> dict | None:
-        async with get_session() as session:
-            loop = await LoopRepository(session, tenant_id).resolve(ref)
-            return loop_to_dict(loop) if loop else None

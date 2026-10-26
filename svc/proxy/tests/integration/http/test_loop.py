@@ -140,13 +140,18 @@ class TestCreate:
 
         loop = await _create(loops, metric=metric["id"])
 
-        assert loop["metric"] == {"id": metric["id"], "name": "purchase"}
+        assert loop["metric"] == {
+            "id": metric["id"],
+            "name": "purchase",
+            "type": "conversion",
+            "window_seconds": 86400,
+        }
 
     async def test_the_owner_is_the_person_behind_the_actor(self, wired_app, loops):
         loop = await _create(loops)
         (change,) = await _changes(wired_app, loop["id"])
 
-        assert loop["owner"] == change["actor"]["user_id"]
+        assert loop["owner"]["id"] == change["actor"]["user_id"]
 
     async def test_the_owner_through_a_connection_is_its_member(self, wired_app, loops):
         via = Actor(
@@ -165,7 +170,7 @@ class TestCreate:
         )
         (change,) = await _changes(wired_app, loop["id"])
 
-        assert loop["owner"] == "user-ada"
+        assert loop["owner"] == {"id": "user-ada", "name": "former member"}
         assert change["actor"]["kind"] == "connection"
         assert change["actor"]["connection_id"] == "conn-1"
 

@@ -48,6 +48,7 @@ from proxysvc.transport.http.exception.base import LoopNotDraftException
 from proxysvc.transport.http.exception.base import InvalidDecisionContextException
 from proxysvc.transport.http.exception.base import InvalidOutcomeException
 from proxysvc.transport.http.exception.base import InvalidRequestIdException
+from proxysvc.transport.http.exception.base import InvalidCursorException
 
 __all__ = [
     "BaseAPIException",
@@ -100,4 +101,5 @@ __all__ = [
     "InvalidDecisionContextException",
     "InvalidOutcomeException",
     "InvalidRequestIdException",
+    "InvalidCursorException",
 ]

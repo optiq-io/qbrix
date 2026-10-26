@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from qbrixstore.postgres.models import Change
 from qbrixstore.redis import Learning
 
+from proxysvc.mod.people import People
 from proxysvc.mod.change.undo import is_undoable
 
 
@@ -30,6 +31,34 @@ def learning_snapshot(learnings: dict[str, Learning]) -> dict:
             "last_id": learning.last_id,
         }
         for experiment_id, learning in learnings.items()
+    }
+
+
+def history_entry(change: Change, people: People) -> dict:
+    """a change as history reads it: what, when, who and through what, why.
+
+    a connection acts for its person, so it reads as that person via the
+    client; a change by qbrix has no person.
+    """
+    by_qbrix = change.actor_kind == "qbrix"
+    return {
+        "id": change.id,
+        "kind": change.kind,
+        "at": change.created_at.isoformat() if change.created_at else None,
+        "status": change.status,
+        "who": {
+            "kind": change.actor_kind,
+            "user_id": None if by_qbrix else change.actor_user_id,
+            "name": None if by_qbrix else people.name(change.actor_user_id),
+        },
+        "via": (
+            {"connection_id": change.connection_id, "client": change.client_name}
+            if change.connection_id
+            else None
+        ),
+        "reason": change.reason,
+        "request_id": change.request_id,
+        "undoes_id": change.undoes_id,
     }
 
 
