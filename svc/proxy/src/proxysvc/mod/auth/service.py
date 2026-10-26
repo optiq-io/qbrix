@@ -10,7 +10,6 @@ from urllib.parse import urlencode
 
 import bcrypt
 from cachebox import TTLCache
-from redis.exceptions import OutOfMemoryError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,6 +31,7 @@ from proxysvc.mod.auth.identity import MAX_SLUG_LENGTH
 from proxysvc.mod.auth.identity import clean_name
 from proxysvc.mod.auth.identity import clean_slug
 from proxysvc.mod.auth.identity import slug_from
+from proxysvc.mod.auth.limit import count_this_minute
 from proxysvc.mod.auth.redirect import safe_redirect
 from proxysvc.mod.auth.scope import ROLE_SCOPES
 from proxysvc.mod.auth.scope import ABUSE_RATE_LIMIT_PER_MINUTE
@@ -1075,26 +1075,7 @@ class AuthService:
         return True, remaining, rate_limit
 
     async def _count_this_minute(self, rate_key: str) -> int | None:
-        """count one request in this minute's window and return the count before
-        it, or None when redis is full.
-
-        a full redis refuses the increment. the abuse guard then lets the
-        request through rather than failing selection, which keeps serving
-        from motor's cached parameters while learning is stalled.
-        """
-        pipe = self._redis.client.pipeline()
-        # noinspection PyAsyncCall
-        pipe.get(rate_key)
-        # noinspection PyAsyncCall
-        pipe.incr(rate_key)
-        # noinspection PyAsyncCall
-        pipe.expire(rate_key, 120)
-        try:
-            response = await pipe.execute()
-        except OutOfMemoryError as e:
-            logger.error("redis is full, rate limit not applied: %s", e)
-            return None
-        return int(response[0]) if response[0] else 0
+        return await count_this_minute(self._redis.client, rate_key)
 
     # permissions
     @staticmethod

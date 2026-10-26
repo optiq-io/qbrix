@@ -27,6 +27,7 @@ The console calls the API on its own origin, under `/api`, so **both ingresses m
 | Path | Service |
 |---|---|
 | `/api` | proxy, port 8080 (`proxy.ingress`) |
+| `/oauth`, `/.well-known/oauth-authorization-server` | proxy, port 8080 (`proxy.ingress`) |
 | `/` | console, port 3000 (`console.ingress`) |
 
 Email links (verification, password reset, invites) use `proxy.config.consoleUrl`. When that is unset they use the proxy ingress host, over `https` when `proxy.ingress.tls` is set.

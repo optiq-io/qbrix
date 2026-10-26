@@ -3,3 +3,51 @@ title: Connections and autonomy
 description: How members, connections and keys act in qbrix, and what a connection may do without asking.
 order: 4
 ---
+
+Every change in qbrix has a person behind it. People act in the console, or through a **connection**: their Claude Code, Cursor or own script, acting for them. Apps that only ask for decisions and report outcomes use keys, which can never change anything.
+
+## Who acts in qbrix
+
+| Actor | What it is | How it signs in | Shown in history as |
+|---|---|---|---|
+| **Member** | A person in the workspace, with a role: admin, member or viewer | The console | Mustafa |
+| **Connection** | A client acting for one member | OAuth, started from the client | Mustafa via Claude Code |
+| **Key** | What an app uses to ask for decisions and report outcomes | A key in the SDK | Not in history: a key can't make changes |
+
+A connection can never do more than its person. What it may do is the person's role, checked on every call, so a viewer's connection can only read, and changing someone's role changes what their connections may do from their next call.
+
+## Signing a client in
+
+You add qbrix to your client with one address, the [MCP server](/docs/mcp-server). The first time the client calls qbrix, it finds qbrix's sign-in by itself and opens your browser:
+
+1. You sign in to the console, if you aren't already.
+2. qbrix shows the client's name, where it comes from, and that its changes apply at once, within your role.
+3. You approve, and the client receives its access. You can decline instead, and the client gets nothing.
+
+Nobody registers an app first: clients identify themselves, either by publishing a description of themselves at a URL or by registering when they first sign in. The access a client receives works only for your qbrix's MCP server, never for the API or anything else.
+
+There is one connection per client per person. Signing in again from the same client renews that connection instead of adding a second one, and the access it had before stops working.
+
+## How long a connection lasts
+
+- **Access lasts 8 hours**, then the client refreshes it without asking you. Each refresh replaces the previous one.
+- **A connection lasts until it is revoked, or until it goes unused for 90 days.** Then you sign in again from the client. There is no maximum lifetime.
+- **A refresh can be used once.** If one is presented a second time, one of the two holders isn't your client, so qbrix revokes the connection, and you sign in again.
+
+## Seeing and revoking connections
+
+Everyone sees their own connections, with the client's name, when it was connected and when it was last used. An admin sees every connection in the workspace.
+
+You can revoke any of your connections, and an admin can revoke any in the workspace. Revoking one stops it on its next call. It doesn't sign you out of the console, and your other connections keep working.
+
+Each connection also has its own request limit, the same per-minute limit as the API, so one misbehaving client can't use up anyone else's.
+
+## On your own install
+
+Signing a client in uses OAuth 2.1, which requires HTTPS everywhere except `localhost`. Before you connect clients from other machines:
+
+- Serve qbrix over HTTPS, and set `CONSOLE_URL` to that `https://` address. qbrix names itself to clients by this address.
+- If the API isn't on the console's address, set `PROXY_PUBLIC_URL` to the address clients reach the API at.
+- Route `/oauth` and `/.well-known/oauth-authorization-server` to the API, as `/api` is. The Docker Compose gateway and the Helm chart already do. See [self-hosting](/docs/self-hosting).
+
+A client describes itself at a URL on the public internet, which qbrix fetches when the client signs in. An install that can't reach the internet still works: the client registers itself instead.

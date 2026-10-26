@@ -20,7 +20,8 @@ service:
   annotations: {}
 
 # ingress for the http api. the console calls /api on its own origin, so this
-# serves /api on the console's host
+# serves /api on the console's host, with the oauth paths connections sign in
+# through
 ingress:
   enabled: false
   className: ""
@@ -31,6 +32,12 @@ ingress:
     - host: qbrix.local
       paths:
         - path: /api
+          pathType: Prefix
+          port: 8080
+        - path: /oauth
+          pathType: Prefix
+          port: 8080
+        - path: /.well-known/oauth-authorization-server
           pathType: Prefix
           port: 8080
   tls: []

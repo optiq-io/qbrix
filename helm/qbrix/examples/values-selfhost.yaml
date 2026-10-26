@@ -32,6 +32,12 @@ proxy:
           - path: /api
             pathType: Prefix
             port: 8080
+          - path: /oauth
+            pathType: Prefix
+            port: 8080
+          - path: /.well-known/oauth-authorization-server
+            pathType: Prefix
+            port: 8080
     # tls:
     #   - secretName: qbrix-tls
     #     hosts:

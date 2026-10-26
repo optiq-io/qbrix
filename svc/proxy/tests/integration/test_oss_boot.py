@@ -193,6 +193,14 @@ class TestNextSwitch:
             "/api/v1/loops/{loop}/results",
             "/api/v1/select",
             "/api/v1/outcome",
+            "/api/v1/connections",
+            "/api/v1/connections/{connection_id}",
+            "/api/oauth/requests/{request_id}",
+            "/.well-known/oauth-authorization-server",
+            "/oauth/register",
+            "/oauth/authorize",
+            "/oauth/token",
+            "/oauth/revoke",
         }
 
     def test_on_mounts_the_next_grpc_services(self, oss_with_next):

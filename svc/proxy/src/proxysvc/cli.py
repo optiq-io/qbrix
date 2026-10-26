@@ -61,12 +61,16 @@ def build_http_server(settings: ProxySettings, runtime: ProxyRuntime) -> uvicorn
     """
     from proxysvc.transport.http.app import app
     from proxysvc.transport.http.router.agent import set_proxy_service as set_agent
+    from proxysvc.transport.http.router.connection import (
+        set_proxy_service as set_connection,
+    )
     from proxysvc.transport.http.router.experiment import (
         set_proxy_service as set_experiment,
     )
     from proxysvc.transport.http.router.gate import set_proxy_service as set_gate
     from proxysvc.transport.http.router.loop import set_proxy_service as set_loop
     from proxysvc.transport.http.router.metric import set_proxy_service as set_metric
+    from proxysvc.transport.http.router.oauth import set_proxy_service as set_oauth
     from proxysvc.transport.http.router.outcome import (
         set_proxy_service as set_outcome,
     )
@@ -84,6 +88,8 @@ def build_http_server(settings: ProxySettings, runtime: ProxyRuntime) -> uvicorn
         set_loop,
         set_select,
         set_outcome,
+        set_connection,
+        set_oauth,
     ):
         wire(runtime.proxy_service)
 
