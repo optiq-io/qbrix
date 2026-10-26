@@ -101,6 +101,8 @@ ENDPOINT_SCOPES = {
     ("GET", "/api/v1/metrics*"): "metric:read",
     # loops
     ("GET", "/api/v1/loops*"): "loop:read",
+    ("POST", "/api/v1/loops*"): "loop:write",
+    ("PATCH", "/api/v1/loops/*"): "loop:write",
     # insight
     ("POST", "/api/v1/insight/*"): "insight:read",
     ("GET", "/api/v1/insight/*"): "insight:read",

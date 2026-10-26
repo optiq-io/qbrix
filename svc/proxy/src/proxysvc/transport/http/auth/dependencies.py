@@ -75,6 +75,13 @@ async def get_actor(
     )
 
 
+async def get_person(actor: Actor = Depends(get_actor)) -> Actor:
+    """the actor of a change only a person makes, which an api key can't."""
+    if actor.api_key_id:
+        raise ForbiddenException("a person makes this change; an api key can't")
+    return actor
+
+
 class _DevUserWrapper:
     """wrapper for dev user to provide attribute access."""
 

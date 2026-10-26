@@ -103,7 +103,7 @@ class LoopKeyTakenError(BaseAPIError):
 
 
 class LoopStateError(BaseAPIError):
-    """raised when a change needs a draft loop and the loop is past it."""
+    """raised when a change needs the loop in a state it isn't in."""
 
 
 class LoopNotFoundError(BaseAPIError):

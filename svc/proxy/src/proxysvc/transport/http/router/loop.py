@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any
 from typing import Literal
 from typing import Optional
@@ -14,6 +15,7 @@ from pydantic import Field
 
 from qbrixcore.engine import ENGINES
 
+from proxysvc.config import settings
 from proxysvc.core.actor import Actor
 from proxysvc.core.error import CycleNotFoundError
 from proxysvc.core.error import InvalidCursorError
@@ -23,6 +25,7 @@ from proxysvc.core.error import LoopStateError
 from proxysvc.service import ProxyService
 from proxysvc.transport.http.auth.dependencies import get_actor
 from proxysvc.transport.http.auth.dependencies import get_current_tenant_id
+from proxysvc.transport.http.auth.dependencies import get_person
 from proxysvc.transport.http.auth.dependencies import require_scopes
 from proxysvc.transport.http.exception import CycleNotFoundException
 from proxysvc.transport.http.exception import InvalidCursorException
@@ -30,6 +33,7 @@ from proxysvc.transport.http.exception import InvalidLoopException
 from proxysvc.transport.http.exception import LoopKeyTakenException
 from proxysvc.transport.http.exception import LoopNotDraftException
 from proxysvc.transport.http.exception import LoopNotFoundException
+from proxysvc.transport.http.exception import LoopNotPausedException
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +72,10 @@ class LoopCreateRequest(BaseModel):
 class LoopRenameRequest(BaseModel):
     name: Optional[str] = None
     key: Optional[str] = None
+
+
+class LoopResumeRequest(BaseModel):
+    reason: Optional[str] = None
 
 
 class LoopMetric(BaseModel):
@@ -138,6 +146,7 @@ class LoopSummary(BaseModel):
     engine: str
     state: str
     paused_from: Optional[str] = None
+    live_since: Optional[str] = None
     owner: Person
     fallback: str
     options: list[OptionSummary]
@@ -159,6 +168,11 @@ class LoopResults(BaseModel):
     share: list[OptionShare]
     lift: Optional[float] = None
     early: bool
+
+
+class ResumeResponse(BaseModel):
+    loop: LoopResponse
+    serving_within_seconds: int
 
 
 class LoopListItem(LoopSummary):
@@ -446,3 +460,32 @@ async def rename_loop(
     if renamed is None:
         raise _not_found(loop)
     return LoopResponse(**renamed)
+
+
+@router.post(
+    "/{loop}/resume",
+    status_code=status.HTTP_200_OK,
+    response_model=ResumeResponse,
+)
+async def resume_loop(
+    loop: str,
+    body: Optional[LoopResumeRequest] = None,
+    tenant_id: str = Depends(get_current_tenant_id),
+    actor: Actor = Depends(get_person),
+    _scoped=Depends(require_scopes(["loop:write"])),
+):
+    """resume a paused loop: it returns to the state it was paused from.
+    serving moves on every replica within serving_within_seconds."""
+    try:
+        resumed = await get_proxy_service().resume_loop(
+            tenant_id, loop, actor=actor, reason=body.reason if body else None
+        )
+    except LoopStateError as e:
+        raise LoopNotPausedException(str(e))
+    if resumed is None:
+        raise _not_found(loop)
+    logger.info(f"loop resumed: {resumed['id']} by user {actor.user_id}")
+    return ResumeResponse(
+        loop=LoopResponse(**resumed),
+        serving_within_seconds=math.ceil(settings.experiment_cache_ttl),
+    )

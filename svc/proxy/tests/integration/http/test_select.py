@@ -340,6 +340,20 @@ class TestRoute:
 
         assert (await _select(api, loop["key"])).json()["reason"] == "live"
 
+    async def test_pause_and_resume_move_the_route(self, wired_app, api):
+        loop = await _loop(wired_app, launch=True)
+        await wired_app.svc._loop_service.pause_loop(TENANT, loop["key"], actor=ACTOR)
+
+        paused = await _select(api, loop["key"])
+        await wired_app.svc.resume_loop(TENANT, loop["key"], actor=ACTOR)
+        _motor_chooses(wired_app, 0)
+        resumed = await _select(api, loop["key"])
+
+        assert paused.json()["reason"] == "paused"
+        assert paused.json()["request_id"] is None
+        assert resumed.json()["reason"] == "live"
+        assert resumed.json()["request_id"]
+
     async def test_undo_of_create_removes_the_route(self, wired_app, api):
         loop = await _loop(wired_app)
         (create,) = await wired_app.svc.list_changes(TENANT, "loop", loop["id"])

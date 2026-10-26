@@ -532,7 +532,8 @@ class MetricVersion(Base):
 class Loop(Base):
     """a place in the product where qbrix decides on every request. the key is
     what code calls; it locks when the loop is launched. the current cycle is
-    the highest-numbered one."""
+    the highest-numbered one. live_since is when it last went live, at launch
+    or resume."""
 
     __tablename__ = "loops"
     __table_args__ = (UniqueConstraint("tenant_id", "key", name="uq_loop_tenant_key"),)
@@ -552,6 +553,9 @@ class Loop(Base):
     engine: Mapped[str] = mapped_column(String(32), nullable=False)
     state: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
     paused_from: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    live_since: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     owner_user_id: Mapped[str] = mapped_column(String(64), nullable=False)
     fallback_key: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(

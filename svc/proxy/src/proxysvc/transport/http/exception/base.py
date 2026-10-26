@@ -389,6 +389,13 @@ class LoopNotDraftException(ConflictException):
     code = "LOOP_NOT_DRAFT"
 
 
+class LoopNotPausedException(ConflictException):
+    """the change needs a paused loop."""
+
+    detail = "the loop is not paused"
+    code = "LOOP_NOT_PAUSED"
+
+
 class InvalidDecisionContextException(BadRequestException):
     """a select's context has no unit, or properties that aren't an object."""
 

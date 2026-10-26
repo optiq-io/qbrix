@@ -327,4 +327,16 @@ class ChangeService:
             )
             return restored is not None
 
+        if change.kind == "loop.pause":
+            resumed = await self._loops.resume_loop(
+                tenant_id, target_id, actor=actor, undoing=undoing
+            )
+            return resumed is not None
+
+        if change.kind == "loop.resume":
+            paused = await self._loops.pause_loop(
+                tenant_id, target_id, actor=actor, undoing=undoing
+            )
+            return paused is not None
+
         raise ChangeNotUndoableError(f"{change.kind} cannot be undone")

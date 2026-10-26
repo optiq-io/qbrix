@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from sqlalchemy import and_
 from sqlalchemy import or_
 from sqlalchemy import select
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -108,6 +109,21 @@ class LoopRepository:
         """the loop as written, with its options and cycles read back."""
         await self._session.flush()
         return await self.get(loop.id)
+
+    async def transition(self, loop_id: str, *, from_state: str, **values) -> bool:
+        """write values only while the loop is still in from_state: of two
+        concurrent transitions, one moves it and the other finds it moved."""
+        result = await self._session.execute(
+            update(Loop)
+            .where(
+                Loop.tenant_id == self._tenant_id,
+                Loop.id == loop_id,
+                Loop.state == from_state,
+            )
+            .values(**values)
+            .execution_options(synchronize_session=False)
+        )
+        return result.rowcount == 1
 
     async def delete(self, loop: Loop) -> None:
         await self._session.delete(loop)
