@@ -27,7 +27,7 @@ def next_routes(app: FastAPI, settings: ProxySettings) -> None:
     app.include_router(select_router, prefix="/api/v1")
     app.include_router(outcome_router, prefix="/api/v1")
     app.include_router(connection_router, prefix="/api/v1")
-    app.include_router(request_router, prefix="/api")
+    app.include_router(request_router, prefix="/api/v1")
     app.include_router(oauth_router)
     logger.info("next routes registered")
 

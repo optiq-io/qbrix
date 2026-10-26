@@ -36,8 +36,8 @@ def test_resolves_to_its_scope(method, path, scope):
     [
         ("GET", "/api/v1/connections"),
         ("DELETE", "/api/v1/connections/abc"),
-        ("GET", "/api/oauth/requests/abc"),
-        ("POST", "/api/oauth/requests/abc"),
+        ("GET", "/api/v1/connections/requests/abc"),
+        ("POST", "/api/v1/connections/requests/abc"),
     ],
 )
 def test_signing_in_needs_no_scope(method, path):

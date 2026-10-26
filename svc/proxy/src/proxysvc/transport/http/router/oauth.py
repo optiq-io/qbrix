@@ -25,7 +25,7 @@ from proxysvc.transport.http.exception import OAuthRequestNotFoundException
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["oauth"])
-request_router = APIRouter(prefix="/oauth/requests", tags=["oauth"])
+request_router = APIRouter(prefix="/connections/requests", tags=["connections"])
 
 _proxy_service: Optional[ProxyService] = None
 

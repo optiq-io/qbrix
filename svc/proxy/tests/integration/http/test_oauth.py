@@ -159,7 +159,7 @@ async def _approve(client, wired_app, location, user="user-member", approve=True
     tenant, role = PEOPLE[user]
     with as_tenant(wired_app.app, tenant_id=tenant, user_id=user, role=role):
         resp = await client.post(
-            f"/api/oauth/requests/{request_id}", json={"approve": approve}
+            f"/api/v1/connections/requests/{request_id}", json={"approve": approve}
         )
     assert resp.status_code == 200, resp.text
     return resp.json()["redirect_to"]
@@ -287,7 +287,7 @@ class TestSignIn:
             wired_app.app, tenant_id=TENANT, user_id="user-member", role="member"
         ):
             shown = await oauth.get(
-                f"/api/oauth/requests/{_query(location)['request']}"
+                f"/api/v1/connections/requests/{_query(location)['request']}"
             )
         assert shown.status_code == 200
         assert shown.json()["client"] == {
@@ -340,7 +340,7 @@ class TestSignIn:
             wired_app.app, tenant_id=TENANT, user_id="user-member", role="member"
         ):
             shown = await oauth.get(
-                f"/api/oauth/requests/{_query(location)['request']}"
+                f"/api/v1/connections/requests/{_query(location)['request']}"
             )
         assert shown.json()["client"]["metadata_url"] == DOC_URL
         assert shown.json()["client"]["name"] == "Doc Client"
@@ -384,7 +384,7 @@ class TestSignIn:
             wired_app.app, tenant_id=TENANT, user_id="user-member", role="member"
         ):
             resp = await oauth.post(
-                f"/api/oauth/requests/{request_id}", json={"approve": True}
+                f"/api/v1/connections/requests/{request_id}", json={"approve": True}
             )
         assert resp.status_code == 404
         assert resp.json()["code"] == "OAUTH_REQUEST_NOT_FOUND"
@@ -746,8 +746,8 @@ class TestConnectionsApi:
         [
             ("GET", "/api/v1/connections"),
             ("DELETE", "/api/v1/connections/any"),
-            ("GET", "/api/oauth/requests/any"),
-            ("POST", "/api/oauth/requests/any"),
+            ("GET", "/api/v1/connections/requests/any"),
+            ("POST", "/api/v1/connections/requests/any"),
         ],
     )
     async def test_an_api_key_is_refused(self, oauth, wired_app, method, path):
