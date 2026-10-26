@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+
+from sqlalchemy import and_
+from sqlalchemy import or_
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -8,6 +12,14 @@ from qbrixstore.postgres.models import Cycle
 from qbrixstore.postgres.models import Loop
 from qbrixstore.postgres.models import LoopOption
 from qbrixstore.postgres.models import Metric
+
+from proxysvc.core.cursor import Position
+
+_LOADS = (
+    selectinload(Loop.options),
+    selectinload(Loop.cycles).selectinload(Cycle.metric_version),
+    selectinload(Loop.metric).selectinload(Metric.versions),
+)
 
 
 class LoopRepository:
@@ -73,6 +85,25 @@ class LoopRepository:
         response = await self._session.execute(stmt)
         return response.scalar_one_or_none()
 
+    async def page(
+        self, states: Sequence[str], before: Position | None, limit: int
+    ) -> list[Loop]:
+        """newest first, from just after before; up to limit loops."""
+        stmt = select(Loop).options(*_LOADS).where(Loop.tenant_id == self._tenant_id)
+        if states:
+            stmt = stmt.where(Loop.state.in_(states))
+        if before is not None:
+            created_at, loop_id = before
+            stmt = stmt.where(
+                or_(
+                    Loop.created_at < created_at,
+                    and_(Loop.created_at == created_at, Loop.id < loop_id),
+                )
+            )
+        stmt = stmt.order_by(Loop.created_at.desc(), Loop.id.desc()).limit(limit)
+        response = await self._session.execute(stmt)
+        return list(response.scalars().all())
+
     async def reload(self, loop: Loop) -> Loop:
         """the loop as written, with its options and cycles read back."""
         await self._session.flush()
@@ -85,11 +116,7 @@ class LoopRepository:
     async def _one(self, *where) -> Loop | None:
         stmt = (
             select(Loop)
-            .options(
-                selectinload(Loop.options),
-                selectinload(Loop.cycles).selectinload(Cycle.metric_version),
-                selectinload(Loop.metric).selectinload(Metric.versions),
-            )
+            .options(*_LOADS)
             .where(Loop.tenant_id == self._tenant_id, *where)
             .execution_options(populate_existing=True)
         )

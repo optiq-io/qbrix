@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from typing import Literal
 from typing import Optional
 
 from fastapi import APIRouter
 from fastapi import Depends
+from fastapi import Query
 from fastapi import status
 from pydantic import BaseModel
 from pydantic import Field
@@ -13,6 +15,7 @@ from pydantic import Field
 from qbrixcore.engine import ENGINES
 
 from proxysvc.core.actor import Actor
+from proxysvc.core.error import InvalidCursorError
 from proxysvc.core.error import LoopInvalidError
 from proxysvc.core.error import LoopKeyTakenError
 from proxysvc.core.error import LoopStateError
@@ -20,6 +23,7 @@ from proxysvc.service import ProxyService
 from proxysvc.transport.http.auth.dependencies import get_actor
 from proxysvc.transport.http.auth.dependencies import get_current_tenant_id
 from proxysvc.transport.http.auth.dependencies import require_scopes
+from proxysvc.transport.http.exception import InvalidCursorException
 from proxysvc.transport.http.exception import InvalidLoopException
 from proxysvc.transport.http.exception import LoopKeyTakenException
 from proxysvc.transport.http.exception import LoopNotDraftException
@@ -67,16 +71,26 @@ class LoopRenameRequest(BaseModel):
 class LoopMetric(BaseModel):
     id: str
     name: str
+    type: str
+    window_seconds: int
 
 
-class OptionResponse(BaseModel):
+class Person(BaseModel):
+    id: str
+    name: str
+
+
+class OptionSummary(BaseModel):
     id: str
     key: str
     name: str
+
+
+class OptionResponse(OptionSummary):
     config: dict[str, Any]
 
 
-class CycleResponse(BaseModel):
+class CycleSummary(BaseModel):
     id: str
     number: int
     engine: str
@@ -86,7 +100,34 @@ class CycleResponse(BaseModel):
     ended_at: Optional[str] = None
 
 
-class LoopResponse(BaseModel):
+class CycleResponse(CycleSummary):
+    options: list[OptionResponse]
+
+
+class Who(BaseModel):
+    kind: str
+    user_id: Optional[str] = None
+    name: Optional[str] = None
+
+
+class Via(BaseModel):
+    connection_id: str
+    client: Optional[str] = None
+
+
+class HistoryEntry(BaseModel):
+    id: str
+    kind: str
+    at: Optional[str] = None
+    status: str
+    who: Who
+    via: Optional[Via] = None
+    reason: Optional[str] = None
+    request_id: Optional[str] = None
+    undoes_id: Optional[str] = None
+
+
+class LoopSummary(BaseModel):
     id: str
     key: str
     name: str
@@ -95,16 +136,123 @@ class LoopResponse(BaseModel):
     engine: str
     state: str
     paused_from: Optional[str] = None
-    owner: str
+    owner: Person
     fallback: str
-    options: list[OptionResponse]
-    cycle: Optional[CycleResponse] = None
+    options: list[OptionSummary]
+    cycle: Optional[CycleSummary] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
 
+class LoopResponse(LoopSummary):
+    options: list[OptionResponse]
+
+
+class LoopListItem(LoopSummary):
+    latest_change: Optional[HistoryEntry] = None
+
+
+class LoopListResponse(BaseModel):
+    loops: list[LoopListItem]
+    next_cursor: Optional[str] = None
+
+
+class CycleListResponse(BaseModel):
+    cycles: list[CycleResponse]
+
+
+class HistoryResponse(BaseModel):
+    changes: list[HistoryEntry]
+    next_cursor: Optional[str] = None
+
+
+LoopState = Literal["draft", "live", "paused"]
+PAGE_LIMIT = 50
+PAGE_LIMIT_MAX = 200
+
+
 def _not_found(loop: str) -> LoopNotFoundException:
     return LoopNotFoundException(f"no loop with the key or id {loop!r}")
+
+
+@router.get(
+    "",
+    status_code=status.HTTP_200_OK,
+    response_model=LoopListResponse,
+)
+async def list_loops(
+    state: Optional[list[LoopState]] = Query(default=None),
+    cursor: Optional[str] = None,
+    limit: int = Query(default=PAGE_LIMIT, ge=1, le=PAGE_LIMIT_MAX),
+    tenant_id: str = Depends(get_current_tenant_id),
+    _scoped=Depends(require_scopes(["loop:read"])),
+):
+    """the workspace's loops, newest first, each with its latest change."""
+    try:
+        page = await get_proxy_service().list_loops(
+            tenant_id, states=state or (), cursor=cursor, limit=limit
+        )
+    except InvalidCursorError as e:
+        raise InvalidCursorException(str(e))
+    return LoopListResponse(**page)
+
+
+@router.get(
+    "/{loop}",
+    status_code=status.HTTP_200_OK,
+    response_model=LoopResponse,
+)
+async def get_loop(
+    loop: str,
+    tenant_id: str = Depends(get_current_tenant_id),
+    _scoped=Depends(require_scopes(["loop:read"])),
+):
+    """a loop by its key or its id."""
+    found = await get_proxy_service().get_loop(tenant_id, loop)
+    if found is None:
+        raise _not_found(loop)
+    return LoopResponse(**found)
+
+
+@router.get(
+    "/{loop}/cycles",
+    status_code=status.HTTP_200_OK,
+    response_model=CycleListResponse,
+)
+async def list_cycles(
+    loop: str,
+    tenant_id: str = Depends(get_current_tenant_id),
+    _scoped=Depends(require_scopes(["loop:read"])),
+):
+    """a loop's cycles, newest first, each with its options as they were."""
+    cycles = await get_proxy_service().list_cycles(tenant_id, loop)
+    if cycles is None:
+        raise _not_found(loop)
+    return CycleListResponse(cycles=cycles)
+
+
+@router.get(
+    "/{loop}/history",
+    status_code=status.HTTP_200_OK,
+    response_model=HistoryResponse,
+)
+async def loop_history(
+    loop: str,
+    cursor: Optional[str] = None,
+    limit: int = Query(default=PAGE_LIMIT, ge=1, le=PAGE_LIMIT_MAX),
+    tenant_id: str = Depends(get_current_tenant_id),
+    _scoped=Depends(require_scopes(["loop:read"])),
+):
+    """a loop's changes, newest first: what, when, who, via and why."""
+    try:
+        history = await get_proxy_service().loop_history(
+            tenant_id, loop, cursor=cursor, limit=limit
+        )
+    except InvalidCursorError as e:
+        raise InvalidCursorException(str(e))
+    if history is None:
+        raise _not_found(loop)
+    return HistoryResponse(**history)
 
 
 @router.post(

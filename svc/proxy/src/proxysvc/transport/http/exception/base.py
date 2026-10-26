@@ -401,3 +401,10 @@ class InvalidRequestIdException(BadRequestException):
 
     detail = "invalid request_id"
     code = "INVALID_REQUEST_ID"
+
+
+class InvalidCursorException(BadRequestException):
+    """a page cursor that no previous page returned."""
+
+    detail = "invalid cursor"
+    code = "INVALID_CURSOR"

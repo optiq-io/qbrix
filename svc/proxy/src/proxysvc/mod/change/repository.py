@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Collection
+
+from sqlalchemy import and_
+from sqlalchemy import func
+from sqlalchemy import or_
 from sqlalchemy import select
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from qbrixstore.postgres.models import Change
 
 from proxysvc.core.actor import Actor
+from proxysvc.core.cursor import Position
 from proxysvc.core.error import ChangeConflictError
 from proxysvc.mod.change.undo import Undoing
 
@@ -40,6 +46,11 @@ class ChangeRepository:
         evidence: dict | None = None,
         undoing: Undoing | None = None,
     ) -> Change:
+        """record one change against the object it is about.
+
+        every change about a loop targets the loop, its cycles included, with
+        the cycle in before and after: a loop's history is then one query.
+        """
         if undoing is not None:
             await self._mark_undone(undoing, target_type, target_id)
             reason = undoing.reason
@@ -134,3 +145,59 @@ class ChangeRepository:
         )
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
+
+    async def page_for(
+        self,
+        target_type: str,
+        target_id: str,
+        before: Position | None,
+        limit: int,
+    ) -> list[Change]:
+        """an object's changes newest first, from just after before."""
+        stmt = select(Change).where(
+            Change.tenant_id == self._tenant_id,
+            Change.target_type == target_type,
+            Change.target_id == target_id,
+        )
+        if before is not None:
+            created_at, change_id = before
+            stmt = stmt.where(
+                or_(
+                    Change.created_at < created_at,
+                    and_(Change.created_at == created_at, Change.id < change_id),
+                )
+            )
+        stmt = stmt.order_by(Change.created_at.desc(), Change.id.desc()).limit(limit)
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def latest_for_each(
+        self, target_type: str, target_ids: Collection[str]
+    ) -> dict[str, Change]:
+        """the newest change of each target, in one query."""
+        if not target_ids:
+            return {}
+        newest = (
+            select(
+                Change.id,
+                func.row_number()
+                .over(
+                    partition_by=Change.target_id,
+                    order_by=(Change.created_at.desc(), Change.id.desc()),
+                )
+                .label("rank"),
+            )
+            .where(
+                Change.tenant_id == self._tenant_id,
+                Change.target_type == target_type,
+                Change.target_id.in_(target_ids),
+            )
+            .subquery()
+        )
+        stmt = (
+            select(Change)
+            .join(newest, Change.id == newest.c.id)
+            .where(newest.c.rank == 1)
+        )
+        result = await self._session.execute(stmt)
+        return {change.target_id: change for change in result.scalars().all()}

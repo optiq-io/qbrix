@@ -118,6 +118,10 @@ class InvalidOutcomeError(BaseAPIError):
     """raised when an outcome's value, id or time breaks a rule of its decision."""
 
 
+class InvalidCursorError(BaseAPIError):
+    """raised when a page cursor isn't one a previous page returned."""
+
+
 class SignupClosedError(BaseAPIError):
     """raised when public registration is closed by the deployment's signup mode."""
 

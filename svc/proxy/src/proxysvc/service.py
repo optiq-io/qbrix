@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
@@ -24,6 +25,7 @@ from proxysvc.mod.gate.config import FeatureGateConfig
 from proxysvc.mod.gate.schema import GateConfigPatchRequest
 from proxysvc.mod.gate.schema import GateConfigRequest
 from proxysvc.mod.loop.outcome import LoopOutcomeService
+from proxysvc.mod.loop.read import LoopReadService
 from proxysvc.mod.loop.route import LoopRouteCache
 from proxysvc.mod.loop.select import LoopSelectService
 from proxysvc.mod.loop.service import LoopService
@@ -456,7 +458,29 @@ class ProxyService:
         )
 
     async def get_loop(self, tenant_id: str, ref: str) -> dict | None:
-        return await self._loop_service.get_loop(tenant_id, ref)
+        return await LoopReadService.get_loop(tenant_id, ref)
+
+    async def list_loops(
+        self,
+        tenant_id: str,
+        *,
+        states: Sequence[str] = (),
+        cursor: str | None = None,
+        limit: int,
+    ) -> dict:
+        return await LoopReadService.list_loops(
+            tenant_id, states=states, cursor=cursor, limit=limit
+        )
+
+    async def list_cycles(self, tenant_id: str, ref: str) -> list[dict] | None:
+        return await LoopReadService.list_cycles(tenant_id, ref)
+
+    async def loop_history(
+        self, tenant_id: str, ref: str, *, cursor: str | None = None, limit: int
+    ) -> dict | None:
+        return await LoopReadService.loop_history(
+            tenant_id, ref, cursor=cursor, limit=limit
+        )
 
     async def select_loop(
         self, tenant_id: str, loop: str, unit: Any, properties: Any = None
