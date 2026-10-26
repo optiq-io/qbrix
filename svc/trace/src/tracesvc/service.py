@@ -15,6 +15,7 @@ from qbrixstore.event import FeedbackEvent
 from qbrixstore.event import MetricEvent
 from qbrixstore.event import SelectionEvent
 from qbrixstore.redis.streams import RedisStreamConsumer
+from qbrixstore.redis.streams import stream_ms
 from qbrixstore.config import RedisSettings
 from qbrixstore.config import ClickHouseSettings
 from qbrixstore.stream import topology
@@ -148,21 +149,26 @@ class TraceService:
     async def _persist(
         self,
         batch: list[tuple[str, Event]],
-        insert: Callable[[list], None],
+        insert: Callable[..., None],
         counter: str,
         label: str,
         stats_key: Callable[[Event], str],
+        stamped: bool = False,
     ) -> Sequence[str]:
         """insert the batch, then hand the ids back for the worker to ack.
 
         the worker calls this on every flush boundary, so an empty batch is
-        routine rather than exceptional.
+        routine rather than exceptional. a stamped stream's rows carry when
+        each entry reached it, the ledger time the sealer reads by.
         """
         if not batch:
             return ()
 
         events = [event for _, event in batch]
-        insert(events)
+        if stamped:
+            insert(events, ledger_ms=[stream_ms(message_id) for message_id, _ in batch])
+        else:
+            insert(events)
 
         written_at = int(time.time() * 1000)
         for event in events:
@@ -182,6 +188,7 @@ class TraceService:
             "selections",
             "selection",
             lambda event: f"{event.tenant_id}:{event.experiment_id}",
+            stamped=True,
         )
 
     async def _handle_feedback(
@@ -213,6 +220,7 @@ class TraceService:
             "metric",
             "metric",
             lambda event: f"{event.tenant_id}:metric",
+            stamped=True,
         )
 
     def get_stats(

@@ -116,6 +116,7 @@ services:
     image: ${QBRIX_REGISTRY:-ghcr.io/optiq-io}/qbrix/cortex:${QBRIX_VERSION:-latest}
     environment:
       CORTEX_REDIS_HOST: redis
+      CORTEX_CLICKHOUSE_HOST: clickhouse
       CORTEX_LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_FORMAT: ${LOG_FORMAT:-text}
     depends_on:

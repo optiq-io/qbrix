@@ -2,16 +2,52 @@ from __future__ import annotations
 
 import json
 import math
+from collections import defaultdict
+from dataclasses import astuple
+from dataclasses import fields
+from typing import Iterator
 from typing import Sequence
 
 import clickhouse_connect
 from clickhouse_connect.driver.client import Client
 
+from qbrixstore.clickhouse.ledger import LedgerDecision
+from qbrixstore.clickhouse.ledger import LedgerOutcome
+from qbrixstore.clickhouse.ledger import OutcomeRef
+from qbrixstore.clickhouse.ledger import SealedDecision
 from qbrixstore.event import AuditEvent
 from qbrixstore.event import SelectionEvent
 from qbrixstore.event import FeedbackEvent
 from qbrixstore.event import MetricEvent
 from qbrixstore.config import ClickHouseSettings
+
+LEDGER_QUERY_CHUNK = 2_000
+
+_DECISION_SELECT = """
+SELECT
+    tenant_id,
+    loop_id,
+    cycle_id,
+    decision_id,
+    arm_index AS option_index,
+    unit,
+    metric_id,
+    metric_version,
+    metric_type,
+    timestamp_ms AS opened_ms,
+    window_ms,
+    ledger_ms
+FROM selection_events
+"""
+
+
+def _chunks_by_tenant(items: Sequence) -> Iterator[tuple[str, list]]:
+    by_tenant: dict[str, list] = defaultdict(list)
+    for item in items:
+        by_tenant[item.tenant_id].append(item)
+    for tenant_id, group in by_tenant.items():
+        for start in range(0, len(group), LEDGER_QUERY_CHUNK):
+            yield tenant_id, group[start : start + LEDGER_QUERY_CHUNK]
 
 
 class ClickHouseClient:
@@ -43,6 +79,7 @@ class ClickHouseClient:
         "score_lo",
         "score_hi",
         "window_ms",
+        "ledger_ms",
     ]
 
     FEEDBACK_COLUMNS = [
@@ -78,7 +115,10 @@ class ClickHouseClient:
         "at_ms",
         "received_ms",
         "source",
+        "ledger_ms",
     ]
+
+    SEALED_COLUMNS = [field.name for field in fields(SealedDecision)]
 
     DECISION_FIELDS = (
         "decision_id",
@@ -135,12 +175,21 @@ class ClickHouseClient:
             raise RuntimeError("ClickHouse client not connected. Call connect() first.")
         return self._client
 
-    def insert_selection_events(self, events: Sequence[SelectionEvent]) -> None:
-        """batch insert selection events."""
+    def insert_selection_events(
+        self,
+        events: Sequence[SelectionEvent],
+        ledger_ms: Sequence[int] | None = None,
+    ) -> None:
+        """batch insert selection events, each with when it reached the queue
+        in front of the ledger (its own timestamp when not given)."""
         if not events:
             return
 
-        rows = [self._selection_to_row(event) for event in events]
+        stamps = ledger_ms if ledger_ms is not None else [None] * len(events)
+        rows = [
+            self._selection_to_row(event, stamp)
+            for event, stamp in zip(events, stamps, strict=True)
+        ]
         self.client.insert(
             table="selection_events",
             data=rows,
@@ -160,7 +209,7 @@ class ClickHouseClient:
         )
 
     @staticmethod
-    def _selection_to_row(event: SelectionEvent) -> tuple:
+    def _selection_to_row(event: SelectionEvent, ledger_ms: int | None = None) -> tuple:
         """convert selection event to clickhouse row tuple."""
         return (
             event.tenant_id,
@@ -188,6 +237,7 @@ class ClickHouseClient:
             event.score_lo,
             event.score_hi,
             event.window_ms,
+            ledger_ms if ledger_ms is not None else event.timestamp_ms,
         )
 
     @staticmethod
@@ -205,12 +255,21 @@ class ClickHouseClient:
             event.timestamp_ms,
         )
 
-    def insert_metric_events(self, events: Sequence[MetricEvent]) -> None:
-        """batch insert metric events."""
+    def insert_metric_events(
+        self,
+        events: Sequence[MetricEvent],
+        ledger_ms: Sequence[int] | None = None,
+    ) -> None:
+        """batch insert metric events, each with when it reached the queue in
+        front of the ledger (its received time when not given)."""
         if not events:
             return
 
-        rows = [self._metric_to_row(event) for event in events]
+        stamps = ledger_ms if ledger_ms is not None else [None] * len(events)
+        rows = [
+            self._metric_to_row(event, stamp)
+            for event, stamp in zip(events, stamps, strict=True)
+        ]
         self.client.insert(
             table="metric_events",
             data=rows,
@@ -218,7 +277,7 @@ class ClickHouseClient:
         )
 
     @classmethod
-    def _metric_to_row(cls, event: MetricEvent) -> tuple:
+    def _metric_to_row(cls, event: MetricEvent, ledger_ms: int | None = None) -> tuple:
         """convert metric event to clickhouse row tuple."""
         return (
             event.tenant_id,
@@ -234,6 +293,7 @@ class ClickHouseClient:
             event.at_ms,
             event.received_ms,
             event.source,
+            ledger_ms if ledger_ms is not None else event.received_ms,
         )
 
     def insert_audit_events(self, events: Sequence[AuditEvent]) -> None:
@@ -260,6 +320,127 @@ class ClickHouseClient:
             json.dumps(event.payload),
             event.timestamp_ms,
         )
+
+    def insert_sealed_decisions(self, sealed: Sequence[SealedDecision]) -> None:
+        if not sealed:
+            return
+
+        self.client.insert(
+            table="sealed_decisions",
+            data=[astuple(decision) for decision in sealed],
+            column_names=self.SEALED_COLUMNS,
+        )
+
+    def _rows(self, sql: str, parameters: dict) -> list[dict]:
+        result = self.client.query(sql, parameters=parameters)
+        return [dict(zip(result.column_names, row)) for row in result.result_rows]
+
+    def first_decision_ms(self) -> int | None:
+        """the earliest ledger time any decision can seal or be answered at."""
+        result = self.client.query(
+            "SELECT minOrNull(least(timestamp_ms, ledger_ms)) "
+            "FROM selection_events WHERE decision_id != ''"
+        )
+        value = result.result_rows[0][0] if result.result_rows else None
+        return int(value) if value is not None else None
+
+    def query_window_seals(self, start_ms: int, end_ms: int) -> list[LedgerDecision]:
+        """decisions whose window closes in [start, end), each once; a decision
+        that reached the ledger after its window closed counts from then."""
+        rows = self._rows(
+            f"""
+            {_DECISION_SELECT}
+            WHERE decision_id != ''
+              AND greatest(timestamp_ms + window_ms, ledger_ms) >= {{start:Int64}}
+              AND greatest(timestamp_ms + window_ms, ledger_ms) < {{end:Int64}}
+            LIMIT 1 BY decision_id
+            """,
+            {"start": start_ms, "end": end_ms},
+        )
+        return [LedgerDecision(**row) for row in rows]
+
+    def query_arrived_outcomes(self, start_ms: int, end_ms: int) -> list[OutcomeRef]:
+        """the decisions named by outcomes that reached the ledger in
+        [start, end)."""
+        rows = self._rows(
+            """
+            SELECT DISTINCT
+                tenant_id,
+                tupleElement(d, 'cycle_id') AS cycle_id,
+                tupleElement(d, 'decision_id') AS decision_id,
+                tupleElement(d, 'opened_ms') AS opened_ms
+            FROM metric_events
+            ARRAY JOIN decisions AS d
+            WHERE ledger_ms >= {start:Int64} AND ledger_ms < {end:Int64}
+            """,
+            {"start": start_ms, "end": end_ms},
+        )
+        return [OutcomeRef(**row) for row in rows]
+
+    def query_decisions(self, refs: Sequence[OutcomeRef]) -> list[LedgerDecision]:
+        """the decisions these refs name, each once, read by the order key's
+        prefix: workspace, cycle and opening time."""
+        decisions = []
+        for tenant_id, chunk in _chunks_by_tenant(refs):
+            decisions += [
+                LedgerDecision(**row)
+                for row in self._rows(
+                    f"""
+                    {_DECISION_SELECT}
+                    WHERE tenant_id = {{tenant:String}}
+                      AND experiment_id IN {{cycles:Array(String)}}
+                      AND timestamp_ms >= {{since:Int64}}
+                      AND timestamp_ms <= {{until:Int64}}
+                      AND decision_id IN {{ids:Array(String)}}
+                    LIMIT 1 BY decision_id
+                    """,
+                    {
+                        "tenant": tenant_id,
+                        "cycles": sorted({ref.cycle_id for ref in chunk}),
+                        "since": min(ref.opened_ms for ref in chunk),
+                        "until": max(ref.opened_ms for ref in chunk),
+                        "ids": [ref.decision_id for ref in chunk],
+                    },
+                )
+            ]
+        return decisions
+
+    def query_outcomes(
+        self, decisions: Sequence[LedgerDecision], until_ms: int
+    ) -> list[LedgerOutcome]:
+        """every outcome for these decisions that reached the ledger before
+        until, each once. a redelivered entry is the same row twice; a resent
+        event is a row of its own."""
+        outcomes = []
+        for tenant_id, chunk in _chunks_by_tenant(decisions):
+            outcomes += [
+                LedgerOutcome(**row)
+                for row in self._rows(
+                    """
+                    SELECT DISTINCT
+                        tenant_id,
+                        tupleElement(d, 'decision_id') AS decision_id,
+                        event_id,
+                        value,
+                        at_ms,
+                        received_ms,
+                        ledger_ms
+                    FROM metric_events
+                    ARRAY JOIN decisions AS d
+                    WHERE tenant_id = {tenant:String}
+                      AND at_ms >= {since:Int64}
+                      AND ledger_ms < {until:Int64}
+                      AND tupleElement(d, 'decision_id') IN {ids:Array(String)}
+                    """,
+                    {
+                        "tenant": tenant_id,
+                        "since": min(decision.opened_ms for decision in chunk),
+                        "until": until_ms,
+                        "ids": [decision.decision_id for decision in chunk],
+                    },
+                )
+            ]
+        return outcomes
 
     def query_selection_events(
         self,

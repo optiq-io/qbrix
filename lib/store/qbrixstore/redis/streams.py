@@ -41,6 +41,37 @@ async def consumer_group_backlog(
     return int(await client.xlen(spec.name))
 
 
+def stream_ms(entry_id: str) -> int:
+    """the redis server time, in ms, at which the entry was added."""
+    return _parse_id(entry_id)[0]
+
+
+async def oldest_unfinished(
+    client: redis.Redis, spec: StreamSpec, group: str
+) -> str | None:
+    """the oldest entry this group has not acked: its oldest pending one or
+    the first it has not been delivered yet. none when it has finished every
+    entry the stream holds.
+
+    a group that does not exist yet has finished nothing.
+    """
+    last_delivered = "0-0"
+    pending_min = None
+    for info in await _consumer_groups(client, spec):
+        if info["name"] == group:
+            last_delivered = info["last-delivered-id"]
+            if info["pending"]:
+                summary = await client.xpending(spec.name, group)
+                pending_min = summary["min"]
+            break
+
+    ms, seq = _parse_id(last_delivered)
+    undelivered = await client.xrange(spec.name, min=f"{ms}-{seq + 1}", count=1)
+    candidates = [entry_id for entry_id in (pending_min,) if entry_id]
+    candidates += [entry_id for entry_id, _ in undelivered]
+    return min(candidates, key=_parse_id, default=None)
+
+
 class RedisStreamPublisher:
     def __init__(self, spec: StreamSpec, settings: RedisSettings | None = None):
         self._spec = spec

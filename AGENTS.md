@@ -88,6 +88,15 @@ low-latency while parameter updates are eventually consistent.
   to Redis. Off the hot path.
 - **One instance by design**: training is event-sourced, and two trainers would
   race on the same parameters.
+- Also runs the **sealer** (`sealer.py`, rules in `seal.py`), how qbrix next
+  learns. Every `CORTEX_SEAL_INTERVAL_SEC` it seals loop decisions from the
+  ClickHouse ledger up to "complete up to" (the `trace` group's oldest unfinished
+  entry on `qbrix:selection` and `qbrix:event`), records them in
+  `sealed_decisions`, then trains each cycle through `apply_learning`; the
+  cycle's `sealed_up_to` moves in that transaction, so a repeated pass never
+  learns twice. Rows are judged by `ledger_ms`, the stream entry's time, which
+  trace stamps. Its `start()` never waits for ClickHouse, and the ledger's lag
+  is in the Redis key `qbrix:ledger:progress`.
 
 **trace** (`svc/trace`): gRPC 50053
 - Consumes every stream and writes it to ClickHouse: the three event streams
@@ -283,7 +292,8 @@ tolerant (unknown keys ignored, absent optional fields defaulted) because publis
 and consumers deploy separately; an absent required field raises `EventDecodeError`.
 
 **ClickHouse** (the `clickhouse` extra): client, event read/write, migrations. Not
-re-exported from the package root, so motor, cortex and meter never load the driver.
+re-exported from the package root, so motor and meter never load the driver; trace
+writes the ledger and cortex reads it.
 
 ### qbrixproto (`lib/proto`)
 

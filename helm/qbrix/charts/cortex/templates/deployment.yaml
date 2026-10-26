@@ -61,6 +61,13 @@ spec:
                   name: {{ include "cortex.redisSecretName" . }}
                   key: password
             {{- end }}
+            {{- if or .Values.global.clickhouse.password .Values.global.clickhouse.existingSecret }}
+            - name: CORTEX_CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cortex.clickhouseSecretName" . }}
+                  key: password
+            {{- end }}
             {{- if .Values.global.sentry.enabled }}
             # optional: observability config must never block startup
             - name: SENTRY_DSN

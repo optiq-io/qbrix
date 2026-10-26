@@ -98,7 +98,7 @@ dev: infra migrate
 	MOTOR_REDIS_HOST=localhost \
 	uv run python -m motorsvc.cli & \
 	P2=$$!; \
-	CORTEX_REDIS_HOST=localhost \
+	CORTEX_REDIS_HOST=localhost CORTEX_CLICKHOUSE_HOST=localhost \
 	uv run python -m cortexsvc.cli & \
 	P3=$$!; \
 	TRACE_REDIS_HOST=localhost TRACE_CLICKHOUSE_HOST=localhost \
@@ -119,7 +119,7 @@ dev-motor:
 	uv run python -m motorsvc.cli
 
 dev-cortex:
-	CORTEX_REDIS_HOST=localhost \
+	CORTEX_REDIS_HOST=localhost CORTEX_CLICKHOUSE_HOST=localhost \
 	uv run python -m cortexsvc.cli
 
 dev-trace:
