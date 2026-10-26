@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import time
 import types
+from collections import defaultdict
 from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import Any, AsyncGenerator
 from unittest.mock import AsyncMock
 
@@ -15,6 +18,10 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.ext.asyncio import create_async_engine
 
 import qbrixstore.postgres.session as _session_module
+from qbrixstore.clickhouse.ledger import CycleSpan
+from qbrixstore.clickhouse.ledger import DecisionBucket
+from qbrixstore.clickhouse.ledger import DecisionCount
+from qbrixstore.clickhouse.ledger import SealedStats
 from qbrixstore.postgres.models import Base
 from qbrixstore.postgres.models import Tenant
 from qbrixstore.redis.client import RedisClient
@@ -127,6 +134,117 @@ async def tenant_b(app_with_db) -> Tenant:
     return tenant
 
 
+# ── ledger ───────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class LedgerRow:
+    cycle_id: str
+    decision_id: str
+    option_index: int
+    opened_ms: int
+    ledger_ms: int
+
+
+@dataclass(frozen=True)
+class SealedRow:
+    cycle_id: str
+    decision_id: str
+    option_index: int
+    opened_ms: int
+    value: float | None
+
+
+class FakeLedger:
+    """the results queries of ClickHouseClient over in-memory rows, with
+    the ledger's rules: a decision written twice counts once.
+
+    ``delay`` makes every query block its thread, as a slow clickhouse does.
+    """
+
+    def __init__(self) -> None:
+        self.decisions: list[LedgerRow] = []
+        self.sealed: list[SealedRow] = []
+        self.queries: list[str] = []
+        self.delay = 0.0
+
+    def connect(self, create_database: bool = True) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+    def decide(self, cycle_id, decision_id, option_index, opened_ms, ledger_ms=None):
+        self.decisions.append(
+            LedgerRow(
+                cycle_id, decision_id, option_index, opened_ms, ledger_ms or opened_ms
+            )
+        )
+
+    def seal(self, cycle_id, decision_id, option_index, opened_ms, value):
+        self.sealed.append(
+            SealedRow(cycle_id, decision_id, option_index, opened_ms, value)
+        )
+
+    def _ran(self, name: str) -> None:
+        self.queries.append(name)
+        if self.delay:
+            time.sleep(self.delay)
+
+    def _once(self, rows) -> list:
+        return list({row.decision_id: row for row in rows}.values())
+
+    def decision_series(self, tenant_id, cycle_id, since_ms, until_ms, step_ms):
+        self._ran("decision_series")
+        counts: dict = defaultdict(int)
+        for row in self._once(
+            r
+            for r in self.decisions
+            if r.cycle_id == cycle_id and since_ms <= r.opened_ms < until_ms
+        ):
+            counts[(row.opened_ms // step_ms * step_ms, row.option_index)] += 1
+        return [DecisionBucket(b, i, n) for (b, i), n in sorted(counts.items())]
+
+    def decision_counts(self, tenant_id, spans: list[CycleSpan], complete_up_to_ms):
+        self._ran("decision_counts")
+        cut = complete_up_to_ms if complete_up_to_ms is not None else 2**63 - 1
+        sealed = {(r.cycle_id, r.decision_id) for r in self.sealed}
+        out = []
+        for span in spans:
+            by_option: dict = defaultdict(lambda: [0, 0, 0])
+            for row in self._once(
+                r
+                for r in self.decisions
+                if r.cycle_id == span.cycle_id
+                and span.since_ms <= r.opened_ms < span.until_ms
+            ):
+                counts = by_option[row.option_index]
+                counts[0] += 1
+                if row.ledger_ms < cut:
+                    counts[1 if (row.cycle_id, row.decision_id) in sealed else 2] += 1
+            out += [DecisionCount(span.cycle_id, i, *c) for i, c in by_option.items()]
+        return out
+
+    def sealed_stats(self, tenant_id, spans: list[CycleSpan]):
+        self._ran("sealed_stats")
+        out = []
+        for span in spans:
+            by_option: dict = defaultdict(lambda: [0, 0.0, 0.0])
+            for row in self._once(
+                r
+                for r in self.sealed
+                if r.cycle_id == span.cycle_id
+                and span.since_ms <= r.opened_ms < span.until_ms
+                and r.value is not None
+            ):
+                stats = by_option[row.option_index]
+                stats[0] += 1
+                stats[1] += row.value
+                stats[2] += row.value * row.value
+            out += [SealedStats(span.cycle_id, i, *s) for i, s in by_option.items()]
+        return out
+
+
 # ── fakeredis ────────────────────────────────────────────────────────────────
 
 
@@ -224,6 +342,9 @@ async def wired_app(
     gate_svc = GateService(redis_client, test_settings, events=events)
     svc._gate_service = gate_svc
 
+    ledger = FakeLedger()
+    svc._clickhouse = ledger
+
     # assemble per-domain sub-services from the injected collaborators
     svc._build_services()
 
@@ -249,6 +370,7 @@ async def wired_app(
         motor_mock=svc._motor_client,  # noqa
         gate_svc=gate_svc,
         fake_redis=fake_redis_client,
+        ledger=ledger,
     )
 
     yield wired

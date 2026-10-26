@@ -409,7 +409,8 @@ class TestRoles:
                     "/api/v1/loops/checkout-headline",
                     "/api/v1/loops/checkout-headline/cycles",
                     "/api/v1/loops/checkout-headline/history",
+                    "/api/v1/loops/checkout-headline/results",
                 )
             ]
 
-        assert [r.status_code for r in responses] == [200] * 4
+        assert [r.status_code for r in responses] == [200] * 5

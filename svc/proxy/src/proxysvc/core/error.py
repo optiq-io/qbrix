@@ -110,6 +110,10 @@ class LoopNotFoundError(BaseAPIError):
     """raised when select names a loop the workspace doesn't have."""
 
 
+class CycleNotFoundError(BaseAPIError):
+    """raised when a read names a cycle number the loop never had."""
+
+
 class DecisionContextError(BaseAPIError):
     """raised when a select's context has no unit, or properties that aren't an object."""
 
