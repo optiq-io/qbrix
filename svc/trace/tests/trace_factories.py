@@ -21,6 +21,7 @@ class FakeClickHouse:
         self.feedback: list[FeedbackEvent] = []
         self.audit: list[AuditEvent] = []
         self.metric: list[MetricEvent] = []
+        self.ledger_ms: dict[str, list[int]] = {"selection": [], "metric": []}
         self.inserts: list[tuple[str, int]] = []
         self.fail_next = 0
         self.closed = False
@@ -37,8 +38,11 @@ class FakeClickHouse:
         getattr(self, kind).extend(events)
         self.inserts.append((kind, len(events)))
 
-    def insert_selection_events(self, events: Sequence[SelectionEvent]) -> None:
+    def insert_selection_events(
+        self, events: Sequence[SelectionEvent], ledger_ms: Sequence[int]
+    ) -> None:
         self._record("selection", events)
+        self.ledger_ms["selection"].extend(ledger_ms)
 
     def insert_feedback_events(self, events: Sequence[FeedbackEvent]) -> None:
         self._record("feedback", events)
@@ -46,8 +50,11 @@ class FakeClickHouse:
     def insert_audit_events(self, events: Sequence[AuditEvent]) -> None:
         self._record("audit", events)
 
-    def insert_metric_events(self, events: Sequence[MetricEvent]) -> None:
+    def insert_metric_events(
+        self, events: Sequence[MetricEvent], ledger_ms: Sequence[int]
+    ) -> None:
         self._record("metric", events)
+        self.ledger_ms["metric"].extend(ledger_ms)
 
     def health_check(self) -> bool:
         return True

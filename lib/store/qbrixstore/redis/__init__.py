@@ -1,5 +1,6 @@
 from qbrixstore.redis.client import Learning
 from qbrixstore.redis.client import RedisClient
+from qbrixstore.redis.health import LedgerProgress
 from qbrixstore.redis.health import LoopSelectReason
 from qbrixstore.redis.health import OutcomeDisposition
 from qbrixstore.redis.health import OutcomeHealth
@@ -13,6 +14,7 @@ from qbrixstore.redis.streams import RedisStreamPublisher, RedisStreamConsumer
 __all__ = [
     "BroadcastBus",
     "Learning",
+    "LedgerProgress",
     "LoopSelectReason",
     "OutcomeDisposition",
     "OutcomeHealth",

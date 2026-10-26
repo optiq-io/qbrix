@@ -81,6 +81,7 @@ SCENARIOS = [
             "PROXY_POSTGRES_HOST": "qbrix.xxxxxxxx.eu-central-1.rds.amazonaws.com",
             "PROXY_REDIS_HOST": "qbrix.xxxxxx.cache.amazonaws.com",
             "PROXY_CLICKHOUSE_HOST": "clickhouse.example.com",
+            "CORTEX_CLICKHOUSE_HOST": "clickhouse.example.com",
         },
     ),
     Scenario(

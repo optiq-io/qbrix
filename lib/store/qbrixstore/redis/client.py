@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import time
+from dataclasses import asdict
 from dataclasses import dataclass
+from dataclasses import replace
 from typing import Callable
 
 import redis.asyncio as redis
@@ -10,6 +12,8 @@ from redis.asyncio.client import Pipeline
 from redis.exceptions import WatchError
 
 from qbrixstore.config import RedisSettings
+from qbrixstore.redis.health import LEDGER_PROGRESS_TTL_SEC
+from qbrixstore.redis.health import LedgerProgress
 from qbrixstore.redis.health import LoopSelectReason
 from qbrixstore.redis.health import OUTCOME_HEALTH_TTL_SEC
 from qbrixstore.redis.health import OutcomeDisposition
@@ -21,6 +25,9 @@ from qbrixstore.redis.health import SelectOutcome
 
 _LEARNING_ATTEMPTS = 5
 
+SEALER_MARK_KEY = "qbrix:sealer:sealed_up_to"
+LEDGER_PROGRESS_KEY = "qbrix:ledger:progress"
+
 
 def _stream_id(message_id: str) -> tuple[int, int]:
     ms, _, seq = message_id.partition("-")
@@ -29,21 +36,32 @@ def _stream_id(message_id: str) -> tuple[int, int]:
 
 @dataclass(frozen=True)
 class Learning:
-    """what an experiment has learned: its params, how many outcomes they
-    include, and the highest feedback stream id applied to them."""
+    """what an experiment or a cycle has learned: its params, how many outcomes
+    or sealed decisions they include, the highest feedback stream id applied to
+    them, and the ledger time below which every sealed decision is applied."""
 
     params: dict | None
     applied: int = 0
     last_id: str = "0-0"
+    sealed_up_to: int = 0
 
     def includes(self, message_id: str) -> bool:
         return _stream_id(message_id) <= _stream_id(self.last_id)
 
     def advance(self, params: dict, message_ids: list[str]) -> Learning:
-        return Learning(
+        return replace(
+            self,
             params=params,
             applied=self.applied + len(message_ids),
             last_id=max([self.last_id, *message_ids], key=_stream_id),
+        )
+
+    def seal(self, params: dict, count: int, sealed_up_to: int) -> Learning:
+        return replace(
+            self,
+            params=params,
+            applied=self.applied + count,
+            sealed_up_to=sealed_up_to,
         )
 
     @classmethod
@@ -55,10 +73,17 @@ class Learning:
             params=json.loads(params) if params is not None else None,
             applied=fields["applied"],
             last_id=fields["last_id"],
+            sealed_up_to=fields.get("sealed_up_to", 0),
         )
 
     def encode_record(self) -> str:
-        return json.dumps({"applied": self.applied, "last_id": self.last_id})
+        return json.dumps(
+            {
+                "applied": self.applied,
+                "last_id": self.last_id,
+                "sealed_up_to": self.sealed_up_to,
+            }
+        )
 
 
 Train = Callable[[dict | None, Learning], Learning | None]
@@ -212,6 +237,32 @@ class RedisClient:
             self._param_key(tenant_id, experiment_id),
             self._learning_key(tenant_id, experiment_id),
         )
+
+    async def server_time_ms(self) -> int:
+        seconds, micros = await self.client.time()
+        return int(seconds) * 1000 + int(micros) // 1000
+
+    async def sealer_mark(self) -> int | None:
+        value = await self.client.get(SEALER_MARK_KEY)
+        return int(value) if value is not None else None
+
+    async def set_sealer_mark(self, sealed_up_to: int) -> None:
+        await self.client.set(SEALER_MARK_KEY, sealed_up_to)
+
+    async def set_ledger_progress(self, progress: LedgerProgress) -> None:
+        await self.client.set(
+            LEDGER_PROGRESS_KEY,
+            json.dumps(asdict(progress)),
+            ex=LEDGER_PROGRESS_TTL_SEC,
+        )
+
+    async def ledger_progress(self) -> LedgerProgress | None:
+        """how far the ledger is complete, as cortex last saw it; none when
+        cortex hasn't checked recently."""
+        value = await self.client.get(LEDGER_PROGRESS_KEY)
+        if value is None:
+            return None
+        return LedgerProgress(**json.loads(value))
 
     async def get_experiment(self, tenant_id: str, experiment_id: str) -> dict | None:
         data = await self.client.get(self._experiment_key(tenant_id, experiment_id))

@@ -6,6 +6,7 @@ from enum import Enum
 
 SELECT_HEALTH_TTL_SEC = 2 * 60 * 60
 OUTCOME_HEALTH_TTL_SEC = 26 * 60 * 60
+LEDGER_PROGRESS_TTL_SEC = 5 * 60
 
 
 class SelectOutcome(str, Enum):
@@ -52,6 +53,19 @@ class OutcomeDisposition(str, Enum):
     TRAIN_ERROR = "train_error"
     REJECTED_TOKEN_EXPIRED = "rejected_token_expired"
     INVALID = "invalid"
+    LATE = "late"
+    DUPLICATE = "duplicate"
+    EARLIER_CYCLE = "earlier_cycle"
+
+
+@dataclass(frozen=True)
+class LedgerProgress:
+    """the ledger time before which every decision and outcome is written,
+    and how far that trails the moment it was checked."""
+
+    complete_up_to_ms: int
+    lag_ms: int
+    checked_ms: int
 
 
 @dataclass(frozen=True)

@@ -141,6 +141,7 @@ services:
       - "50052:50052"
     environment:
       CORTEX_REDIS_HOST: ${REDIS_HOST:-redis}
+      CORTEX_CLICKHOUSE_HOST: ${CLICKHOUSE_HOST:-clickhouse}
       CORTEX_LOG_LEVEL: ${LOG_LEVEL:-WARNING}
       LOG_FORMAT: ${LOG_FORMAT:-json}
       # error tracking

@@ -4,6 +4,7 @@ import numpy as np
 from redis.asyncio.client import Pipeline
 
 from qbrixcore.context import Context
+from qbrixcore.param.state import BaseParamState
 from qbrixcore.policy import BasePolicy
 from qbrixlog import get_logger
 from qbrixstore.event import FeedbackEvent
@@ -29,6 +30,18 @@ def _build_policy_map() -> dict[str, type[BasePolicy]]:
 
 
 POLICY_MAP = _build_policy_map()
+
+
+def learned_state(
+    policy_cls: type[BasePolicy], record: dict, current: Learning
+) -> BaseParamState:
+    """the state the record's policy has learned so far, or its first one."""
+    if current.params is None:
+        return policy_cls.build_state(
+            num_arms=len(record["pool"]["arms"]),
+            **record.get("policy_params", {}),
+        )
+    return policy_cls.param_state_cls.model_validate(current.params)
 
 
 class BatchTrainer:
@@ -82,13 +95,7 @@ class BatchTrainer:
                 counts = {OutcomeDisposition.UNKNOWN_POLICY: len(fresh)}
                 return None
 
-            if current.params is None:
-                param_state = policy_cls.build_state(
-                    num_arms=len(experiment["pool"]["arms"]),
-                    **experiment.get("policy_params", {}),
-                )
-            else:
-                param_state = policy_cls.param_state_cls.model_validate(current.params)
+            param_state = learned_state(policy_cls, experiment, current)
 
             for _, event in fresh:
                 context = Context(

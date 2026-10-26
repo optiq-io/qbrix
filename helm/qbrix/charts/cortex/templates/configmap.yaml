@@ -24,6 +24,13 @@ data:
   CORTEX_BATCH_TIMEOUT_MS: {{ .Values.config.batch.timeoutMs | quote }}
   CORTEX_NUM_WORKERS: {{ .Values.config.batch.numWorkers | quote }}
 
+  # the ledger the sealer reads
+  CORTEX_CLICKHOUSE_HOST: {{ include "cortex.clickhouseHost" . | quote }}
+  CORTEX_CLICKHOUSE_PORT: {{ .Values.global.clickhouse.port | quote }}
+  CORTEX_CLICKHOUSE_USER: {{ .Values.global.clickhouse.user | quote }}
+  CORTEX_CLICKHOUSE_DATABASE: {{ .Values.global.clickhouse.database | quote }}
+  CORTEX_SEAL_INTERVAL_SEC: {{ .Values.config.seal.intervalSec | quote }}
+
   # logging
   CORTEX_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
   LOG_FORMAT: {{ .Values.global.logging.format | quote }}

@@ -9,6 +9,36 @@ from cortexsvc.service import CortexService
 from qbrixstore.event import FeedbackEvent
 
 
+@pytest.fixture(autouse=True)
+def ledger_down():
+    """clickhouse unreachable: the sealer retries in the background, and
+    nothing else in cortex may notice."""
+    clickhouse = Mock()
+    clickhouse.connect.side_effect = ConnectionError("clickhouse is down")
+    with patch("cortexsvc.service.ClickHouseClient", return_value=clickhouse):
+        yield clickhouse
+
+
+class TestLedgerDown:
+    @pytest.mark.asyncio
+    async def test_cortex_starts_and_stops_while_the_ledger_is_down(
+        self, mock_redis_client, mock_stream_consumer
+    ):
+        service = CortexService(CortexSettings())
+
+        with patch("cortexsvc.service.RedisClient", return_value=mock_redis_client):
+            with patch(
+                "cortexsvc.service.RedisStreamConsumer",
+                return_value=mock_stream_consumer,
+            ):
+                await service.start()
+
+                assert service._running is True
+                assert await service.health() is True
+
+                await service.stop()
+
+
 class TestCortexServiceInit:
     """test cortex service initialization."""
 

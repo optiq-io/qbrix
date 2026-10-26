@@ -11,7 +11,7 @@ dependencies = [
     "pydantic>=2.12.3",
     "pydantic-settings>=2.12.0",
     "qbrixcore",
-    "qbrixstore",
+    "qbrixstore[clickhouse]",
     "qbrixproto",
     "qbrixlog",
     "qbrixruntime",

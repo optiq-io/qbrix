@@ -101,6 +101,24 @@ Get redis secret name
 {{- end }}
 
 {{/*
+Get clickhouse host
+*/}}
+{{- define "cortex.clickhouseHost" -}}
+{{- .Values.global.clickhouse.host | default (printf "%s-clickhouse" .Release.Name) }}
+{{- end }}
+
+{{/*
+Get clickhouse secret name
+*/}}
+{{- define "cortex.clickhouseSecretName" -}}
+{{- if .Values.global.clickhouse.existingSecret }}
+{{- .Values.global.clickhouse.existingSecret }}
+{{- else }}
+{{- printf "%s-clickhouse" .Release.Name }}
+{{- end }}
+{{- end }}
+
+{{/*
 Get sentry secret name
 */}}
 {{- define "cortex.sentrySecretName" -}}

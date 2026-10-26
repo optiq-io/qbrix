@@ -126,6 +126,10 @@ config:
     timeoutMs: 100         # max wait time for batch accumulation
     numWorkers: 4          # number of parallel training workers
 
+  # how often the sealer seals decisions from the ledger and learns from them
+  seal:
+    intervalSec: 10
+
 # extra environment variables
 extraEnv: []
 

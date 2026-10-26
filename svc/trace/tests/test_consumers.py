@@ -17,6 +17,7 @@ import asyncio
 import pytest
 
 from qbrixstore.redis.streams import RedisStreamConsumer
+from qbrixstore.redis.streams import stream_ms
 from qbrixstore.stream import topology
 
 from trace_factories import make_audit
@@ -135,6 +136,28 @@ class TestAcking:
 
         assert clickhouse.metric[0].decisions[0]["decision_id"] == "dec-1"
         assert await control.xlen(topology.EVENT.name) == 0
+
+
+class TestLedgerTime:
+    """the sealer reads decisions and outcomes by when they reached the
+    stream, on redis's clock, the clock it reads the trace group's progress
+    on."""
+
+    async def test_decisions_and_outcomes_carry_their_entry_time(
+        self, service, control, clickhouse
+    ):
+        selection_id = await control.xadd(
+            topology.SELECTION.name, make_selection().to_dict(), id="1700000000123-0"
+        )
+        metric_id = await control.xadd(
+            topology.EVENT.name, make_metric().to_dict(), id="1700000000456-0"
+        )
+
+        await wait_for(lambda: clickhouse.selection and clickhouse.metric)
+
+        assert clickhouse.ledger_ms["selection"] == [stream_ms(selection_id)]
+        assert clickhouse.ledger_ms["metric"] == [stream_ms(metric_id)]
+        assert clickhouse.ledger_ms["metric"] == [1700000000456]
 
 
 class TestEveryStream:

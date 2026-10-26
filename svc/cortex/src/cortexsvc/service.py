@@ -7,12 +7,15 @@ from qbrixstore.event import FeedbackEvent
 from qbrixstore.redis.client import RedisClient
 from qbrixstore.redis.streams import RedisStreamConsumer
 from qbrixstore.redis.streams import RedisStreamPublisher
+from qbrixstore.clickhouse.client import ClickHouseClient
+from qbrixstore.config import ClickHouseSettings
 from qbrixstore.config import RedisSettings
 from qbrixstore.stream import topology
 from qbrixstore.stream.worker import StreamWorker
 
 from cortexsvc.config import CortexSettings
 from cortexsvc.dispatcher import TrainingDispatcher
+from cortexsvc.sealer import Sealer
 from cortexsvc.trainer import BatchTrainer
 
 logger = get_logger(__name__)
@@ -30,6 +33,7 @@ class CortexService:
         self._audit_publisher: RedisStreamPublisher | None = None
         self._trainer: BatchTrainer | None = None
         self._dispatcher: TrainingDispatcher | None = None
+        self._sealer: Sealer | None = None
         self._running = False
 
     async def start(self) -> None:
@@ -81,6 +85,22 @@ class CortexService:
         )
         await self._worker.start()
 
+        self._sealer = Sealer(
+            self._redis,
+            ClickHouseClient(
+                ClickHouseSettings(
+                    host=self._settings.clickhouse_host,
+                    port=self._settings.clickhouse_port,
+                    user=self._settings.clickhouse_user,
+                    password=self._settings.clickhouse_password,
+                    database=self._settings.clickhouse_database,
+                )
+            ),
+            interval_sec=self._settings.seal_interval_sec,
+            stall_sec=self._settings.ledger_stall_sec,
+        )
+        await self._sealer.start()
+
         self._running = True
 
     async def _handle(self, batch: list[tuple[str, FeedbackEvent]]) -> Sequence[str]:
@@ -103,6 +123,9 @@ class CortexService:
 
         if self._dispatcher:
             await self._dispatcher.stop()
+
+        if self._sealer:
+            await self._sealer.stop()
 
         if self._audit_publisher:
             await self._audit_publisher.close()

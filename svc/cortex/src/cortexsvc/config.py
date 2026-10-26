@@ -19,3 +19,12 @@ class CortexSettings(GrpcSettings):
     batch_size: int = 256
     batch_timeout_ms: int = 100
     num_workers: int = 4
+
+    clickhouse_host: str = "localhost"
+    clickhouse_port: int = 8123
+    clickhouse_user: str = "default"
+    clickhouse_password: str = ""
+    clickhouse_database: str = "qbrix"
+
+    seal_interval_sec: float = 10.0
+    ledger_stall_sec: float = 60.0

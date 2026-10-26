@@ -1,0 +1,59 @@
+---
+title: Running the ledger
+description: How decisions and outcomes reach ClickHouse and become learning, the settings that trade learning speed against write load, and what an install must do to keep the ledger safe.
+order: 7
+---
+
+Every decision and every outcome is written once to a ledger in ClickHouse. Loops learn from the ledger, and results are read from it, so what you see and what qbrix learned never disagree. The ledger is a primary store: treat it with the same care as Postgres.
+
+## How a decision becomes learning
+
+1. `select` answers, and the decision is queued.
+2. The analytics writer (`trace`) writes the queue to ClickHouse in batches.
+3. `outcome` follows the same way.
+4. The learning service (`cortex`) runs a sealing pass every few seconds. A pass seals what it can: a conversion at its first outcome, and every other decision when its window closes, with what arrived or the metric's value for no outcome. It records the sealed decisions in the ledger, and then the loop learns from them.
+5. Decisions pick up what was learned on their next refresh.
+
+A pass never seals past the point the ledger is known to be complete. If the analytics writer falls behind or stops, sealing waits for it and loses nothing; decisions keep being answered all the while.
+
+## Learning speed and write load
+
+Four settings decide how long an outcome takes to change the next decision. All of them are fine at their defaults.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `TRACE_FLUSH_INTERVAL_SEC` | `5.0` | Longest a decision or outcome waits in the queue before it is written |
+| `TRACE_BATCH_SIZE` | `500` | Rows written per batch; a full batch is written at once |
+| `CORTEX_SEAL_INTERVAL_SEC` | `10` | How often a sealing pass runs |
+| `MOTOR_PARAM_CACHE_TTL` | `60` | How long decisions use what was learned before reading it again |
+
+With the defaults, a conversion changes decisions about a minute after it is reported, most of that the refresh decisions already wait for. Shorter intervals learn sooner and write smaller batches more often.
+
+Low traffic needs no tuning: writes are batched by time, so a quiet install writes at most once per interval.
+
+## Settings for the learning service
+
+The learning service reads the ledger, so it needs the same ClickHouse as the analytics writer. Docker Compose and the Helm chart set these for you.
+
+| Variable | Default | Description |
+|---|---|---|
+| `CORTEX_CLICKHOUSE_HOST` / `_PORT` | `localhost` / `8123` | ClickHouse HTTP interface |
+| `CORTEX_CLICKHOUSE_USER` / `_PASSWORD` / `_DATABASE` | `default` / unset / `qbrix` | ClickHouse credentials and database |
+| `CORTEX_SEAL_INTERVAL_SEC` | `10` | Seconds between sealing passes |
+| `CORTEX_LEDGER_STALL_SEC` | `60` | How far the ledger may fall behind before the learning service logs an error |
+
+The learning service starts without ClickHouse and connects when it can; until then, loops don't learn. The other settings are in [Configuration](/docs/configuration).
+
+## When the ledger stops being written
+
+If the analytics writer stops, or ClickHouse refuses writes, the queue grows and learning waits. Once the ledger is more than `CORTEX_LEDGER_STALL_SEC` behind, the learning service logs an error. When writing resumes, sealing catches up from where it stopped.
+
+The queue holds a bounded number of entries. Bring the writer back before the queue fills, or its oldest entries are dropped before they reach the ledger.
+
+## Sizing and backups
+
+Whoever runs the install sizes ClickHouse and backs it up. qbrix ships the ledger's tables, their order and their retention (90 days), and creates them on start.
+
+- Size the disk for every decision and outcome over the retention period. Each decision is one row, each outcome one row, and each sealed decision one more.
+- Back ClickHouse up the way you back up Postgres ([Backups](/docs/self-hosting#backups)). Replication is not a backup: it copies a mistake as faithfully as the data.
+- What loops have learned lives in Redis and is derived from the ledger. Losing the ledger loses the record it was learned from and every result built on it.
