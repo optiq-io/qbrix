@@ -1,6 +1,6 @@
 ---
 title: Metrics and outcomes
-description: Report what happened with track and outcome, and how qbrix credits each event to the decisions behind it.
+description: What a loop improves, and how to report what happened after each decision with outcome.
 order: 3
 ---
 
@@ -54,7 +54,44 @@ A metric can't be changed once it is created. To measure something different, cr
 
 ## Outcomes
 
-How to report outcomes with `outcome` and `track` will be documented here.
+An outcome is what happened after a decision: the purchase, the items added, the rating. Every answer from `select` carries a `request_id`. When you know the outcome, send it back with that `request_id`:
+
+```bash
+curl -X POST $QBRIX_BASE_URL/api/v1/outcome \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "request_id": "'"$REQUEST_ID"'",
+    "value": 1,
+    "id": "order-8841"
+  }'
+```
+
+```json
+{
+  "id": "order-8841",
+  "at": "2026-10-26T13:09:01.216000Z"
+}
+```
+
+The value must be valid for the loop's metric (see [Metric types](#metric-types)). A `202 Accepted` means qbrix has recorded the outcome. It is learned from when its decision is sealed (see [The window](#the-window)), so a conversion teaches within seconds, and count, value and score outcomes teach when the window closes.
+
+### Retries and timing
+
+- **`id`** makes an outcome safe to send again: a repeat with the same `id` counts once. Use the id of what happened, such as the order id, so a retried request or a redelivered webhook never counts twice. Without one, qbrix assigns a fresh id, and every request is a separate outcome.
+- **`at`** is when the outcome happened. Send it when outcomes wait in a queue or a batch job, so the window is judged by when they happened rather than when they arrived. It can't be earlier than the decision or more than 5 minutes ahead of now. Without it, the time of arrival is used.
+
+### What qbrix records but never learns from
+
+| Outcome | What happens |
+|---|---|
+| A repeat with an `id` already seen | Recorded as a duplicate |
+| A conversion after the decision's first outcome | Recorded as a duplicate: the first one counts |
+| Late: it happened, or reached qbrix, after the window closed | Recorded as late |
+| Invalid for the metric | Refused with an error, and counted |
+| A `request_id` that is altered, or from another workspace | Refused. An outcome is accepted only in the workspace that made the decision. |
+
+Many late outcomes mean the window is too short for how long the outcome really takes.
 
 ## Metrics API
 
@@ -175,6 +212,21 @@ curl $QBRIX_BASE_URL/api/v1/metrics/purchase \
 
 The response, `200 OK`, is the metric, in the same shape as when it was created.
 
+### Report an outcome
+
+<Endpoint method="POST" path="/api/v1/outcome" description="Record the outcome of one decision" />
+
+Admins and members can report outcomes.
+
+| Field | Type | Description |
+|---|---|---|
+| `request_id` | string | The `request_id` that `select` answered with |
+| `value` | number | The outcome, valid for the loop's metric: 0 or 1 for a conversion, a whole number of 0 or more for a count, any finite number for a value, within the range for a score |
+| `id` | string | Optional. Makes the outcome idempotent; at most 256 characters. A fresh id when absent. |
+| `at` | string | Optional. When it happened, ISO 8601; UTC when it has no offset. The time of arrival when absent. |
+
+The response, `202 Accepted`, returns the outcome's `id` and `at`, as recorded. The example is under [Outcomes](#outcomes).
+
 ### Errors
 
 Errors carry a stable `code` and a `detail` that says what was wrong:
@@ -191,3 +243,6 @@ Errors carry a stable `code` and a `detail` that says what was wrong:
 | `400` | `INVALID_METRIC` | The name, type, range, window or semantic is refused. The detail names the rule. |
 | `409` | `METRIC_NAME_TAKEN` | The workspace already has a metric with that name |
 | `404` | `METRIC_NOT_FOUND` | No metric has that name or id |
+| `400` | `INVALID_OUTCOME` | The outcome's value, `id` or `at` is refused. The detail names the rule, such as "a conversion is 0 or 1, got 2". |
+| `400` | `INVALID_REQUEST_ID` | The `request_id` isn't one `select` gave in this workspace |
+| `404` | `LOOP_NOT_FOUND` | The loop of the outcome's decision can't be found |
