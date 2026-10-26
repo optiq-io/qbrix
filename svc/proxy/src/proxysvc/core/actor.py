@@ -37,6 +37,23 @@ class Actor:
             request_id=request_id,
         )
 
+    @classmethod
+    def connection(
+        cls,
+        user_id: str,
+        *,
+        connection_id: str,
+        client_name: str,
+        request_id: str = "",
+    ) -> Actor:
+        return cls(
+            kind="connection",
+            user_id=user_id,
+            connection_id=connection_id,
+            client_name=client_name,
+            request_id=request_id,
+        )
+
 
 def inbound_request_id(value: str | None) -> str:
     """the caller's request id when it is safe to log and store, else a new one."""

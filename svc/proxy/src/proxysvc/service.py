@@ -20,6 +20,7 @@ from proxysvc.core.entitlements import Entitlements
 from proxysvc.core.events import EventEmitter
 from proxysvc.mod.agent import AgentService
 from proxysvc.mod.change.service import ChangeService
+from proxysvc.mod.connection.service import ConnectionService
 from proxysvc.mod.experiment.service import ExperimentService
 from proxysvc.mod.gate import GateService
 from proxysvc.mod.gate.config import FeatureGateConfig
@@ -33,6 +34,8 @@ from proxysvc.mod.loop.select import LoopSelectService
 from proxysvc.mod.loop.service import LoopService
 from proxysvc.mod.metric.service import DEFAULT_WINDOW_SECONDS
 from proxysvc.mod.metric.service import MetricService
+from proxysvc.mod.oauth.cimd import CIMDFetcher
+from proxysvc.mod.oauth.service import OAuthService
 from proxysvc.mod.pool.service import PoolService
 
 logger = get_logger(__name__)
@@ -63,6 +66,9 @@ class ProxyService:
         self._loop_outcome_service: LoopOutcomeService | None = None
         self._loop_result_service: LoopResultService | None = None
         self._experiment_service: ExperimentService | None = None
+        self._connection_service: ConnectionService | None = None
+        self._oauth_service: OAuthService | None = None
+        self._cimd: CIMDFetcher | None = None
         self._entitlements: Entitlements | None = None
 
     async def start(self) -> None:
@@ -168,12 +174,33 @@ class ProxyService:
             experiment_service=self._experiment_service,
             entitlements=self._entitlements,
         )
+        self._connection_service = ConnectionService(
+            redis=self._redis, settings=self._settings
+        )
+        self._oauth_service = OAuthService(
+            redis=self._redis,
+            settings=self._settings,
+            connections=self._connection_service,
+            fetcher=self._cimd or CIMDFetcher(),
+        )
 
     @property
     def entitlements(self) -> Entitlements:
         if self._entitlements is None:
             raise RuntimeError("proxy service not started")
         return self._entitlements
+
+    @property
+    def connections(self) -> ConnectionService:
+        if self._connection_service is None:
+            raise RuntimeError("proxy service not started")
+        return self._connection_service
+
+    @property
+    def oauth(self) -> OAuthService:
+        if self._oauth_service is None:
+            raise RuntimeError("proxy service not started")
+        return self._oauth_service
 
     async def stop(self) -> None:
         if self._motor_client:

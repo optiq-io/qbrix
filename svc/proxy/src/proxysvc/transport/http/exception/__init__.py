@@ -51,6 +51,8 @@ from proxysvc.transport.http.exception.base import InvalidDecisionContextExcepti
 from proxysvc.transport.http.exception.base import InvalidOutcomeException
 from proxysvc.transport.http.exception.base import InvalidRequestIdException
 from proxysvc.transport.http.exception.base import InvalidCursorException
+from proxysvc.transport.http.exception.base import ConnectionNotFoundException
+from proxysvc.transport.http.exception.base import OAuthRequestNotFoundException
 
 __all__ = [
     "BaseAPIException",
@@ -106,4 +108,6 @@ __all__ = [
     "InvalidOutcomeException",
     "InvalidRequestIdException",
     "InvalidCursorException",
+    "ConnectionNotFoundException",
+    "OAuthRequestNotFoundException",
 ]

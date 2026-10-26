@@ -13,6 +13,8 @@ RESET_IP_PER_MIN = 10
 VERIFY_EMAIL_IP_PER_MIN = 10
 RESEND_VERIFICATION_IP_PER_MIN = 10
 RESEND_VERIFICATION_EMAIL_PER_MIN = 3
+OAUTH_REGISTER_IP_PER_MIN = 5
+OAUTH_IP_PER_MIN = 30
 
 # path → (bucket scope, per-minute ip limit) for the ip dimension, enforced in
 # the auth middleware. paths are the full mounted paths (auth router is mounted
@@ -28,4 +30,8 @@ IP_BUCKETS: dict[str, tuple[str, int]] = {
         "resend_verification",
         RESEND_VERIFICATION_IP_PER_MIN,
     ),
+    "/oauth/register": ("oauth_register", OAUTH_REGISTER_IP_PER_MIN),
+    "/oauth/authorize": ("oauth_authorize", OAUTH_IP_PER_MIN),
+    "/oauth/token": ("oauth_token", OAUTH_IP_PER_MIN),
+    "/oauth/revoke": ("oauth_revoke", OAUTH_IP_PER_MIN),
 }

@@ -60,7 +60,15 @@ AGENT_CORS_POLICY: dict[str, Any] = {
     "max_age": 7200,
 }
 
-AGENT_CORS_PREFIXES = (AGENT_PATH_PREFIX, SELECT_PATH, OUTCOME_PATH)
+# a browser-based mcp client signs in from its own origin, and the oauth
+# endpoints take no cookies either
+AGENT_CORS_PREFIXES = (
+    AGENT_PATH_PREFIX,
+    SELECT_PATH,
+    OUTCOME_PATH,
+    "/oauth/",
+    "/.well-known/oauth-",
+)
 
 
 class ScopedCORSMiddleware:

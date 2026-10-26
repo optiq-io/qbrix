@@ -109,6 +109,9 @@ class ProxySettings(GrpcSettings):
     # cloud_url is the previous name and is still honoured.
     console_url: str = ""
     cloud_url: str = ""
+    # where clients reach the api, oauth and /mcp, when that isn't the console's
+    # origin (the dev stack serves the proxy on its own port)
+    public_url: str = ""
 
     # email
     email_provider: Literal["auto", "smtp", "resend", "none"] = "auto"
@@ -139,6 +142,14 @@ class ProxySettings(GrpcSettings):
     @property
     def console_origin(self) -> str:
         return self.console_url or self.cloud_url or "http://localhost:3001"
+
+    @property
+    def public_origin(self) -> str:
+        return (self.public_url or self.console_origin).rstrip("/")
+
+    @property
+    def mcp_resource(self) -> str:
+        return f"{self.public_origin}/mcp"
 
     @property
     def cors_origin_list(self) -> list[str]:

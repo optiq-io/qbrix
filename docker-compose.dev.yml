@@ -95,6 +95,9 @@ services:
       PROXY_SIGNUP_MODE: "${SIGNUP_MODE:-first-user}"
       PROXY_CORS_ORIGINS: "${CORS_ORIGINS:-}"
       PROXY_CONSOLE_URL: "${CONSOLE_URL:-http://localhost:3001}"
+      # the proxy has its own port here, so oauth's issuer and /mcp aren't the
+      # console's origin
+      PROXY_PUBLIC_URL: "${PUBLIC_URL:-http://localhost:8080}"
       # transactional email
       PROXY_EMAIL_PROVIDER: "${EMAIL_PROVIDER:-auto}"
       PROXY_EMAIL_FROM: "${EMAIL_FROM:-qbrix <noreply@localhost>}"

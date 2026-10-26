@@ -4,6 +4,7 @@ from typing import List, Optional
 from sqlalchemy import String, Boolean, Float, Integer, ForeignKey, JSON, DateTime, Time
 from sqlalchemy import Text
 from sqlalchemy import Index, UniqueConstraint
+from sqlalchemy import text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -65,6 +66,9 @@ class Tenant(Base):
     )
     loops: Mapped[list["Loop"]] = relationship(
         "Loop", back_populates="tenant", cascade="all, delete-orphan"
+    )
+    connections: Mapped[list["Connection"]] = relationship(
+        "Connection", back_populates="tenant", cascade="all, delete-orphan"
     )
 
 
@@ -632,3 +636,103 @@ class Cycle(Base):
 
     loop: Mapped["Loop"] = relationship("Loop", back_populates="cycles")
     metric_version: Mapped["MetricVersion"] = relationship("MetricVersion")
+
+
+class OAuthClient(Base):
+    """a client that registered itself (dynamic client registration). a client
+    identified by a metadata document url is never stored."""
+
+    __tablename__ = "oauth_clients"
+
+    client_id: Mapped[str] = mapped_column(
+        String(64), primary_key=True, default=lambda: uuid4().hex
+    )
+    client_metadata: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class Connection(Base):
+    """a client acting for one person. client_identity is what makes two
+    sign-ins the same client: the metadata document url, or for a registered
+    client its software_id, else its name. client_id is the registration it
+    last signed in with, which its refresh tokens are bound to."""
+
+    __tablename__ = "connections"
+    __table_args__ = (
+        Index(
+            "uq_connections_user_client_active",
+            "user_id",
+            "client_identity",
+            unique=True,
+            postgresql_where=text("revoked_at IS NULL"),
+            sqlite_where=text("revoked_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: uuid4().hex
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    client_identity: Mapped[str] = mapped_column(String(512), nullable=False)
+    client_id: Mapped[str] = mapped_column(String(512), nullable=False)
+    client_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    client_uri: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="connections")
+    user: Mapped["User"] = relationship("User")
+    tokens: Mapped[list["ConnectionToken"]] = relationship(
+        "ConnectionToken",
+        back_populates="connection",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class ConnectionToken(Base):
+    """an access or refresh token of a connection, stored as its sha-256 only.
+    used_at marks a refresh token already exchanged; presenting it again
+    revokes the connection."""
+
+    __tablename__ = "connection_tokens"
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: uuid4().hex
+    )
+    connection_id: Mapped[str] = mapped_column(
+        String(32),
+        ForeignKey("connections.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    resource: Mapped[str] = mapped_column(String(512), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    connection: Mapped["Connection"] = relationship(
+        "Connection", back_populates="tokens"
+    )

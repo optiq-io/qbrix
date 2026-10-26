@@ -422,3 +422,17 @@ class InvalidCursorException(BadRequestException):
 
     detail = "invalid cursor"
     code = "INVALID_CURSOR"
+
+
+class ConnectionNotFoundException(NotFoundException):
+    """a connection that doesn't exist or isn't the caller's to see."""
+
+    detail = "connection not found"
+    code = "CONNECTION_NOT_FOUND"
+
+
+class OAuthRequestNotFoundException(NotFoundException):
+    """a sign-in request that expired or was already answered."""
+
+    detail = "sign-in request not found"
+    code = "OAUTH_REQUEST_NOT_FOUND"

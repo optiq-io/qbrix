@@ -41,6 +41,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
             "/api/auth/verify-email",
             "/api/auth/resend-verification",
             "/api/v1/ee/billing/webhook",
+            "/.well-known/oauth-authorization-server",
+            "/oauth/register",
+            "/oauth/authorize",
+            "/oauth/token",
+            "/oauth/revoke",
         }
         # only operational (hot-path) endpoints are rate-limited;
         # everything else is low-frequency management traffic

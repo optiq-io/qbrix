@@ -166,3 +166,44 @@ class TokenInvalidError(TokenError):
     """raised when token signature is invalid."""
 
     pass
+
+
+class OAuthError(BaseAPIError):
+    """raised when an oauth request fails. error is the rfc 6749 code the
+    client reads, description the sentence a person reads."""
+
+    def __init__(self, error: str, description: str):
+        super().__init__(description)
+        self.error = error
+        self.description = description
+
+
+class OAuthRedirectError(OAuthError):
+    """raised when an authorization request fails after its redirect_uri is
+    trusted, so the error goes back to the client rather than to the person."""
+
+    def __init__(self, error: str, description: str, redirect_uri: str, state: str):
+        super().__init__(error, description)
+        self.redirect_uri = redirect_uri
+        self.state = state
+
+
+class OAuthRequestNotFoundError(BaseAPIError):
+    """raised when an authorization request is unknown, expired or decided."""
+
+
+class ConnectionNotFoundError(BaseAPIError):
+    """raised when a connection doesn't exist or isn't the caller's to see."""
+
+
+class ConnectionTokenInvalidError(BaseAPIError):
+    """raised when a connection's token is unknown, expired, revoked or meant
+    for another resource."""
+
+
+class ConnectionRateLimitedError(BaseAPIError):
+    """raised when a connection has used its requests for this minute."""
+
+    def __init__(self, message: str, retry_after: int):
+        super().__init__(message)
+        self.retry_after = retry_after

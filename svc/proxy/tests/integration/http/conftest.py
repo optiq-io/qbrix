@@ -285,12 +285,16 @@ async def wired_app(
     """
     from proxysvc.transport.http.app import app
     from proxysvc.transport.http.router.agent import set_proxy_service as set_agent
+    from proxysvc.transport.http.router.connection import (
+        set_proxy_service as set_connection,
+    )
     from proxysvc.transport.http.router.experiment import (
         set_proxy_service as set_experiment,
     )
     from proxysvc.transport.http.router.gate import set_proxy_service as set_gate
     from proxysvc.transport.http.router.loop import set_proxy_service as set_loop
     from proxysvc.transport.http.router.metric import set_proxy_service as set_metric
+    from proxysvc.transport.http.router.oauth import set_proxy_service as set_oauth
     from proxysvc.transport.http.router.outcome import (
         set_proxy_service as set_outcome,
     )
@@ -358,6 +362,8 @@ async def wired_app(
     set_loop(svc)
     set_select(svc)
     set_outcome(svc)
+    set_connection(svc)
+    set_oauth(svc)
 
     wired = _WiredApp(
         app=app,
@@ -385,6 +391,8 @@ async def wired_app(
     set_loop(None)  # type: ignore[arg-type]
     set_select(None)  # type: ignore[arg-type]
     set_outcome(None)  # type: ignore[arg-type]
+    set_connection(None)  # type: ignore[arg-type]
+    set_oauth(None)  # type: ignore[arg-type]
 
 
 # ── http client ───────────────────────────────────────────────────────────────
@@ -442,6 +450,8 @@ def as_tenant(
             self.role = role
             self.plan_tier = plan_tier
             self.is_active = True
+            self.name = user_id
+            self.email = f"{user_id}@example.com"
 
     async def _tenant() -> str:
         return tenant_id

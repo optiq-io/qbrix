@@ -112,7 +112,7 @@ dev-proxy:
 	uv run python -m proxysvc.cli serve
 
 dev-next:
-	PROXY_NEXT_ENABLED=true $(MAKE) dev-proxy
+	PROXY_NEXT_ENABLED=true PROXY_PUBLIC_URL=http://localhost:8080 $(MAKE) dev-proxy
 
 dev-motor:
 	MOTOR_REDIS_HOST=localhost \

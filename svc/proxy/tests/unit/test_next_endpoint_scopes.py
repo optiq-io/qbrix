@@ -29,3 +29,17 @@ pytestmark = pytest.mark.unit
 )
 def test_resolves_to_its_scope(method, path, scope):
     assert AuthMiddleware._get_required_scope_for_path(method, path) == scope
+
+
+@pytest.mark.parametrize(
+    "method, path",
+    [
+        ("GET", "/api/v1/connections"),
+        ("DELETE", "/api/v1/connections/abc"),
+        ("GET", "/api/v1/connections/requests/abc"),
+        ("POST", "/api/v1/connections/requests/abc"),
+    ],
+)
+def test_signing_in_needs_no_scope(method, path):
+    """any role, a viewer's included, signs its own clients in and manages them."""
+    assert AuthMiddleware._get_required_scope_for_path(method, path) is None
