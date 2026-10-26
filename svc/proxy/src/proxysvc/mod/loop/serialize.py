@@ -50,6 +50,7 @@ def loop_to_dict(loop: Loop, people: People) -> dict:
         "engine": loop.engine,
         "state": loop.state,
         "paused_from": loop.paused_from,
+        "live_since": _stamp(loop.live_since),
         "owner": {
             "id": loop.owner_user_id,
             "name": people.name(loop.owner_user_id),

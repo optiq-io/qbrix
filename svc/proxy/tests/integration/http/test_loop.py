@@ -9,11 +9,16 @@ invariants verified:
   record under the cycle's id. the name changes at any time, the key only
   while draft. create, launch and rename are one change each; create and
   rename undo through the change log, and a metric a loop uses is kept.
+  a live loop pauses (qbrix pauses it, with its evidence) and a person resumes
+  it to the state it was paused from; each is one change, only the call that
+  moves the state records one, both undo into the other, and live_since moves
+  at launch and resume.
 """
 
 from __future__ import annotations
 
 import json
+import math
 
 import pytest
 import pytest_asyncio
@@ -22,10 +27,17 @@ import proxysvc.config
 from proxysvc.core.actor import Actor
 from proxysvc.core.error import ChangeConflictError
 from proxysvc.core.error import ChangeNotUndoableError
+from proxysvc.core.error import LoopStateError
+from proxysvc.mod.loop.repository import LoopRepository
 from proxysvc.next import next_routes
+from proxysvc.transport.http.auth.dependencies import get_actor
+
+from svc.proxy.tests.integration.http.conftest import as_tenant
 
 TENANT = "dev-tenant"
 UNDOER = Actor.member("user-undo", request_id="req-undo")
+QBRIX = Actor(kind="qbrix", user_id="qbrix")
+EVIDENCE = {"signal": "decision_errors", "value": 0.07, "calls": 412}
 
 PURCHASE = {
     "name": "purchase",
@@ -515,6 +527,242 @@ class TestUndo:
 
         with pytest.raises(ChangeNotUndoableError, match="deleting a loop"):
             await wired_app.svc.undo_change(TENANT, delete["id"], actor=UNDOER)
+
+
+async def _pause(wired_app, ref: str, actor: Actor = QBRIX, **kwargs) -> dict:
+    return await wired_app.svc._loop_service.pause_loop(
+        TENANT, ref, actor=actor, **kwargs
+    )
+
+
+async def _paused(wired_app, loops) -> dict:
+    loop = await _launch(loops, (await _create(loops))["key"])
+    return await _pause(wired_app, loop["key"], evidence=EVIDENCE)
+
+
+class TestPause:
+    async def test_a_live_loop_pauses_from_live(self, wired_app, loops):
+        loop = await _launch(loops, (await _create(loops))["key"])
+
+        paused = await _pause(wired_app, loop["key"])
+
+        assert (paused["state"], paused["paused_from"]) == ("paused", "live")
+        assert paused["live_since"] == loop["live_since"]
+
+    async def test_is_a_change_by_qbrix_with_its_evidence(self, wired_app, loops):
+        loop = await _paused(wired_app, loops)
+
+        pause, *_ = await _changes(wired_app, loop["id"])
+
+        assert pause["kind"] == "loop.pause"
+        assert pause["actor"]["kind"] == "qbrix"
+        assert pause["evidence"] == EVIDENCE
+        assert pause["before"]["state"] == "live"
+        assert pause["after"] == loop
+        assert pause["undoable"] is True
+
+    async def test_a_pause_that_loses_the_race_records_nothing(
+        self, wired_app, loops, monkeypatch
+    ):
+        loop = await _launch(loops, (await _create(loops))["key"])
+        resolve = LoopRepository.resolve
+        read = []
+
+        async def another_pause_lands(repo, ref):
+            found = await resolve(repo, ref)
+            read.append(found.state)
+            await repo.transition(
+                found.id, from_state="live", state="paused", paused_from="live"
+            )
+            return found
+
+        with monkeypatch.context() as patch:
+            patch.setattr(LoopRepository, "resolve", another_pause_lands)
+            with pytest.raises(LoopStateError, match="is paused"):
+                await _pause(wired_app, loop["key"])
+
+        assert read == ["live"]
+        kinds = [c["kind"] for c in await _changes(wired_app, loop["id"])]
+        assert "loop.pause" not in kinds
+
+    @pytest.mark.parametrize("launch", [False, True])
+    async def test_only_a_live_loop_pauses(self, wired_app, loops, launch):
+        loop = await _create(loops)
+        if launch:
+            loop = await _pause(wired_app, (await _launch(loops, loop["key"]))["key"])
+
+        with pytest.raises(LoopStateError, match=f"is {loop['state']}"):
+            await _pause(wired_app, loop["key"])
+
+    async def test_writes_the_paused_route(self, wired_app, loops):
+        loop = await _paused(wired_app, loops)
+
+        route = await wired_app.svc._loop_select_service._routes.get(
+            TENANT, loop["key"]
+        )
+
+        assert route.state == "paused"
+
+
+class TestResume:
+    async def test_returns_to_where_it_was_paused_from(self, wired_app, loops):
+        loop = await _paused(wired_app, loops)
+
+        resp = await loops.post(f"/api/v1/loops/{loop['key']}/resume")
+
+        assert resp.status_code == 200, resp.text
+        resumed = resp.json()["loop"]
+        assert (resumed["state"], resumed["paused_from"]) == ("live", None)
+        assert resumed["live_since"] > loop["live_since"]
+
+    async def test_says_when_serving_moves(self, wired_app, loops):
+        loop = await _paused(wired_app, loops)
+
+        resp = await loops.post(f"/api/v1/loops/{loop['key']}/resume")
+
+        expected = math.ceil(proxysvc.config.settings.experiment_cache_ttl)
+        assert resp.json()["serving_within_seconds"] == expected
+
+    async def test_is_a_change_by_the_person_with_their_reason(self, wired_app, loops):
+        loop = await _paused(wired_app, loops)
+
+        resp = await loops.post(
+            f"/api/v1/loops/{loop['key']}/resume",
+            json={"reason": "motor is back"},
+            headers={"X-Request-ID": "req-resume"},
+        )
+        resume, *_ = await _changes(wired_app, loop["id"])
+
+        assert resume["kind"] == "loop.resume"
+        assert resume["actor"]["kind"] == "member"
+        assert resume["reason"] == "motor is back"
+        assert resume["request_id"] == "req-resume"
+        assert resume["before"]["state"] == "paused"
+        assert resume["after"] == resp.json()["loop"]
+
+    async def test_needs_no_body(self, wired_app, loops):
+        loop = await _paused(wired_app, loops)
+
+        resp = await loops.post(f"/api/v1/loops/{loop['key']}/resume")
+        resume, *_ = await _changes(wired_app, loop["id"])
+
+        assert resp.status_code == 200
+        assert resume["reason"] is None
+
+    async def test_writes_the_live_route(self, wired_app, loops):
+        loop = await _paused(wired_app, loops)
+        await loops.post(f"/api/v1/loops/{loop['key']}/resume")
+
+        route = await wired_app.svc._loop_select_service._routes.get(
+            TENANT, loop["key"]
+        )
+
+        assert route.state == "live"
+
+    @pytest.mark.parametrize("launch", [False, True])
+    async def test_a_loop_that_isnt_paused_is_refused(self, wired_app, loops, launch):
+        loop = await _create(loops)
+        if launch:
+            loop = await _launch(loops, loop["key"])
+
+        resp = await loops.post(f"/api/v1/loops/{loop['key']}/resume")
+
+        assert resp.status_code == 409
+        assert resp.json()["code"] == "LOOP_NOT_PAUSED"
+        assert f"is {loop['state']}" in resp.text
+        assert len(await _changes(wired_app, loop["id"])) == (2 if launch else 1)
+
+    async def test_an_unknown_loop_is_not_found(self, loops):
+        resp = await loops.post("/api/v1/loops/nothing/resume")
+
+        assert resp.status_code == 404
+
+    async def test_a_viewer_is_refused(self, wired_app, loops):
+        loop = await _paused(wired_app, loops)
+
+        with as_tenant(wired_app.app, tenant_id=TENANT, role="viewer"):
+            resp = await loops.post(f"/api/v1/loops/{loop['key']}/resume")
+
+        assert resp.status_code == 403
+        assert (await wired_app.svc.get_loop(TENANT, loop["id"]))["state"] == "paused"
+
+    async def test_an_api_key_is_refused(self, wired_app, loops):
+        loop = await _paused(wired_app, loops)
+        overrides = wired_app.app.dependency_overrides
+        overrides[get_actor] = lambda: Actor.member("user-x", api_key_id="key-1")
+        try:
+            resp = await loops.post(f"/api/v1/loops/{loop['key']}/resume")
+        finally:
+            del overrides[get_actor]
+
+        assert resp.status_code == 403
+        assert "api key" in resp.text
+        assert (await wired_app.svc.get_loop(TENANT, loop["id"]))["state"] == "paused"
+
+
+class TestLiveSince:
+    async def test_a_draft_has_none(self, loops):
+        assert (await _create(loops))["live_since"] is None
+
+    async def test_is_set_at_launch(self, loops):
+        assert (await _launch(loops, (await _create(loops))["key"]))["live_since"]
+
+
+class TestUndoPauseResume:
+    async def test_undo_of_resume_pauses_again_as_the_undoers_change(
+        self, wired_app, loops
+    ):
+        loop = await _paused(wired_app, loops)
+        await loops.post(f"/api/v1/loops/{loop['key']}/resume")
+        resume, *_ = await _changes(wired_app, loop["id"])
+
+        undo = await wired_app.svc.undo_change(
+            TENANT, resume["id"], actor=UNDOER, reason="not yet"
+        )
+        after = await wired_app.svc.get_loop(TENANT, loop["id"])
+
+        assert undo["kind"] == "loop.pause"
+        assert undo["undoes_id"] == resume["id"]
+        assert undo["actor"]["kind"] == "member"
+        assert undo["actor"]["user_id"] == UNDOER.user_id
+        assert undo["reason"] == "not yet"
+        assert (after["state"], after["paused_from"]) == ("paused", "live")
+
+    async def test_undo_of_pause_resumes(self, wired_app, loops):
+        loop = await _paused(wired_app, loops)
+        pause, *_ = await _changes(wired_app, loop["id"])
+
+        undo = await wired_app.svc.undo_change(TENANT, pause["id"], actor=UNDOER)
+        after = await wired_app.svc.get_loop(TENANT, loop["id"])
+
+        assert undo["kind"] == "loop.resume"
+        assert undo["undoes_id"] == pause["id"]
+        assert after["state"] == "live"
+        assert after["live_since"] > loop["live_since"]
+
+    async def test_each_undo_is_its_own_change(self, wired_app, loops):
+        loop = await _paused(wired_app, loops)
+        pause, *_ = await _changes(wired_app, loop["id"])
+        resume = await wired_app.svc.undo_change(TENANT, pause["id"], actor=UNDOER)
+
+        await wired_app.svc.undo_change(TENANT, resume["id"], actor=UNDOER)
+
+        kinds = [c["kind"] for c in await _changes(wired_app, loop["id"])]
+        assert kinds == [
+            "loop.pause",
+            "loop.resume",
+            "loop.pause",
+            "loop.launch",
+            "loop.create",
+        ]
+
+    async def test_undo_of_a_pause_after_a_resume_is_refused(self, wired_app, loops):
+        loop = await _paused(wired_app, loops)
+        pause, *_ = await _changes(wired_app, loop["id"])
+        await loops.post(f"/api/v1/loops/{loop['key']}/resume")
+
+        with pytest.raises(ChangeConflictError, match="loop.resume"):
+            await wired_app.svc.undo_change(TENANT, pause["id"], actor=UNDOER)
 
 
 class TestMetricInUse:

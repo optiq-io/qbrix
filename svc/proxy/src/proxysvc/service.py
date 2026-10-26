@@ -476,6 +476,13 @@ class ProxyService:
             tenant_id, ref, name=name, key=key, actor=actor
         )
 
+    async def resume_loop(
+        self, tenant_id: str, ref: str, *, actor: Actor, reason: str | None = None
+    ) -> dict | None:
+        return await self._loop_service.resume_loop(
+            tenant_id, ref, actor=actor, reason=reason
+        )
+
     async def get_loop(self, tenant_id: str, ref: str) -> dict | None:
         return await LoopReadService.get_loop(tenant_id, ref)
 

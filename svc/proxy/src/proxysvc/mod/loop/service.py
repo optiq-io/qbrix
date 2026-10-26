@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
+from datetime import timezone
 from typing import Any
 
 from sqlalchemy.exc import IntegrityError
@@ -81,6 +83,10 @@ def _not_draft(loop_key: str, state: str, refused: str) -> LoopStateError:
     return LoopStateError(f"{refused}: the loop {loop_key!r} is {state}, not a draft")
 
 
+def _moved(loop_key: str, state: str, refused: str) -> LoopStateError:
+    return LoopStateError(f"{refused}: the loop {loop_key!r} is {state}")
+
+
 def _options(options: list[dict[str, Any]]) -> list[LoopOption]:
     if len(options) < MIN_OPTIONS:
         raise LoopInvalidError(
@@ -136,7 +142,8 @@ def _resolve(engine: str, metric: Metric) -> Resolved:
 
 
 class LoopService:
-    """loops: created as drafts, launched into their first cycle, renamed.
+    """loops: created as drafts, launched into their first cycle, renamed,
+    paused and resumed.
 
     a live cycle is written to redis as the record motor serves and cortex
     trains, under the cycle's id, so a new cycle never mixes earlier learning.
@@ -234,6 +241,7 @@ class LoopService:
                 )
             )
             loop.state = "live"
+            loop.live_since = datetime.now(timezone.utc)
             try:
                 loop = await repo.reload(loop)
             except IntegrityError as e:
@@ -308,6 +316,100 @@ class LoopService:
                 undoing=undoing,
             )
         await self._routes.put(tenant_id, route, old_key=old_key)
+        return loop_dict
+
+    async def pause_loop(
+        self,
+        tenant_id: str,
+        ref: str,
+        *,
+        actor: Actor,
+        reason: str | None = None,
+        evidence: dict | None = None,
+        undoing: Undoing | None = None,
+    ) -> dict | None:
+        """live to paused: everyone gets the fallback until someone resumes it.
+        decisions already made still seal and teach."""
+        return await self._transition(
+            tenant_id,
+            ref,
+            "loop.pause",
+            from_state="live",
+            values={"state": "paused", "paused_from": "live"},
+            refused="only a live loop can be paused",
+            actor=actor,
+            reason=reason,
+            evidence=evidence,
+            undoing=undoing,
+        )
+
+    async def resume_loop(
+        self,
+        tenant_id: str,
+        ref: str,
+        *,
+        actor: Actor,
+        reason: str | None = None,
+        undoing: Undoing | None = None,
+    ) -> dict | None:
+        """back to the state the loop was paused from, live again from now."""
+        return await self._transition(
+            tenant_id,
+            ref,
+            "loop.resume",
+            from_state="paused",
+            values={
+                "state": Loop.paused_from,
+                "paused_from": None,
+                "live_since": datetime.now(timezone.utc),
+            },
+            refused="only a paused loop can be resumed",
+            actor=actor,
+            reason=reason,
+            evidence=None,
+            undoing=undoing,
+        )
+
+    async def _transition(
+        self,
+        tenant_id: str,
+        ref: str,
+        kind: str,
+        *,
+        from_state: str,
+        values: dict[str, Any],
+        refused: str,
+        actor: Actor,
+        reason: str | None,
+        evidence: dict | None,
+        undoing: Undoing | None,
+    ) -> dict | None:
+        async with get_session() as session:
+            repo = LoopRepository(session, tenant_id)
+            loop = await repo.resolve(ref)
+            if loop is None:
+                return None
+            loop_key = loop.key
+            people = await _owner(session, tenant_id, loop)
+            before = loop_to_dict(loop, people)
+            if not await repo.transition(loop.id, from_state=from_state, **values):
+                loop = await repo.get(loop.id)
+                raise _moved(loop_key, loop.state, refused)
+            loop = await repo.get(loop.id)
+            loop_dict = loop_to_dict(loop, people)
+            route = route_of(loop)
+            await ChangeRepository(session, tenant_id).record(
+                kind,
+                "loop",
+                loop.id,
+                actor,
+                before=before,
+                after=loop_dict,
+                reason=reason,
+                evidence=evidence,
+                undoing=undoing,
+            )
+        await self._routes.put(tenant_id, route)
         return loop_dict
 
     async def delete_loop(
