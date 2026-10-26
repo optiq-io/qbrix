@@ -38,16 +38,18 @@ async def loop(wired_grpc) -> dict:
         metric_type="conversion",
         actor=ACTOR,
     )
-    return await svc.create_loop(
-        TENANT,
-        name="Checkout headline",
-        metric="purchase",
-        options=[
-            {"name": "Control", "config": {"text": "Buy now", "rank": 2}},
-            {"name": "Urgency", "config": {"text": "Only today"}},
-        ],
-        actor=ACTOR,
-    )
+    return (
+        await svc.create_loop(
+            TENANT,
+            name="Checkout headline",
+            metric="purchase",
+            options=[
+                {"name": "Control", "config": {"text": "Buy now", "rank": 2}},
+                {"name": "Urgency", "config": {"text": "Only today"}},
+            ],
+            actor=ACTOR,
+        )
+    ).value
 
 
 def _request(loop: str, unit: str = "user-42", **properties) -> loop_pb2.SelectRequest:

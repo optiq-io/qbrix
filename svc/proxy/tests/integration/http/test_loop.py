@@ -173,13 +173,15 @@ class TestCreate:
             client_name="claude",
         )
 
-        loop = await wired_app.svc.create_loop(
-            TENANT,
-            name="Pricing page",
-            metric="purchase",
-            options=[{"name": "A"}, {"name": "B"}],
-            actor=via,
-        )
+        loop = (
+            await wired_app.svc.create_loop(
+                TENANT,
+                name="Pricing page",
+                metric="purchase",
+                options=[{"name": "A"}, {"name": "B"}],
+                actor=via,
+            )
+        ).value
         (change,) = await _changes(wired_app, loop["id"])
 
         assert loop["owner"] == {"id": "user-ada", "name": "former member"}

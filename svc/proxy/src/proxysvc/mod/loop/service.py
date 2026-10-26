@@ -25,6 +25,7 @@ from proxysvc.core.actor import Actor
 from proxysvc.core.error import LoopInvalidError
 from proxysvc.core.error import LoopKeyTakenError
 from proxysvc.core.error import LoopStateError
+from proxysvc.mod.change.applied import Applied
 from proxysvc.mod.change.repository import ChangeRepository
 from proxysvc.mod.change.undo import Undoing
 from proxysvc.mod.loop.repository import LoopRepository
@@ -166,7 +167,8 @@ class LoopService:
         options: list[dict[str, Any]],
         fallback: str | None = None,
         actor: Actor,
-    ) -> dict:
+        reason: str | None = None,
+    ) -> Applied:
         name = _name(name, "a loop")
         if key is not None:
             _check_key(key, "a loop")
@@ -210,15 +212,15 @@ class LoopService:
             people = await _owner(session, tenant_id, loop)
             loop_dict = loop_to_dict(loop, people)
             route = route_of(loop)
-            await ChangeRepository(session, tenant_id).record(
-                "loop.create", "loop", loop.id, actor, after=loop_dict
+            change = await ChangeRepository(session, tenant_id).record(
+                "loop.create", "loop", loop.id, actor, after=loop_dict, reason=reason
             )
         await self._routes.put(tenant_id, route)
-        return loop_dict
+        return Applied.of(loop_dict, change)
 
     async def launch_loop(
-        self, tenant_id: str, ref: str, *, actor: Actor
-    ) -> dict | None:
+        self, tenant_id: str, ref: str, *, actor: Actor, reason: str | None = None
+    ) -> Applied | None:
         async with get_session() as session:
             repo = LoopRepository(session, tenant_id)
             loop = await repo.resolve(ref)
@@ -251,17 +253,18 @@ class LoopService:
             loop_dict = loop_to_dict(loop, people)
             record = cycle_record(tenant_id, loop, loop.cycles[-1], resolved)
             route = route_of(loop)
-            await ChangeRepository(session, tenant_id).record(
+            change = await ChangeRepository(session, tenant_id).record(
                 "loop.launch",
                 "loop",
                 loop.id,
                 actor,
                 before=before,
                 after=loop_dict,
+                reason=reason,
             )
         await self._redis.set_experiment(tenant_id, record["id"], record)
         await self._routes.put(tenant_id, route)
-        return loop_dict
+        return Applied.of(loop_dict, change)
 
     async def rename_loop(
         self,

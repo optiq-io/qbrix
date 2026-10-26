@@ -77,6 +77,7 @@ def build_http_server(settings: ProxySettings, runtime: ProxyRuntime) -> uvicorn
     from proxysvc.transport.http.router.pool import set_proxy_service as set_pool
     from proxysvc.transport.http.router.runtime import set_proxy_service as set_runtime
     from proxysvc.transport.http.router.select import set_proxy_service as set_select
+    from proxysvc.transport.mcp.server import set_proxy_service as set_mcp
 
     for wire in (
         set_pool,
@@ -90,6 +91,7 @@ def build_http_server(settings: ProxySettings, runtime: ProxyRuntime) -> uvicorn
         set_outcome,
         set_connection,
         set_oauth,
+        set_mcp,
     ):
         wire(runtime.proxy_service)
 

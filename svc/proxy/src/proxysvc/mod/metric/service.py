@@ -13,6 +13,7 @@ from proxysvc.core.actor import Actor
 from proxysvc.core.error import ChangeConflictError
 from proxysvc.core.error import MetricInvalidError
 from proxysvc.core.error import MetricNameTakenError
+from proxysvc.mod.change.applied import Applied
 from proxysvc.mod.change.repository import ChangeRepository
 from proxysvc.mod.change.undo import Undoing
 from proxysvc.mod.loop.repository import LoopRepository
@@ -45,7 +46,8 @@ class MetricService:
         score_range: tuple[float, float] | None = None,
         window_seconds: int = DEFAULT_WINDOW_SECONDS,
         actor: Actor,
-    ) -> dict:
+        reason: str | None = None,
+    ) -> Applied:
         if len(name) > NAME_MAX_LENGTH or not _NAME.fullmatch(name):
             raise MetricInvalidError(
                 f"a metric name is what code sends: lowercase letters, digits, "
@@ -80,10 +82,15 @@ class MetricService:
             except IntegrityError as e:
                 raise _taken(name) from e
             metric_dict = metric_to_dict(metric)
-            await ChangeRepository(session, tenant_id).record(
-                "metric.create", "metric", metric.id, actor, after=metric_dict
+            change = await ChangeRepository(session, tenant_id).record(
+                "metric.create",
+                "metric",
+                metric.id,
+                actor,
+                after=metric_dict,
+                reason=reason,
             )
-        return metric_dict
+        return Applied.of(metric_dict, change)
 
     @staticmethod
     async def get_metric(tenant_id: str, ref: str) -> dict | None:
@@ -96,6 +103,30 @@ class MetricService:
         async with get_session() as session:
             metrics = await MetricRepository(session, tenant_id).list()
             return [metric_to_dict(metric) for metric in metrics]
+
+    @staticmethod
+    async def metrics_in_use(tenant_id: str) -> list[dict]:
+        """every metric, with the loops that use it."""
+        async with get_session() as session:
+            metrics = await MetricRepository(session, tenant_id).list()
+            using = await LoopRepository(session, tenant_id).using_metrics(
+                [metric.id for metric in metrics]
+            )
+            return [
+                {
+                    **metric_to_dict(metric),
+                    "loops": [
+                        {
+                            "id": loop.id,
+                            "key": loop.key,
+                            "name": loop.name,
+                            "state": loop.state,
+                        }
+                        for loop in using.get(metric.id, [])
+                    ],
+                }
+                for metric in metrics
+            ]
 
     @staticmethod
     async def delete_metric(

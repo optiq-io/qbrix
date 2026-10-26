@@ -67,18 +67,20 @@ async def api(wired_app, client, next_enabled):
 
 
 async def _loop(wired_app, *, launch: bool = True, **overrides) -> dict:
-    loop = await wired_app.svc.create_loop(
-        TENANT,
-        **{
-            "name": "Checkout headline",
-            "metric": "purchase",
-            "options": OPTIONS,
-            "actor": ACTOR,
-            **overrides,
-        },
-    )
+    loop = (
+        await wired_app.svc.create_loop(
+            TENANT,
+            **{
+                "name": "Checkout headline",
+                "metric": "purchase",
+                "options": OPTIONS,
+                "actor": ACTOR,
+                **overrides,
+            },
+        )
+    ).value
     if launch:
-        loop = await wired_app.svc.launch_loop(TENANT, loop["key"], actor=ACTOR)
+        loop = (await wired_app.svc.launch_loop(TENANT, loop["key"], actor=ACTOR)).value
     return loop
 
 

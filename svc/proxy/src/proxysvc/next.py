@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 import grpc
 from fastapi import FastAPI
 
@@ -29,7 +32,23 @@ def next_routes(app: FastAPI, settings: ProxySettings) -> None:
     app.include_router(connection_router, prefix="/api/v1")
     app.include_router(request_router, prefix="/api/v1")
     app.include_router(oauth_router)
+
+    from proxysvc.transport.mcp.server import mount
+
+    mount(app, settings)
     logger.info("next routes registered")
+
+
+@asynccontextmanager
+async def next_lifespan(app: FastAPI, settings: ProxySettings) -> AsyncIterator[None]:
+    """runs what the next routes need for as long as the app serves."""
+    if not settings.next_enabled:
+        yield
+        return
+    from proxysvc.transport.mcp.server import running
+
+    async with running(app):
+        yield
 
 
 def next_servicers(

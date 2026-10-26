@@ -3,3 +3,68 @@ title: MCP server
 description: Work with loops from Claude Code, Cursor or any other MCP client.
 order: 5
 ---
+
+qbrix serves its own MCP server, at `/mcp` on the same address as the console. Add it to your client with one line, sign in once in the browser, and the client becomes a [connection](/docs/connections-and-autonomy) acting for you: it can read every loop and metric you can read, and make the changes your role allows.
+
+Nothing extra runs: a self-hosted install serves `/mcp` from its first start.
+
+## Connecting a client
+
+Replace `https://qbrix.example.com` with your install's address.
+
+| Client | How to add qbrix |
+|---|---|
+| Claude Code | `claude mcp add --transport http qbrix https://qbrix.example.com/mcp` |
+| Cursor | In `~/.cursor/mcp.json`: `{"mcpServers": {"qbrix": {"url": "https://qbrix.example.com/mcp"}}}` |
+| VS Code | `code --add-mcp '{"name": "qbrix", "type": "http", "url": "https://qbrix.example.com/mcp"}'` |
+| Claude Desktop | Settings, Connectors, Add custom connector, with the URL `https://qbrix.example.com/mcp` |
+
+Any other client that speaks MCP over HTTP with OAuth works the same way: give it the `/mcp` address.
+
+The first time the client calls qbrix, it opens your browser to sign in and approve it. See [signing a client in](/docs/connections-and-autonomy#signing-a-client-in). An API key can't sign in to the MCP server: keys only ask for decisions and report outcomes.
+
+## Tools
+
+| Tool | What it does |
+|---|---|
+| `loops_list` | The workspace's loops, newest first: state, metric, share of decisions now, and the latest change with who made it. Filter by state. |
+| `loop_get` | One loop: purpose, options, metric, owner, fallback, state and current cycle, and the `select` and `outcome` calls that wire it, in Python and JavaScript. |
+| `loop_results` | A cycle's results: share of decisions per option, lift over an even split, decisions waiting to seal, and health. |
+| `metrics_list` | The workspace's metrics, with their type and window, and the loops that use each. |
+| `loop_create` | Creates a draft loop with its options and metric. |
+| `loop_launch` | Takes a draft live: its first cycle starts. |
+| `metric_create` | Creates a metric with what it stands for, its type and its window. |
+
+- **A loop is named by its key or its id**, and a metric by its name or its id, in every tool.
+- **Loop reads are concise by default.** They leave out each option's config and the share series; ask for `detail: "full"` to include them. `loops_list` returns 20 loops a page, up to 100, with a cursor to the next page.
+- **Reads are marked read-only, and `loop_launch` destructive**, so your client can ask you before it launches a loop.
+
+Asking for decisions and reporting outcomes never happen over MCP. They belong to your app and its key, so a chat never teaches a loop something no user did.
+
+## Changes
+
+Every change tool takes a `reason`, a sentence on why. It is recorded in the loop's history beside who made the change and through which client, for example "Mustafa via Claude Code".
+
+A change applies at once, within your role, and its result says what happened:
+
+- `status`: `applied`
+- `change`: its id, its kind, whether it can be undone, and its link in the console
+- the loop or metric as it is now
+
+Creating a loop or a metric can be undone. Launching can't.
+
+**Repeating a call is harmless.** Clients and networks retry. The same change tool called again by the same connection with the same arguments within 5 minutes returns the first call's result and changes nothing twice. Change any argument, the reason included, and it is a new call.
+
+## When qbrix refuses
+
+A refused call comes back as an error that says what to do next, for example:
+
+- "Your role can't launch loops. Ask an admin of this workspace."
+- "No loop with key or id checkout-hed. Did you mean checkout-headline?"
+- "The loop checkout-headline is live already; launching applies only to drafts."
+
+A viewer's connection can call every read tool, and gets the role error from every change tool. Each connection has its own per-minute request limit. Past it, a call is refused with when to try again.
+
+## On your own install
+
+Route `/mcp` and `/.well-known/oauth-protected-resource` to the API, beside the sign-in paths. The Docker Compose gateway and the Helm chart already do. See [connections on your own install](/docs/connections-and-autonomy#on-your-own-install).

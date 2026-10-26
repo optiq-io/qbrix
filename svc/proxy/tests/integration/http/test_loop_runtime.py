@@ -51,14 +51,16 @@ async def cycle(wired_app) -> dict:
         metric_type="conversion",
         actor=ACTOR,
     )
-    draft = await svc.create_loop(
-        TENANT,
-        name="Checkout headline",
-        metric="purchase",
-        options=[{"name": "Control"}, {"name": "Urgency"}, {"name": "Social"}],
-        actor=ACTOR,
-    )
-    loop = await svc.launch_loop(TENANT, draft["key"], actor=ACTOR)
+    draft = (
+        await svc.create_loop(
+            TENANT,
+            name="Checkout headline",
+            metric="purchase",
+            options=[{"name": "Control"}, {"name": "Urgency"}, {"name": "Social"}],
+            actor=ACTOR,
+        )
+    ).value
+    loop = (await svc.launch_loop(TENANT, draft["key"], actor=ACTOR)).value
     return {"id": loop["cycle"]["id"], "key": loop["key"], "options": loop["options"]}
 
 

@@ -201,6 +201,8 @@ class TestNextSwitch:
             "/oauth/authorize",
             "/oauth/token",
             "/oauth/revoke",
+            "/mcp",
+            "/.well-known/oauth-protected-resource/mcp",
         }
 
     def test_on_mounts_the_next_grpc_services(self, oss_with_next):

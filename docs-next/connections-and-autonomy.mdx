@@ -48,6 +48,6 @@ Signing a client in uses OAuth 2.1, which requires HTTPS everywhere except `loca
 
 - Serve qbrix over HTTPS, and set `CONSOLE_URL` to that `https://` address. qbrix names itself to clients by this address.
 - If the API isn't on the console's address, set `PROXY_PUBLIC_URL` to the address clients reach the API at.
-- Route `/oauth` and `/.well-known/oauth-authorization-server` to the API, as `/api` is. The Docker Compose gateway and the Helm chart already do. See [self-hosting](/docs/self-hosting).
+- Route `/oauth`, `/.well-known/oauth-authorization-server`, `/mcp` and `/.well-known/oauth-protected-resource` to the API, as `/api` is. The Docker Compose gateway and the Helm chart already do. See [self-hosting](/docs/self-hosting).
 
 A client describes itself at a URL on the public internet, which qbrix fetches when the client signs in. An install that can't reach the internet still works: the client registers itself instead.

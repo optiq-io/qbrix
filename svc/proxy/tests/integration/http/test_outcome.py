@@ -61,14 +61,16 @@ async def api(wired_app, client, next_enabled):
 
 async def _decision(wired_app, api, metric: str = "purchase") -> tuple[dict, str]:
     """a live loop improving the metric, and one decision's request_id."""
-    loop = await wired_app.svc.create_loop(
-        TENANT,
-        name=f"Checkout {metric}",
-        metric=metric,
-        options=OPTIONS,
-        actor=ACTOR,
-    )
-    loop = await wired_app.svc.launch_loop(TENANT, loop["key"], actor=ACTOR)
+    loop = (
+        await wired_app.svc.create_loop(
+            TENANT,
+            name=f"Checkout {metric}",
+            metric=metric,
+            options=OPTIONS,
+            actor=ACTOR,
+        )
+    ).value
+    loop = (await wired_app.svc.launch_loop(TENANT, loop["key"], actor=ACTOR)).value
     wired_app.motor_mock.select.side_effect = None
     wired_app.motor_mock.select.return_value = {
         "arm": {"id": "ignored", "name": "ignored", "index": 1},

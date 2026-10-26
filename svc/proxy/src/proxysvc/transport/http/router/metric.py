@@ -84,7 +84,7 @@ async def create_metric(
 ):
     """create a metric at version 1.0."""
     try:
-        metric = await get_proxy_service().create_metric(
+        created = await get_proxy_service().create_metric(
             tenant_id,
             name=body.name,
             semantic=body.semantic,
@@ -97,8 +97,8 @@ async def create_metric(
         raise InvalidMetricException(str(e))
     except MetricNameTakenError as e:
         raise MetricNameTakenException(str(e))
-    logger.info(f"metric created: {metric['id']} by user {actor.user_id}")
-    return MetricResponse(**metric)
+    logger.info(f"metric created: {created.value['id']} by user {actor.user_id}")
+    return MetricResponse(**created.value)
 
 
 @router.get(

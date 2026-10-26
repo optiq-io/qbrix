@@ -46,6 +46,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
             "/oauth/authorize",
             "/oauth/token",
             "/oauth/revoke",
+            "/mcp",
+            "/.well-known/oauth-protected-resource/mcp",
         }
         # only operational (hot-path) endpoints are rate-limited;
         # everything else is low-frequency management traffic

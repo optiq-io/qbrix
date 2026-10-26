@@ -56,18 +56,19 @@ AGENT_CORS_POLICY: dict[str, Any] = {
     "allow_credentials": False,
     "allow_methods": ["*"],
     "allow_headers": ["*"],
-    "expose_headers": ["Retry-After"],
+    "expose_headers": ["Retry-After", "WWW-Authenticate"],
     "max_age": 7200,
 }
 
-# a browser-based mcp client signs in from its own origin, and the oauth
-# endpoints take no cookies either
+# a browser-based mcp client signs in and calls /mcp from its own origin, and
+# neither the oauth endpoints nor /mcp take cookies
 AGENT_CORS_PREFIXES = (
     AGENT_PATH_PREFIX,
     SELECT_PATH,
     OUTCOME_PATH,
     "/oauth/",
     "/.well-known/oauth-",
+    "/mcp",
 )
 
 
