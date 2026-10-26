@@ -26,11 +26,11 @@ from qbrixstore.redis.health import SelectHealth
 from proxysvc.core.error import CycleNotFoundError
 from proxysvc.mod.loop.repository import LoopRepository
 from proxysvc.mod.loop.serialize import cycle_to_dict
-from proxysvc.mod.loop.stats import DAY_MS
-from proxysvc.mod.loop.stats import columns
-from proxysvc.mod.loop.stats import lift
-from proxysvc.mod.loop.stats import option_range
-from proxysvc.mod.loop.stats import step_for
+from proxysvc.mod.loop.stat import DAY_MS
+from proxysvc.mod.loop.stat import columns
+from proxysvc.mod.loop.stat import lift
+from proxysvc.mod.loop.stat import option_range
+from proxysvc.mod.loop.stat import step_for
 
 T = TypeVar("T")
 
@@ -106,7 +106,7 @@ def _pick_cycle(loop: Loop, number: int | None) -> Cycle | None:
     raise CycleNotFoundError(f"loop {loop.key!r} has no cycle {number}")
 
 
-class LoopResultsService:
+class LoopResultService:
     """a loop's results, read from the ledger: how decisions are shared
     across options, what is still waiting to seal, lift over an even split,
     and the counters health is judged by.

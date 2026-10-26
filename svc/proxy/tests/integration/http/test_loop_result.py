@@ -31,9 +31,9 @@ from qbrixstore.redis.health import SelectErrorReason
 from qbrixstore.redis.health import SelectOutcome
 
 from proxysvc.core.actor import Actor
-from proxysvc.mod.loop.stats import DAY_MS
-from proxysvc.mod.loop.stats import HOUR_MS
-from proxysvc.mod.loop.stats import MINUTE_MS
+from proxysvc.mod.loop.stat import DAY_MS
+from proxysvc.mod.loop.stat import HOUR_MS
+from proxysvc.mod.loop.stat import MINUTE_MS
 from proxysvc.next import next_routes
 
 from svc.proxy.tests.integration.http.conftest import as_tenant
@@ -90,7 +90,7 @@ def _started_ms(loop: dict) -> int:
 
 
 def _at(wired_app, now_ms: int) -> None:
-    wired_app.svc._loop_results_service._clock = lambda: now_ms
+    wired_app.svc._loop_result_service._clock = lambda: now_ms
 
 
 async def _results(api, ref: str = "checkout-headline", **params) -> dict:

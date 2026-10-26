@@ -8,7 +8,7 @@ from proxysvc.core import cursor as pages
 from proxysvc.mod.change.repository import ChangeRepository
 from proxysvc.mod.change.serialize import history_entry
 from proxysvc.mod.loop.repository import LoopRepository
-from proxysvc.mod.loop.results import LoopResultsService
+from proxysvc.mod.loop.result import LoopResultService
 from proxysvc.mod.loop.serialize import cycle_to_dict
 from proxysvc.mod.loop.serialize import loop_to_dict
 from proxysvc.mod.people import People
@@ -47,7 +47,7 @@ class LoopReadService:
         states: Sequence[str] = (),
         cursor: str | None = None,
         limit: int,
-        results: LoopResultsService,
+        results: LoopResultService,
     ) -> dict:
         before = pages.decode(cursor) if cursor else None
         async with get_session() as session:

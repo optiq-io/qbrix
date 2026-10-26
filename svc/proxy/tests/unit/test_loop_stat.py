@@ -13,16 +13,16 @@ from __future__ import annotations
 
 import pytest
 
-from proxysvc.mod.loop.stats import DAY_MS
-from proxysvc.mod.loop.stats import HOUR_MS
-from proxysvc.mod.loop.stats import MAX_COLUMNS
-from proxysvc.mod.loop.stats import MINUTE_MS
-from proxysvc.mod.loop.stats import columns
-from proxysvc.mod.loop.stats import lift
-from proxysvc.mod.loop.stats import normal
-from proxysvc.mod.loop.stats import option_range
-from proxysvc.mod.loop.stats import step_for
-from proxysvc.mod.loop.stats import wilson
+from proxysvc.mod.loop.stat import DAY_MS
+from proxysvc.mod.loop.stat import HOUR_MS
+from proxysvc.mod.loop.stat import MAX_COLUMNS
+from proxysvc.mod.loop.stat import MINUTE_MS
+from proxysvc.mod.loop.stat import columns
+from proxysvc.mod.loop.stat import lift
+from proxysvc.mod.loop.stat import normal
+from proxysvc.mod.loop.stat import option_range
+from proxysvc.mod.loop.stat import step_for
+from proxysvc.mod.loop.stat import wilson
 
 pytestmark = pytest.mark.unit
 

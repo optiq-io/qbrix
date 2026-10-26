@@ -27,7 +27,7 @@ from proxysvc.mod.gate.schema import GateConfigPatchRequest
 from proxysvc.mod.gate.schema import GateConfigRequest
 from proxysvc.mod.loop.outcome import LoopOutcomeService
 from proxysvc.mod.loop.read import LoopReadService
-from proxysvc.mod.loop.results import LoopResultsService
+from proxysvc.mod.loop.result import LoopResultService
 from proxysvc.mod.loop.route import LoopRouteCache
 from proxysvc.mod.loop.select import LoopSelectService
 from proxysvc.mod.loop.service import LoopService
@@ -61,7 +61,7 @@ class ProxyService:
         self._loop_service: LoopService | None = None
         self._loop_select_service: LoopSelectService | None = None
         self._loop_outcome_service: LoopOutcomeService | None = None
-        self._loop_results_service: LoopResultsService | None = None
+        self._loop_result_service: LoopResultService | None = None
         self._experiment_service: ExperimentService | None = None
         self._entitlements: Entitlements | None = None
 
@@ -149,7 +149,7 @@ class ProxyService:
             events=self._events,
             settings=self._settings,
         )
-        self._loop_results_service = LoopResultsService(
+        self._loop_result_service = LoopResultService(
             redis=self._redis, clickhouse=self._clickhouse
         )
         self._change_service = ChangeService(
@@ -492,7 +492,7 @@ class ProxyService:
             states=states,
             cursor=cursor,
             limit=limit,
-            results=self._loop_results_service,
+            results=self._loop_result_service,
         )
 
     async def loop_results(
@@ -503,7 +503,7 @@ class ProxyService:
         cycle_number: int | None = None,
         period: str,
     ) -> dict | None:
-        return await self._loop_results_service.results(
+        return await self._loop_result_service.results(
             tenant_id, ref, cycle_number=cycle_number, period=period
         )
 
