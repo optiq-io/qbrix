@@ -391,7 +391,7 @@ async def create_loop(
 ):
     """create a draft loop with its options, metric and engine."""
     try:
-        loop = await get_proxy_service().create_loop(
+        created = await get_proxy_service().create_loop(
             tenant_id,
             name=body.name,
             key=body.key,
@@ -406,8 +406,8 @@ async def create_loop(
         raise InvalidLoopException(str(e))
     except LoopKeyTakenError as e:
         raise LoopKeyTakenException(str(e))
-    logger.info(f"loop created: {loop['id']} by user {actor.user_id}")
-    return LoopResponse(**loop)
+    logger.info(f"loop created: {created.value['id']} by user {actor.user_id}")
+    return LoopResponse(**created.value)
 
 
 @router.post(
@@ -430,8 +430,8 @@ async def launch_loop(
         raise LoopNotDraftException(str(e))
     if launched is None:
         raise _not_found(loop)
-    logger.info(f"loop launched: {launched['id']} by user {actor.user_id}")
-    return LoopResponse(**launched)
+    logger.info(f"loop launched: {launched.value['id']} by user {actor.user_id}")
+    return LoopResponse(**launched.value)
 
 
 @router.patch(

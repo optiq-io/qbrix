@@ -41,6 +41,11 @@ class LoopReadService:
             return loop_to_dict(loop, people)
 
     @staticmethod
+    async def keys(tenant_id: str) -> set[str]:
+        async with get_session() as session:
+            return await LoopRepository(session, tenant_id).keys_from("")
+
+    @staticmethod
     async def list_loops(
         tenant_id: str,
         *,

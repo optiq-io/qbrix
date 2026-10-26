@@ -19,6 +19,7 @@ from proxysvc.core.actor import Actor
 from proxysvc.core.entitlements import Entitlements
 from proxysvc.core.events import EventEmitter
 from proxysvc.mod.agent import AgentService
+from proxysvc.mod.change.applied import Applied
 from proxysvc.mod.change.service import ChangeService
 from proxysvc.mod.connection.service import ConnectionService
 from proxysvc.mod.experiment.service import ExperimentService
@@ -189,6 +190,12 @@ class ProxyService:
         if self._entitlements is None:
             raise RuntimeError("proxy service not started")
         return self._entitlements
+
+    @property
+    def redis(self) -> RedisClient:
+        if self._redis is None:
+            raise RuntimeError("proxy service not started")
+        return self._redis
 
     @property
     def connections(self) -> ConnectionService:
@@ -441,7 +448,8 @@ class ProxyService:
         score_range: tuple[float, float] | None = None,
         window_seconds: int = DEFAULT_WINDOW_SECONDS,
         actor: Actor,
-    ) -> dict:
+        reason: str | None = None,
+    ) -> Applied:
         return await self._metric_service.create_metric(
             tenant_id,
             name=name,
@@ -450,6 +458,7 @@ class ProxyService:
             score_range=score_range,
             window_seconds=window_seconds,
             actor=actor,
+            reason=reason,
         )
 
     async def get_metric(self, tenant_id: str, ref: str) -> dict | None:
@@ -457,6 +466,9 @@ class ProxyService:
 
     async def list_metrics(self, tenant_id: str) -> list[dict]:
         return await self._metric_service.list_metrics(tenant_id)
+
+    async def metrics_in_use(self, tenant_id: str) -> list[dict]:
+        return await self._metric_service.metrics_in_use(tenant_id)
 
     # loops
 
@@ -472,7 +484,8 @@ class ProxyService:
         options: list[dict[str, Any]],
         fallback: str | None = None,
         actor: Actor,
-    ) -> dict:
+        reason: str | None = None,
+    ) -> Applied:
         return await self._loop_service.create_loop(
             tenant_id,
             name=name,
@@ -483,12 +496,15 @@ class ProxyService:
             options=options,
             fallback=fallback,
             actor=actor,
+            reason=reason,
         )
 
     async def launch_loop(
-        self, tenant_id: str, ref: str, *, actor: Actor
-    ) -> dict | None:
-        return await self._loop_service.launch_loop(tenant_id, ref, actor=actor)
+        self, tenant_id: str, ref: str, *, actor: Actor, reason: str | None = None
+    ) -> Applied | None:
+        return await self._loop_service.launch_loop(
+            tenant_id, ref, actor=actor, reason=reason
+        )
 
     async def rename_loop(
         self,
@@ -512,6 +528,9 @@ class ProxyService:
 
     async def get_loop(self, tenant_id: str, ref: str) -> dict | None:
         return await LoopReadService.get_loop(tenant_id, ref)
+
+    async def loop_keys(self, tenant_id: str) -> set[str]:
+        return await LoopReadService.keys(tenant_id)
 
     async def list_loops(
         self,

@@ -33,6 +33,7 @@ from proxysvc.transport.http.request_id import RequestIdMiddleware
 from proxysvc.transport.http.auth.seed import seed_dev_user
 from proxysvc import edition
 from proxysvc.config import settings
+from proxysvc.next import next_lifespan
 from proxysvc.next import next_routes
 
 __all__ = ["app"]
@@ -50,8 +51,9 @@ async def lifespan(application: FastAPI):  # noqa
         # startup, a seed failure here is a real bug, not an empty-db race.
         await seed_dev_user()
 
-    logger.info("proxy http server initialized")
-    yield
+    async with next_lifespan(application, settings):
+        logger.info("proxy http server initialized")
+        yield
     logger.info("proxy http server terminated")
 
 

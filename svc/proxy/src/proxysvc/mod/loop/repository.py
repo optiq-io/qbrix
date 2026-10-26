@@ -86,6 +86,21 @@ class LoopRepository:
         response = await self._session.execute(stmt)
         return response.scalar_one_or_none()
 
+    async def using_metrics(self, metric_ids: Sequence[str]) -> dict[str, list[Loop]]:
+        """the loops using each metric, oldest first."""
+        if not metric_ids:
+            return {}
+        stmt = (
+            select(Loop)
+            .where(Loop.tenant_id == self._tenant_id, Loop.metric_id.in_(metric_ids))
+            .order_by(Loop.created_at, Loop.id)
+        )
+        response = await self._session.execute(stmt)
+        using: dict[str, list[Loop]] = {}
+        for loop in response.scalars().all():
+            using.setdefault(loop.metric_id, []).append(loop)
+        return using
+
     async def page(
         self, states: Sequence[str], before: Position | None, limit: int
     ) -> list[Loop]:
