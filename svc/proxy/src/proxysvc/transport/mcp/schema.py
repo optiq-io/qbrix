@@ -34,6 +34,7 @@ class Wiring(BaseModel):
 
 
 class LoopView(Loop):
+    latest_change: Optional[HistoryEntry] = None
     wire: Wiring
 
 

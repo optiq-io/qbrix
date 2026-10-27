@@ -2,14 +2,15 @@
 
 invariants verified:
   a loop is found by its key or its id, only in its own workspace, with its
-  owner's name, its metric's type and window, and its current cycle once
-  launched. the list filters by state, pages newest first by an opaque cursor
+  owner's name, its metric's type and window, its current cycle once
+  launched, and its latest change in a fixed number of queries. the list filters by state, pages newest first by an opaque cursor
   that neither repeats nor skips a loop when others are created between pages,
   and carries each loop's latest change in a fixed number of queries. a loop's
   cycles list newest first with their options as they were. its history lists
   every change newest first with who, via and why: a connection reads as its
   person via its client, a change by qbrix has no person, and a deleted user is
-  a former member. every role can read.
+  a former member. every entry carries the evidence its change recorded, the
+  list's and one loop's latest change included. every role can read.
 """
 
 from __future__ import annotations
@@ -42,6 +43,16 @@ OPTIONS = [
     {"name": "Control", "config": {"text": "Buy now"}},
     {"name": "Urgency", "config": {"text": "Only today"}},
 ]
+
+EVIDENCE = {
+    "signal": "decision_errors",
+    "rate": 0.238,
+    "errors": 150,
+    "calls": 629,
+    "window_start": "2026-10-27T09:51:00+00:00",
+    "window_end": "2026-10-27T10:01:12+00:00",
+    "reasons": {"motor_unavailable": 150},
+}
 
 
 @pytest_asyncio.fixture
@@ -87,6 +98,13 @@ async def _add_user(user_id: str, name: str | None, email: str) -> None:
                 name=name,
             )
         )
+
+
+async def _pause_by_qbrix(wired_app, ref: str) -> None:
+    paused = await wired_app.svc.loops.pause_loop(
+        TENANT, ref, actor=Actor.qbrix(), reason="decision errors", evidence=EVIDENCE
+    )
+    assert paused is not None
 
 
 async def _record(loop_id: str, kind: str, actor: Actor, reason: str) -> None:
@@ -140,6 +158,35 @@ class TestGet:
 
         assert [r.status_code for r in (by_key, by_id, cycles, history)] == [404] * 4
         assert listed.json()["loops"] == []
+
+    async def test_carries_its_latest_change(self, wired_app, loops):
+        await _create(loops)
+        draft = await _get(loops, "/checkout-headline")
+        await _launch(loops, "checkout-headline")
+        await _pause_by_qbrix(wired_app, "checkout-headline")
+
+        paused = await _get(loops, "/checkout-headline")
+
+        assert draft["latest_change"]["kind"] == "loop.create"
+        assert draft["latest_change"]["evidence"] is None
+        assert paused["state"] == "paused"
+        assert paused["latest_change"]["kind"] == "loop.pause"
+        assert paused["latest_change"]["who"]["kind"] == "qbrix"
+        assert paused["latest_change"]["evidence"] == EVIDENCE
+
+    async def test_reads_the_same_number_of_queries_however_long_its_history(
+        self, loops
+    ):
+        created = await _create(loops)
+        with _counting() as short:
+            await _get(loops, "/checkout-headline")
+
+        for n in range(5):
+            await _record(created["id"], "brief.update", Actor.member("u"), f"v{n}")
+        with _counting() as long:
+            await _get(loops, "/checkout-headline")
+
+        assert len(long) == len(short)
 
     async def test_a_draft_has_no_current_cycle(self, loops):
         await _create(loops)
@@ -258,6 +305,16 @@ class TestList:
         assert latest["live"]["who"]["kind"] == "member"
         assert latest["live"]["who"]["user_id"]
 
+    async def test_a_loop_paused_by_qbrix_carries_the_evidence(self, wired_app, loops):
+        await _create(loops)
+        await _launch(loops, "checkout-headline")
+        await _pause_by_qbrix(wired_app, "checkout-headline")
+
+        (loop,) = (await _get(loops, ""))["loops"]
+
+        assert loop["latest_change"]["kind"] == "loop.pause"
+        assert loop["latest_change"]["evidence"] == EVIDENCE
+
     async def test_reads_the_same_number_of_queries_for_one_loop_or_many(self, loops):
         await _create(loops, "Only")
         await _launch(loops, "only")
@@ -363,6 +420,19 @@ class TestHistory:
 
         assert change["who"] == {"kind": "qbrix", "user_id": None, "name": None}
         assert change["via"] is None
+
+    async def test_carries_the_evidence_a_change_recorded(self, wired_app, loops):
+        await _create(loops)
+        await _launch(loops, "checkout-headline")
+        await _pause_by_qbrix(wired_app, "checkout-headline")
+
+        changes = (await _get(loops, "/checkout-headline/history"))["changes"]
+
+        assert [(c["kind"], c["evidence"]) for c in changes] == [
+            ("loop.pause", EVIDENCE),
+            ("loop.launch", None),
+            ("loop.create", None),
+        ]
 
     async def test_a_deleted_user_reads_as_a_former_member(self, loops):
         created = await _create(loops)

@@ -37,8 +37,19 @@ class LoopReadService:
             loop = await LoopRepository(session, tenant_id).resolve(ref)
             if loop is None:
                 return None
-            people = await People.load(session, tenant_id, [loop.owner_user_id])
-            return loop_to_dict(loop, people)
+            latest = await ChangeRepository(session, tenant_id).latest_for_each(
+                "loop", [loop.id]
+            )
+            change = latest.get(loop.id)
+            people = await People.load(
+                session,
+                tenant_id,
+                [loop.owner_user_id] + ([change.actor_user_id] if change else []),
+            )
+            return {
+                **loop_to_dict(loop, people),
+                "latest_change": history_entry(change, people) if change else None,
+            }
 
     @staticmethod
     async def keys(tenant_id: str) -> set[str]:
