@@ -560,3 +560,20 @@ export interface AuditEvent {
   payload: string;
   timestamp_ms: number;
 }
+
+/** GET /v1/connections/requests/{id}: a client's pending sign-in */
+export interface ConnectionRequest {
+  id: string;
+  client: {
+    name: string;
+    uri: string | null;
+    metadata_url: string | null;
+    registered_by_itself: boolean;
+  };
+  acts_for: { name: string; email: string };
+  applies_at_once: boolean;
+}
+
+export interface ConnectionDecision {
+  redirect_to: string;
+}

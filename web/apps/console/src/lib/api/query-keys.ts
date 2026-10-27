@@ -135,6 +135,12 @@ export const queryKeys = {
     }) => ["workspace", "invites", params ?? {}] as const,
   },
 
+  // resource: connections (qbrix next)
+  connections: {
+    all: ["connections"] as const,
+    request: (id: string) => ["connections", "request", id] as const,
+  },
+
   apiKeys: {
     all: ["api-keys"] as const,
     list: ["api-keys", "list"] as const,
