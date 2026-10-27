@@ -29,6 +29,12 @@ def _build_grpc_options(
             "grpc.keepalive_permit_without_calls",
             int(settings.grpc_keepalive_permit_without_calls),
         ),
+        (
+            "grpc.initial_reconnect_backoff_ms",
+            settings.grpc_initial_reconnect_backoff_ms,
+        ),
+        ("grpc.min_reconnect_backoff_ms", settings.grpc_min_reconnect_backoff_ms),
+        ("grpc.max_reconnect_backoff_ms", settings.grpc_max_reconnect_backoff_ms),
     ]
 
 
