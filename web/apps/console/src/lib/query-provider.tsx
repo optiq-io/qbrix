@@ -93,7 +93,10 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
             // never persist an identity. the shell reads the user from
             // AuthProvider, and a restored profile could outlive the token
             // that earned it.
-            query.queryKey[0] !== "auth",
+            query.queryKey[0] !== "auth" &&
+            // nor a sign-in request, which is single-use: restored, it would
+            // offer to approve one that was already answered
+            query.queryKey[0] !== "connections",
         },
       }}
     >

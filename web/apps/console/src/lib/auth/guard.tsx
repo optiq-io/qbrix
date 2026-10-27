@@ -8,9 +8,14 @@ import { AppShellSkeleton } from "@/components/shell/shell-skeleton";
 interface AuthGuardProps {
   children: React.ReactNode;
   requireAuth?: boolean;
+  fallback?: React.ReactNode;
 }
 
-export function AuthGuard({ children, requireAuth = true }: AuthGuardProps) {
+export function AuthGuard({
+  children,
+  requireAuth = true,
+  fallback = <AppShellSkeleton />,
+}: AuthGuardProps) {
   const { user, loading } = useAuth();
   const router = useRouter();
 
@@ -22,7 +27,7 @@ export function AuthGuard({ children, requireAuth = true }: AuthGuardProps) {
   }, [user, loading, requireAuth, router]);
 
   if (loading) {
-    return <AppShellSkeleton />;
+    return <>{fallback}</>;
   }
 
   if (requireAuth && !user) {
