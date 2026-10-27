@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { fontVariables } from "@qbrix/ui/fonts";
+import { themeScript } from "@qbrix/ui/lib/theme-script";
 import { AuthProvider } from "@/lib/auth/context";
 import { QueryProvider } from "@/lib/query-provider";
 import { ToastProvider } from "@qbrix/ui/components/toast";
@@ -20,7 +21,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={fontVariables}>
+    <html lang="en" className={fontVariables} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
       <body>
         {/* AuthProvider is innermost so that signing out can clear the query
             cache: the cache is now persisted to sessionStorage, and a
