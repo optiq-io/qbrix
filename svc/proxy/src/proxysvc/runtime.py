@@ -12,6 +12,7 @@ from proxysvc.core.invalidation import TenantInvalidation
 from proxysvc.mod.auth import AuthService
 from proxysvc.mod.auth import create_auth_service
 from proxysvc.mod.auth import init_operators
+from proxysvc.mod.safety.watch import SafetyWatch
 from proxysvc.service import ProxyService
 
 logger = get_logger(__name__)
@@ -34,6 +35,7 @@ class ProxyRuntime:
         self._proxy_service: ProxyService | None = None
         self._auth_service: AuthService | None = None
         self._invalidation: TenantInvalidation | None = None
+        self._safety: SafetyWatch | None = None
 
     @property
     def proxy_service(self) -> ProxyService:
@@ -86,9 +88,19 @@ class ProxyRuntime:
         edition.register_components(self._settings, self._invalidation)
         await self._invalidation.start()
 
+        if self._settings.next_enabled:
+            self._safety = SafetyWatch(
+                self._proxy_service.redis,
+                self._proxy_service.loops,
+                interval_sec=self._settings.safety_interval_sec,
+            )
+            await self._safety.start()
+
         logger.info("proxy runtime started")
 
     async def stop(self) -> None:
+        if self._safety is not None:
+            await self._safety.stop()
         if self._invalidation is not None:
             await self._invalidation.stop()
         if self._proxy_service is not None:

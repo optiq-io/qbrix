@@ -54,6 +54,10 @@ class Actor:
             request_id=request_id,
         )
 
+    @classmethod
+    def qbrix(cls) -> Actor:
+        return cls(kind="qbrix", user_id="qbrix")
+
 
 def inbound_request_id(value: str | None) -> str:
     """the caller's request id when it is safe to log and store, else a new one."""

@@ -36,7 +36,7 @@ from svc.proxy.tests.integration.http.conftest import as_tenant
 
 TENANT = "dev-tenant"
 UNDOER = Actor.member("user-undo", request_id="req-undo")
-QBRIX = Actor(kind="qbrix", user_id="qbrix")
+QBRIX = Actor.qbrix()
 EVIDENCE = {"signal": "decision_errors", "value": 0.07, "calls": 412}
 
 PURCHASE = {

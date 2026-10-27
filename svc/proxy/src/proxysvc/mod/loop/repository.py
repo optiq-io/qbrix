@@ -120,6 +120,21 @@ class LoopRepository:
         response = await self._session.execute(stmt)
         return list(response.scalars().all())
 
+    async def live_cycles(self, cycle_ids: Sequence[str]) -> list[tuple[Loop, str]]:
+        """the live loops whose running cycle is one of cycle_ids, with it."""
+        stmt = (
+            select(Loop, Cycle.id)
+            .join(Cycle, Cycle.loop_id == Loop.id)
+            .where(
+                Loop.tenant_id == self._tenant_id,
+                Loop.state == "live",
+                Cycle.id.in_(cycle_ids),
+                Cycle.ended_at.is_(None),
+            )
+        )
+        response = await self._session.execute(stmt)
+        return [(loop, cycle_id) for loop, cycle_id in response.all()]
+
     async def reload(self, loop: Loop) -> Loop:
         """the loop as written, with its options and cycles read back."""
         await self._session.flush()
