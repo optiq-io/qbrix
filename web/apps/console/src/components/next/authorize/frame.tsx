@@ -1,3 +1,5 @@
+import { Button } from "@qbrix/ui/next/button";
+
 export function AuthorizeFrame({
   workspace,
   footnote,
@@ -83,13 +85,9 @@ export function AuthorizeUnavailable({ onRetry }: { onRetry: () => void }) {
     <AuthorizeFrame>
       <AuthorizeTitle>This sign-in request couldn&apos;t be loaded.</AuthorizeTitle>
       <div>
-        <button
-          type="button"
-          onClick={onRetry}
-          className="n-body rounded-n-control border border-n-line bg-n-surface px-3.5 py-2 font-medium text-n-text-1 hover:bg-n-fill-1"
-        >
+        <Button variant="secondary" onClick={onRetry}>
           Try again
-        </button>
+        </Button>
       </div>
     </AuthorizeFrame>
   );

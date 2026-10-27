@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useTheme, type Theme } from "@qbrix/ui/lib/theme";
+import { NextRoot } from "@qbrix/ui/next/root";
+import { Controls } from "./controls";
 
 const NEUTRALS = [
   ["bg", "bg-n-bg", "the page behind panels"],
@@ -113,7 +115,7 @@ export function TokenSheet() {
   const version = useSchemeVersion(theme);
 
   return (
-    <div data-console="next" className="min-h-screen bg-n-bg text-n-text-1">
+    <NextRoot>
       <div className="mx-auto flex max-w-4xl flex-col gap-8 px-6 py-12">
         <header className="flex items-center justify-between">
           <div>
@@ -174,15 +176,8 @@ export function TokenSheet() {
           </div>
         </Section>
 
-        <Section title="Ink">
-          <div className="flex gap-3">
-            <button type="button" className="n-body rounded-n-control bg-n-ink px-3 py-2 font-medium text-n-on-ink">
-              Resume
-            </button>
-            <button type="button" className="n-body rounded-n-control border border-n-line bg-n-surface px-3 py-2 font-medium">
-              Keep paused
-            </button>
-          </div>
+        <Section title="Controls">
+          <Controls />
         </Section>
 
         <Section title="Type">
@@ -228,6 +223,6 @@ export function TokenSheet() {
           </div>
         </Section>
       </div>
-    </div>
+    </NextRoot>
   );
 }
