@@ -360,7 +360,72 @@ class RedisClient:
             pipe.incr(key)
             # noinspection PyAsyncCall
             pipe.expire(key, SELECT_HEALTH_TTL_SEC)
+        if outcome is SelectOutcome.ERROR:
+            erroring = self._erroring_key(minute)
+            # noinspection PyAsyncCall
+            pipe.sadd(erroring, f"{tenant_id}:{experiment_id}")
+            # noinspection PyAsyncCall
+            pipe.expire(erroring, SELECT_HEALTH_TTL_SEC)
         await pipe.execute()
+
+    @staticmethod
+    def _erroring_key(minute: int) -> str:
+        return f"qbrix:health:select:erroring:{minute}"
+
+    async def erroring(
+        self, window_minutes: int, now_minute: int | None = None
+    ) -> set[tuple[str, str]]:
+        """the (tenant, id) pairs with an error over the last ``window_minutes``
+        minutes, the current one included."""
+        if now_minute is None:
+            now_minute = int(time.time()) // 60
+        keys = [
+            self._erroring_key(m)
+            for m in range(now_minute - window_minutes + 1, now_minute + 1)
+        ]
+        members = await self.client.sunion(keys) if keys else set()
+        pairs = set()
+        for member in members:
+            tenant_id, _, experiment_id = member.rpartition(":")
+            pairs.add((tenant_id, experiment_id))
+        return pairs
+
+    @staticmethod
+    def _lease_key(name: str) -> str:
+        return f"qbrix:lease:{name}"
+
+    async def acquire_lease(self, name: str, holder: str, ttl_ms: int) -> bool:
+        """take the lease if nobody holds it, or renew it if ``holder`` does."""
+        key = self._lease_key(name)
+        if await self.client.set(key, holder, nx=True, px=ttl_ms):
+            return True
+        async with self.client.pipeline(transaction=True) as pipe:
+            try:
+                await pipe.watch(key)
+                if await pipe.get(key) != holder:
+                    return False
+                pipe.multi()
+                # noinspection PyAsyncCall
+                pipe.pexpire(key, ttl_ms)
+                await pipe.execute()
+                return True
+            except WatchError:
+                return False
+
+    async def release_lease(self, name: str, holder: str) -> None:
+        """give the lease up, only if ``holder`` still holds it."""
+        key = self._lease_key(name)
+        async with self.client.pipeline(transaction=True) as pipe:
+            try:
+                await pipe.watch(key)
+                if await pipe.get(key) != holder:
+                    return
+                pipe.multi()
+                # noinspection PyAsyncCall
+                pipe.delete(key)
+                await pipe.execute()
+            except WatchError:
+                return
 
     async def select_health(
         self,

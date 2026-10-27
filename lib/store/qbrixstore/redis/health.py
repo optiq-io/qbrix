@@ -8,6 +8,10 @@ SELECT_HEALTH_TTL_SEC = 2 * 60 * 60
 OUTCOME_HEALTH_TTL_SEC = 26 * 60 * 60
 LEDGER_PROGRESS_TTL_SEC = 5 * 60
 
+DECISION_ERROR_WINDOW_MINUTES = 10
+DECISION_ERROR_RATE = 0.05
+DECISION_ERROR_MIN_CALLS = 100
+
 
 class SelectOutcome(str, Enum):
     OK = "ok"
@@ -43,6 +47,16 @@ class SelectHealth:
     error: int = 0
     not_found: int = 0
     by_reason: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def calls(self) -> int:
+        """the calls qbrix answered or failed for its own reasons; caller
+        errors and unknown ids say nothing about its health."""
+        return self.ok + self.error
+
+    @property
+    def error_rate(self) -> float:
+        return self.error / self.calls if self.calls else 0.0
 
 
 class OutcomeDisposition(str, Enum):

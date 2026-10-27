@@ -198,6 +198,12 @@ class ProxyService:
         return self._redis
 
     @property
+    def loops(self) -> LoopService:
+        if self._loop_service is None:
+            raise RuntimeError("proxy service not started")
+        return self._loop_service
+
+    @property
     def connections(self) -> ConnectionService:
         if self._connection_service is None:
             raise RuntimeError("proxy service not started")
