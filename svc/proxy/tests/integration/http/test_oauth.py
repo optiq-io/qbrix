@@ -40,7 +40,6 @@ from qbrixstore.postgres.models import ConnectionToken
 from qbrixstore.postgres.models import Tenant
 from qbrixstore.postgres.models import User
 
-import proxysvc.mod.connection.service as connection_service
 from proxysvc.core.actor import Actor
 from proxysvc.core.error import ConnectionRateLimitedError
 from proxysvc.core.error import ConnectionTokenInvalidError
@@ -645,7 +644,7 @@ class TestAuthenticate:
     async def test_each_connection_has_its_own_limit(
         self, oauth, wired_app, monkeypatch
     ):
-        monkeypatch.setattr(connection_service, "ABUSE_RATE_LIMIT_PER_MINUTE", 2)
+        monkeypatch.setattr(wired_app.svc._settings, "mcp_calls_per_minute", 2)
         _, first = await _sign_in(oauth, wired_app)
         _, second = await _sign_in(oauth, wired_app, user="user-admin")
         connections = wired_app.svc.connections

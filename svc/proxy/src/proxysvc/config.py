@@ -112,6 +112,9 @@ class ProxySettings(GrpcSettings):
     # where clients reach the api, oauth and /mcp, when that isn't the console's
     # origin (the dev stack serves the proxy on its own port)
     public_url: str = ""
+    # each connection's own limit on /mcp, per minute
+    mcp_calls_per_minute: int = Field(default=120, ge=1)
+    mcp_changes_per_minute: int = Field(default=30, ge=1)
 
     # email
     email_provider: Literal["auto", "smtp", "resend", "none"] = "auto"

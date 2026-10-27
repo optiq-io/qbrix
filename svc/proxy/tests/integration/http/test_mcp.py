@@ -29,7 +29,6 @@ from starlette.applications import Starlette
 from starlette.routing import Route
 
 import proxysvc.config
-import proxysvc.mod.connection.service as connection_service
 from qbrixstore.postgres import session as session_module
 from qbrixstore.postgres.models import Tenant
 from qbrixstore.postgres.models import User
@@ -251,7 +250,7 @@ class TestSigningIn:
     async def test_an_exhausted_limit_says_when_to_retry(
         self, mcp, wired_app, monkeypatch
     ):
-        monkeypatch.setattr(connection_service, "ABUSE_RATE_LIMIT_PER_MINUTE", 1)
+        monkeypatch.setattr(wired_app.svc._settings, "mcp_calls_per_minute", 1)
         token = await _token(wired_app)
         await _post(mcp, token)
 
@@ -260,6 +259,8 @@ class TestSigningIn:
         assert response.status_code == 429
         assert 0 < int(response.headers["retry-after"]) <= 60
         assert "Try again in" in response.json()["error_description"]
+        cursor = await _token(wired_app, client="Cursor")
+        assert (await _post(mcp, cursor)).status_code == 200
 
 
 class TestProtocol:
@@ -413,6 +414,47 @@ class TestChanges:
 
         assert refused.is_error
         assert not retried.is_error
+
+
+class TestChangeLimit:
+
+    async def test_a_change_over_the_cap_applies_nothing_and_reads_still_work(
+        self, mcp, wired_app, monkeypatch
+    ):
+        monkeypatch.setattr(wired_app.svc._settings, "mcp_changes_per_minute", 1)
+        async with _session(mcp, wired_app) as client:
+            await _call(client, "metric_create", METRIC)
+            refused = await _call(client, "loop_create", LOOP)
+            read = await _call(client, "metrics_list")
+
+        message = _error(refused)
+        assert message.startswith("This connection made 1 changes this minute.")
+        assert "nothing was applied" in message
+        assert int(message.split("Try again in ")[1].split(" ")[0]) in range(1, 61)
+        assert not read.is_error
+        assert (await wired_app.svc.list_loops(TENANT, limit=10))["loops"] == []
+
+    async def test_a_repeated_change_counts(self, mcp, wired_app, monkeypatch):
+        monkeypatch.setattr(wired_app.svc._settings, "mcp_changes_per_minute", 2)
+        async with _session(mcp, wired_app) as client:
+            first = await _call(client, "metric_create", METRIC)
+            repeat = await _call(client, "metric_create", METRIC)
+            refused = await _call(client, "loop_create", LOOP)
+
+        assert repeat.structured_content == first.structured_content
+        assert "changes this minute" in _error(refused)
+
+    async def test_each_connection_has_its_own_cap(self, mcp, wired_app, monkeypatch):
+        monkeypatch.setattr(wired_app.svc._settings, "mcp_changes_per_minute", 1)
+        cursor = await _token(wired_app, client="Cursor")
+        async with _session(mcp, wired_app) as client:
+            await _call(client, "metric_create", METRIC)
+            refused = await _call(client, "loop_create", LOOP)
+        async with _connect(_http(mcp, cursor)) as client:
+            created = await _call(client, "loop_create", LOOP)
+
+        assert refused.is_error
+        assert not created.is_error
 
 
 class TestViewer:

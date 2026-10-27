@@ -63,7 +63,7 @@ A refused call comes back as an error that says what to do next, for example:
 - "No loop with key or id checkout-hed. Did you mean checkout-headline?"
 - "The loop checkout-headline is live already; launching applies only to drafts."
 
-A viewer's connection can call every read tool, and gets the role error from every change tool. Each connection has its own per-minute request limit. Past it, a call is refused with when to try again.
+A viewer's connection can call every read tool, and gets the role error from every change tool. Each connection has its own request limit: 120 calls a minute, of which at most 30 changes. Past 120, a call is refused before any tool runs, with `429` and when to try again. Past 30, a change tool returns "This connection made 30 changes this minute. Try again in N seconds; nothing was applied." Reads keep working. A repeated change counts too, even when it returns its first result. Both numbers are settings of your install; see [connections on your own install](/docs/connections-and-autonomy#on-your-own-install).
 
 ## On your own install
 

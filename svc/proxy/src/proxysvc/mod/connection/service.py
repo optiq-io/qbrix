@@ -19,7 +19,6 @@ from proxysvc.core.error import ConnectionTokenInvalidError
 from proxysvc.core.error import OAuthError
 from proxysvc.mod.auth.limit import count_this_minute
 from proxysvc.mod.auth.model import Role
-from proxysvc.mod.auth.scope import ABUSE_RATE_LIMIT_PER_MINUTE
 from proxysvc.mod.connection.repository import ConnectionRepository
 from proxysvc.mod.connection.serialize import connection_to_dict
 from proxysvc.mod.connection.token import ACCESS
@@ -217,14 +216,27 @@ class ConnectionService:
         return principal
 
     async def _count(self, connection_id: str) -> None:
-        now = int(time.time())
-        count = await count_this_minute(
-            self._redis.client, f"rate_limit:connection:{connection_id}:{now // 60}"
+        await self._limit(
+            f"rate_limit:connection:{connection_id}",
+            self._settings.mcp_calls_per_minute,
+            "this connection made too many requests this minute",
         )
-        if count is not None and count >= ABUSE_RATE_LIMIT_PER_MINUTE:
+
+    async def count_change(self, connection_id: str) -> None:
+        """count one change against the connection's cap on changes, which
+        binds within its cap on calls; reads never count here."""
+        await self._limit(
+            f"rate_limit:connection:{connection_id}:changes",
+            self._settings.mcp_changes_per_minute,
+            "this connection made too many changes this minute",
+        )
+
+    async def _limit(self, prefix: str, limit: int, message: str) -> None:
+        now = int(time.time())
+        count = await count_this_minute(self._redis.client, f"{prefix}:{now // 60}")
+        if count is not None and count >= limit:
             raise ConnectionRateLimitedError(
-                "this connection made too many requests this minute",
-                retry_after=60 - now % 60,
+                message, limit=limit, retry_after=60 - now % 60
             )
 
     async def _touch(self, connection_id: str) -> None:
