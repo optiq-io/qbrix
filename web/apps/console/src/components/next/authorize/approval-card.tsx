@@ -1,3 +1,4 @@
+import { Button } from "@qbrix/ui/next/button";
 import type { ConnectionRequest, User } from "@/lib/api/types";
 import { Autonomy } from "./autonomy";
 import { AuthorizeFrame, AuthorizeTitle } from "./frame";
@@ -80,22 +81,12 @@ export function ApprovalCard({
       </p>
 
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          disabled={pending}
-          onClick={() => onDecide(true)}
-          className="n-body rounded-n-control bg-n-ink px-3.5 py-2 font-semibold text-n-on-ink disabled:opacity-60"
-        >
+        <Button disabled={pending} onClick={() => onDecide(true)}>
           Connect {client}
-        </button>
-        <button
-          type="button"
-          disabled={pending}
-          onClick={() => onDecide(false)}
-          className="n-body rounded-n-control px-2.5 py-2 font-medium text-n-text-3 hover:text-n-text-1 disabled:opacity-60"
-        >
+        </Button>
+        <Button variant="quiet" disabled={pending} onClick={() => onDecide(false)}>
           Cancel
-        </button>
+        </Button>
       </div>
     </AuthorizeFrame>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import { notFound, useSearchParams } from "next/navigation";
+import { NextRoot } from "@qbrix/ui/next/root";
 import { useDeployment } from "@/lib/deployment";
 import { AuthGuard } from "@/lib/auth/guard";
 import { Approval } from "./approval";
@@ -15,7 +16,7 @@ export function Authorize() {
   if (!isLoading && !next) notFound();
 
   return (
-    <div data-console="next" className="min-h-screen bg-n-bg">
+    <NextRoot>
       {isLoading ? (
         <AuthorizeLoading />
       ) : (
@@ -23,6 +24,6 @@ export function Authorize() {
           {requestId ? <Approval requestId={requestId} /> : <AuthorizeExpired />}
         </AuthGuard>
       )}
-    </div>
+    </NextRoot>
   );
 }

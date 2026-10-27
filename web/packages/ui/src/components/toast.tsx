@@ -28,7 +28,7 @@ export type RichToast = {
   durationMs?: number;
 };
 
-interface Toast extends RichToast {
+export interface ToastEntry extends RichToast {
   id: string;
   type: ToastType;
 }
@@ -44,6 +44,15 @@ interface ToastContextValue {
 
 const ToastContext = createContext<ToastContextValue | undefined>(undefined);
 
+type ToastOutlet = {
+  toasts: ToastEntry[];
+  dismiss: (id: string) => void;
+  /** a mounted toaster takes over the stack until the returned release runs */
+  claim: () => () => void;
+};
+
+export const ToastOutletContext = createContext<ToastOutlet | undefined>(undefined);
+
 let toastId = 0;
 
 const DEFAULT_DURATION_MS: Record<ToastType, number> = {
@@ -53,7 +62,8 @@ const DEFAULT_DURATION_MS: Record<ToastType, number> = {
 };
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
-  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [toasts, setToasts] = useState<ToastEntry[]>([]);
+  const [claims, setClaims] = useState(0);
 
   const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -72,6 +82,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     [show],
   );
 
+  const claim = useCallback(() => {
+    setClaims((n) => n + 1);
+    return () => setClaims((n) => n - 1);
+  }, []);
+
   const value: ToastContextValue = {
     toast: addToast,
     success: useCallback((msg: string) => addToast(msg, "success"), [addToast]),
@@ -86,17 +101,21 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <ToastContext.Provider value={value}>
-      {children}
-      <div className="fixed bottom-4 right-4 z-[100] flex w-[min(90vw,400px)] flex-col-reverse gap-2">
-        {toasts.map((t) => (
-          <ToastItem key={t.id} toast={t} onDismiss={() => removeToast(t.id)} />
-        ))}
-      </div>
+      <ToastOutletContext.Provider value={{ toasts, dismiss: removeToast, claim }}>
+        {children}
+      </ToastOutletContext.Provider>
+      {claims === 0 && (
+        <div className="fixed bottom-4 right-4 z-[100] flex w-[min(90vw,400px)] flex-col-reverse gap-2">
+          {toasts.map((t) => (
+            <ToastItem key={t.id} toast={t} onDismiss={() => removeToast(t.id)} />
+          ))}
+        </div>
+      )}
     </ToastContext.Provider>
   );
 }
 
-function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
+export function useToastTimer(toast: ToastEntry, onDismiss: () => void) {
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
@@ -104,6 +123,10 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
     timerRef.current = setTimeout(onDismiss, duration);
     return () => clearTimeout(timerRef.current);
   }, [onDismiss, toast.durationMs, toast.type]);
+}
+
+function ToastItem({ toast, onDismiss }: { toast: ToastEntry; onDismiss: () => void }) {
+  useToastTimer(toast, onDismiss);
 
   const Icon =
     toast.type === "success"
