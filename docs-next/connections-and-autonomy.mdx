@@ -40,7 +40,7 @@ Everyone sees their own connections, with the client's name, when it was connect
 
 You can revoke any of your connections, and an admin can revoke any in the workspace. Revoking one stops it on its next call. It doesn't sign you out of the console, and your other connections keep working.
 
-Each connection also has its own request limit, the same per-minute limit as the API, so one misbehaving client can't use up anyone else's.
+Each connection also has its own request limit: 120 calls a minute, of which at most 30 changes. A call over MCP reads loops, history and results, which costs far more than a decision, so the limit sits well below the API's. One misbehaving client can't use up anyone else's calls or slow anyone's decisions, and a client that loops on changes is stopped within a minute. Reads keep working when changes run out.
 
 ## On your own install
 
@@ -51,3 +51,5 @@ Signing a client in uses OAuth 2.1, which requires HTTPS everywhere except `loca
 - Route `/oauth`, `/.well-known/oauth-authorization-server`, `/mcp` and `/.well-known/oauth-protected-resource` to the API, as `/api` is. The Docker Compose gateway and the Helm chart already do. See [self-hosting](/docs/self-hosting).
 
 A client describes itself at a URL on the public internet, which qbrix fetches when the client signs in. An install that can't reach the internet still works: the client registers itself instead.
+
+To change a connection's limits, set `PROXY_MCP_CALLS_PER_MINUTE` (default `120`) and `PROXY_MCP_CHANGES_PER_MINUTE` (default `30`). Both must be at least `1`, and the API won't start otherwise. The cap on changes only binds below the cap on calls. With the Helm chart, pass them through `proxy.extraEnv`.

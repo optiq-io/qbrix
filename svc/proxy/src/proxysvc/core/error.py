@@ -202,8 +202,9 @@ class ConnectionTokenInvalidError(BaseAPIError):
 
 
 class ConnectionRateLimitedError(BaseAPIError):
-    """raised when a connection has used its requests for this minute."""
+    """raised when a connection has used its calls or changes for this minute."""
 
-    def __init__(self, message: str, retry_after: int):
+    def __init__(self, message: str, *, limit: int, retry_after: int):
         super().__init__(message)
+        self.limit = limit
         self.retry_after = retry_after

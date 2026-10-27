@@ -67,6 +67,13 @@ def no_cycle(key: str, number: int, last: int | None) -> Refusal:
     )
 
 
+def too_many_changes(limit: int, retry_after: int) -> Refusal:
+    return Refusal(
+        f"This connection made {limit} changes this minute. "
+        f"Try again in {retry_after} seconds; nothing was applied."
+    )
+
+
 def running() -> Refusal:
     return Refusal(
         "The same call is still running. Try again in a moment for its result."

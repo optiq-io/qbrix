@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from pydantic import Field
 
 from proxysvc.config import ProxySettings
+from proxysvc.core.error import ConnectionRateLimitedError
 from proxysvc.core.error import CycleNotFoundError
 from proxysvc.core.error import LoopStateError
 from proxysvc.mod.auth.scope import ROLE_SCOPES
@@ -174,13 +175,18 @@ def register(
         arguments: dict[str, Any],
         call: Callable[[ConnectionPrincipal], Awaitable[CallToolResult]],
     ) -> CallToolResult:
-        """a change call, run once per connection and arguments in the window."""
+        """a change call, run once per connection and arguments in the window.
+        a repeat counts as a change, so retrying can't get around the cap."""
         principal = current_principal()
 
         async def first() -> dict[str, Any]:
             result = await call(principal)
             return {"text": _text(result), "structured": result.structured_content}
 
+        try:
+            await service().connections.count_change(principal.actor.connection_id)
+        except ConnectionRateLimitedError as e:
+            return _refused(error.too_many_changes(e.limit, e.retry_after))
         try:
             stored = await repeats().once(
                 repeat_key(principal.actor.connection_id, tool, arguments), first
