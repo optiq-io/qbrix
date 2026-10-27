@@ -133,6 +133,7 @@ class HistoryEntry(BaseModel):
     who: Who
     via: Optional[Via] = None
     reason: Optional[str] = None
+    evidence: Optional[dict[str, Any]] = None
     request_id: Optional[str] = None
     undoes_id: Optional[str] = None
 
@@ -157,6 +158,10 @@ class LoopSummary(BaseModel):
 
 class LoopResponse(LoopSummary):
     options: list[OptionResponse]
+
+
+class LoopDetail(LoopResponse):
+    latest_change: Optional[HistoryEntry] = None
 
 
 class OptionShare(BaseModel):
@@ -297,7 +302,7 @@ async def list_loops(
 @router.get(
     "/{loop}",
     status_code=status.HTTP_200_OK,
-    response_model=LoopResponse,
+    response_model=LoopDetail,
 )
 async def get_loop(
     loop: str,
@@ -308,7 +313,7 @@ async def get_loop(
     found = await get_proxy_service().get_loop(tenant_id, loop)
     if found is None:
         raise _not_found(loop)
-    return LoopResponse(**found)
+    return LoopDetail(**found)
 
 
 @router.get(

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Awaitable
 from collections.abc import Callable
+from datetime import datetime
+from datetime import timezone
 from typing import Annotated
 from typing import Any
 from typing import Literal
@@ -22,6 +25,7 @@ from proxysvc.core.error import LoopStateError
 from proxysvc.mod.auth.scope import ROLE_SCOPES
 from proxysvc.mod.change.applied import Applied
 from proxysvc.mod.connection.service import ConnectionPrincipal
+from proxysvc.mod.safety.rule import DECISION_ERRORS
 from proxysvc.service import ProxyService
 from proxysvc.transport.mcp import error
 from proxysvc.transport.mcp.error import Refusal
@@ -145,6 +149,39 @@ def _loop_line(loop: dict) -> str:
     return line
 
 
+def _decision_errors(entry: dict) -> dict | None:
+    evidence = entry.get("evidence") or {}
+    return evidence if evidence.get("signal") == DECISION_ERRORS else None
+
+
+def _failed(evidence: dict) -> str:
+    return f"{evidence['rate']:.1%} of {evidence['calls']} calls"
+
+
+def _paused_line(loop: dict) -> str | None:
+    """who paused a paused loop, when and why, from its latest change."""
+    entry = loop.get("latest_change")
+    if loop["state"] != "paused" or not entry or entry["kind"] != "loop.pause":
+        return None
+    at = datetime.fromisoformat(entry["at"])
+    at = at.astimezone(timezone.utc) if at.tzinfo else at
+    line = f"Paused by {_who(entry)} at {at:%Y-%m-%d %H:%M} UTC"
+    evidence = _decision_errors(entry)
+    if evidence:
+        start = datetime.fromisoformat(evidence["window_start"])
+        end = datetime.fromisoformat(evidence["window_end"])
+        minutes = max(1, math.ceil((end - start).total_seconds() / 60))
+        reasons = ", ".join(
+            f"{reason} {count}" for reason, count in evidence["reasons"].items()
+        )
+        line += f": {_failed(evidence)} failed over {minutes} minutes"
+        if reasons:
+            line += f" ({reasons})"
+    elif entry.get("reason"):
+        line += f": {entry['reason']}"
+    return f"{line}. Everyone gets the fallback until a person resumes it."
+
+
 def _share_line(share: list[dict]) -> str:
     return ", ".join(
         f"{item['key']} {item['share']:.0%}"
@@ -241,6 +278,9 @@ def register(
             latest = loop.get("latest_change")
             if latest:
                 line += f" · latest {latest['kind']} by {_who(latest)}"
+                evidence = _decision_errors(latest)
+                if evidence:
+                    line += f" · decision errors {_failed(evidence)}"
             lines.append(line)
         if not lines:
             lines.append("No loops yet. Create one with loop_create.")
@@ -254,7 +294,7 @@ def register(
     async def loop_get(
         loop: LoopRef, detail: DetailArg = "concise"
     ) -> Annotated[CallToolResult, LoopView]:
-        """Read one loop: its purpose, options, metric, owner, fallback, state and current cycle, and how to wire it: the select and outcome calls for this loop in Python and JavaScript."""
+        """Read one loop: its purpose, options, metric, owner, fallback, state and current cycle, its latest change, who paused it, when and why if it is paused, and how to wire it: the select and outcome calls for this loop in Python and JavaScript."""
         principal = current_principal()
         try:
             _require(principal, "loop:read", "read loops")
@@ -270,9 +310,11 @@ def register(
             + (f" {json.dumps(option['config'])}" if detail == "full" else "")
             for option in found["options"]
         )
+        paused = _paused_line(found)
         text = (
             f"{_loop_line(found)}\n"
-            f"Purpose: {found['purpose'] or '(none)'}\n"
+            + (f"{paused}\n" if paused else "")
+            + f"Purpose: {found['purpose'] or '(none)'}\n"
             f"Owner: {found['owner']['name']} · fallback {found['fallback']} · "
             f"engine {found['engine']}\n"
             f"Options:\n{options}\n\n"

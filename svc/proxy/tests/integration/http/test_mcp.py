@@ -9,13 +9,15 @@ invariants verified:
   change records who, via which client and why, and its result names the
   change, whether it can be undone and its console link. a repeated change
   within the window changes nothing twice. a viewer's connection reads and
-  can't change. every refusal says what to do next.
+  can't change. a loop paused by qbrix says who paused it, when and why, in
+  loop_get and loops_list. every refusal says what to do next.
 """
 
 from __future__ import annotations
 
 import asyncio
 import itertools
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -33,6 +35,7 @@ from qbrixstore.postgres import session as session_module
 from qbrixstore.postgres.models import Tenant
 from qbrixstore.postgres.models import User
 
+from proxysvc.core.actor import Actor
 from proxysvc.next import next_routes
 from proxysvc.transport.mcp.server import MCP_PATH
 from proxysvc.transport.mcp.server import build_mcp
@@ -64,6 +67,16 @@ LOOP = {
         {"name": "Urgency", "config": {"headline": "Only 3 left"}},
     ],
     "reason": "test which headline sells",
+}
+
+EVIDENCE = {
+    "signal": "decision_errors",
+    "rate": 0.238,
+    "errors": 150,
+    "calls": 629,
+    "window_start": "2026-10-27T09:51:00+00:00",
+    "window_end": "2026-10-27T10:00:12+00:00",
+    "reasons": {"motor_unavailable": 150},
 }
 
 METRIC = {
@@ -561,6 +574,39 @@ class TestReads:
         assert not result.is_error
         assert result.structured_content["cycle"]["number"] == 1
         assert result.structured_content["share"]["series"] is None
+
+    async def test_a_loop_paused_by_qbrix_says_why_and_when(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _draft(client)
+            await _call(
+                client, "loop_launch", {"loop": "checkout-headline", "reason": "go"}
+            )
+            live = await _call(client, "loop_get", {"loop": "checkout-headline"})
+            await wired_app.svc.loops.pause_loop(
+                TENANT,
+                "checkout-headline",
+                actor=Actor.qbrix(),
+                reason="decision errors",
+                evidence=EVIDENCE,
+            )
+            paused = await _call(client, "loop_get", {"loop": "checkout-headline"})
+            listed = await _call(client, "loops_list")
+
+        assert "Paused by" not in live.content[0].text
+        assert re.search(
+            r"^Paused by qbrix at \d{4}-\d\d-\d\d \d\d:\d\d UTC: 23\.8% of 629 calls "
+            r"failed over 10 minutes \(motor_unavailable 150\)\. Everyone gets the "
+            r"fallback until a person resumes it\.$",
+            paused.content[0].text,
+            re.MULTILINE,
+        )
+        assert paused.structured_content["latest_change"]["evidence"] == EVIDENCE
+        assert (
+            "latest loop.pause by qbrix · decision errors 23.8% of 629 calls"
+            in listed.content[0].text
+        )
+        (loop,) = listed.structured_content["loops"]
+        assert loop["latest_change"]["evidence"] == EVIDENCE
 
 
 class TestRefusals:

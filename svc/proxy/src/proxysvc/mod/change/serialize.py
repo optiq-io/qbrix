@@ -57,6 +57,7 @@ def history_entry(change: Change, people: People) -> dict:
             else None
         ),
         "reason": change.reason,
+        "evidence": change.evidence,
         "request_id": change.request_id,
         "undoes_id": change.undoes_id,
     }
