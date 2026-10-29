@@ -6,6 +6,8 @@ export class ApiError extends Error {
     public readonly context?: Record<string, unknown>,
     /** seconds, from the Retry-After header on a 429 */
     public readonly retryAfter?: number,
+    /** the response's X-Request-ID, which the proxy also logs and records on a change */
+    public readonly requestId?: string,
   ) {
     super(`api error ${status}: ${detail}`);
     this.name = "ApiError";

@@ -1,17 +1,30 @@
-import Link from "next/link";
-import { buttonClass } from "@qbrix/ui/next/button";
-import { NextPage } from "@/components/next/shell/page";
+"use client";
+
+import { usePathname } from "next/navigation";
+import { NotFound } from "@qbrix/ui/next/page-error";
+import { useWorkspaceName } from "@/components/shell/workspace-row";
+import { redirectToLogin } from "@/lib/api/auth";
+import { useAuth } from "@/lib/auth/context";
 import { routes } from "@/config/routes";
 
 export default function NextNotFound() {
+  const pathname = usePathname();
+  const workspace = useWorkspaceName();
+  const { user, logout } = useAuth();
+
+  if (!workspace || !user) return null;
+
   return (
-    <NextPage title="There's nothing at this link">
-      <p className="n-support text-n-text-2">
-        The address may be mistyped, or what it pointed to isn&apos;t in this workspace.
-      </p>
-      <Link href={routes.next.home} className={buttonClass("secondary", "md", "self-start")}>
-        Go to loops
-      </Link>
-    </NextPage>
+    <NotFound
+      path={pathname.replace(routes.next.home, "") || "/"}
+      noun={pathname.startsWith(`${routes.next.home}/loops/`) ? "loop" : undefined}
+      workspace={workspace}
+      email={user.email}
+      home={{ href: routes.next.home, label: "Go to loops" }}
+      onSwitchAccount={async () => {
+        await logout();
+        redirectToLogin();
+      }}
+    />
   );
 }

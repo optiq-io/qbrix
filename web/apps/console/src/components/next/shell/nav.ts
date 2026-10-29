@@ -2,15 +2,20 @@ import { Activity, History, Inbox, Repeat, Target } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { routes } from "@/config/routes";
 
-export type NextNavItem = { label: string; href: string; icon: LucideIcon };
+export type NextNavItem = { label: string; href: string; icon: LucideIcon; onPhone: string };
 
 export const nextNav: NextNavItem[] = [
-  { label: "Inbox", href: routes.next.inbox, icon: Inbox },
-  { label: "Loops", href: routes.next.home, icon: Repeat },
-  { label: "Metrics", href: routes.next.metrics, icon: Target },
-  { label: "Event log", href: routes.next.eventLog, icon: Activity },
-  { label: "Changes", href: routes.next.changes, icon: History },
+  { label: "Inbox", href: routes.next.inbox, icon: Inbox, onPhone: "" },
+  { label: "Loops", href: routes.next.home, icon: Repeat, onPhone: "Loops open on a larger screen" },
+  { label: "Metrics", href: routes.next.metrics, icon: Target, onPhone: "Metrics open on a larger screen" },
+  { label: "Event log", href: routes.next.eventLog, icon: Activity, onPhone: "The event log opens on a larger screen" },
+  { label: "Changes", href: routes.next.changes, icon: History, onPhone: "Changes open on a larger screen" },
 ];
+
+export function largerScreenTitle(pathname: string | null): string {
+  const item = nextNav.find((nav) => isNextNavActive(pathname, nav.href));
+  return item?.onPhone || "This page opens on a larger screen";
+}
 
 export function isNextNavActive(pathname: string | null, href: string): boolean {
   if (!pathname) return false;

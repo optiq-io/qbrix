@@ -4,8 +4,9 @@ import { usePathname } from "next/navigation";
 import { NextRoot } from "@qbrix/ui/next/root";
 import { cn } from "@qbrix/ui/lib/utils";
 import { AuthGuard } from "@/lib/auth/guard";
-import { LargerScreen } from "./larger-screen";
+import { LargerScreenPage } from "./larger-screen";
 import { phoneAllowed } from "./nav";
+import { Reachability } from "./reachability";
 import { Sidebar } from "./sidebar";
 
 export function NextShell({ children }: { children: React.ReactNode }) {
@@ -16,9 +17,9 @@ export function NextShell({ children }: { children: React.ReactNode }) {
     <NextRoot>
       <AuthGuard fallback={<ShellLoading />}>
         <Sidebar />
-        {!onPhone && <LargerScreen />}
+        {!onPhone && <LargerScreenPage />}
         <main className={cn("min-h-screen min-w-0 flex-col lg:flex lg:pl-[232px]", onPhone ? "flex" : "hidden")}>
-          {children}
+          <Reachability>{children}</Reachability>
         </main>
       </AuthGuard>
     </NextRoot>

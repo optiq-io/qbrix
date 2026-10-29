@@ -1,6 +1,7 @@
 import * as Sentry from "@sentry/nextjs";
 
 import { getAccessToken, getRefreshToken, storeTokens, clearTokens } from "../auth/tokens";
+import { markReachable, markUnreachable } from "./reachability";
 import { ApiError } from "./types";
 
 // same-origin unless overridden: every host serving the console routes /api to
@@ -19,6 +20,9 @@ function endpointTag(path: string): string {
     .map((segment) => (RESOURCE_ID.test(segment) ? ":id" : segment))
     .join("/");
 }
+
+// what a gateway answers when the proxy behind it is down
+const GATEWAY_FAILURES = new Set([502, 503, 504]);
 
 let isRefreshing = false;
 
@@ -86,8 +90,12 @@ export async function apiFetch<T>(
   } catch (err) {
     // the request never reached the api: offline, dns, tls, cors
     Sentry.captureException(err, { tags: { endpoint: endpointTag(path) } });
+    markUnreachable();
     throw err;
   }
+
+  if (GATEWAY_FAILURES.has(res.status)) markUnreachable();
+  else markReachable();
 
   if (res.status === 401) {
     const refreshed = await tryRefreshToken();
@@ -138,6 +146,7 @@ export async function apiFetch<T>(
       code,
       context,
       Number.isFinite(parsed) ? parsed : undefined,
+      res.headers.get("X-Request-ID") ?? undefined,
     );
     // 4xx is the user or the domain talking — it already toasts, and reporting
     // it would spend the quota on expected outcomes.
