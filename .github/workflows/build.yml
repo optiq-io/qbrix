@@ -72,6 +72,8 @@ jobs:
           # a client dsn ships in the js bundle, so it is a variable rather than
           # a secret. unset means the console builds with sentry disabled.
           CONSOLE_SENTRY_DSN: ${{ vars.CONSOLE_SENTRY_DSN }}
+          # "true" builds the console with the next shell under /next
+          CONSOLE_NEXT: ${{ vars.CONSOLE_NEXT }}
         run: |
           set -euo pipefail
 
@@ -105,10 +107,11 @@ jobs:
           # services report, so one sentry release spans all six projects.
           build_args() {
             if [ "$1" = "console" ]; then
-              printf '%s\n%s\n%s' \
+              printf '%s\n%s\n%s\n%s' \
                 "NEXT_PUBLIC_SENTRY_DSN=${CONSOLE_SENTRY_DSN:-}" \
                 "NEXT_PUBLIC_SENTRY_ENVIRONMENT=production" \
-                "NEXT_PUBLIC_SENTRY_RELEASE=sha-${GITHUB_SHA::7}"
+                "NEXT_PUBLIC_SENTRY_RELEASE=sha-${GITHUB_SHA::7}" \
+                "NEXT_PUBLIC_CONSOLE_NEXT=${CONSOLE_NEXT:-}"
             else
               echo ""
             fi
