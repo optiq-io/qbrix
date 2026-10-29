@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTheme, type Theme } from "@qbrix/ui/lib/theme";
 import { NextRoot } from "@qbrix/ui/next/root";
 import { Controls } from "./controls";
+import { States } from "./states";
 
 const NEUTRALS = [
   ["bg", "bg-n-bg", "the page behind panels"],
@@ -178,6 +179,10 @@ export function TokenSheet() {
 
         <Section title="Controls">
           <Controls />
+        </Section>
+
+        <Section title="Empty, loading and error">
+          <States />
         </Section>
 
         <Section title="Type">
