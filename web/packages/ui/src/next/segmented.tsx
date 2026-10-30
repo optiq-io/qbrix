@@ -13,7 +13,7 @@ export function Segmented<T extends string>({
   /** the group's accessible name: "Range" */
   label: string;
   value: T;
-  options: { value: T; label: string }[];
+  options: { value: T; label: string; count?: number }[];
   onChange: (value: T) => void;
   className?: string;
 }) {
@@ -47,6 +47,7 @@ export function Segmented<T extends string>({
             )}
           >
             {option.label}
+            {option.count !== undefined && <span className="ml-1.5 tabular-nums text-n-text-3">{option.count}</span>}
           </button>
         );
       })}

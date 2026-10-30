@@ -56,13 +56,16 @@ export function Sheet({ open, onClose, title, actions, dismissable = true, child
   );
 }
 
+export const PHONE_BAR =
+  "sticky bottom-0 z-40 flex flex-col gap-2.5 border-t border-n-line bg-n-surface px-4 pb-[max(28px,env(safe-area-inset-bottom))] pt-3 *:w-full";
+
 /** the phone's bottom bar for a page's actions, placed last on the page and edge to edge;
     at a desk the actions sit in the page */
 export function ActionBar({ className, children }: { className?: string; children: React.ReactNode }) {
   return (
     <div
       className={cn(
-        "sticky bottom-0 z-40 flex flex-col gap-2.5 border-t border-n-line bg-n-surface px-4 pb-[max(28px,env(safe-area-inset-bottom))] pt-3 *:w-full",
+        PHONE_BAR,
         "sm:static sm:z-auto sm:flex-row sm:border-0 sm:bg-transparent sm:p-0 sm:*:w-auto",
         className,
       )}
