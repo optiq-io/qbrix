@@ -26,12 +26,19 @@ export function StateBadge({
   className,
   children,
 }: {
-  state: State;
+  /** no state is neutral: waiting, sealed */
+  state?: State;
   className?: string;
   children: React.ReactNode;
 }) {
   return (
-    <span className={cn("n-label inline-flex w-fit shrink-0 items-center rounded-n-chip px-1 py-px", BADGE[state], className)}>
+    <span
+      className={cn(
+        "n-label inline-flex w-fit shrink-0 items-center rounded-n-chip px-1 py-px",
+        state ? BADGE[state] : "bg-n-fill-2 text-n-text-2",
+        className,
+      )}
+    >
       {children}
     </span>
   );
