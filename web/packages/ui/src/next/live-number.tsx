@@ -81,17 +81,18 @@ export function LiveNumber({
   );
 }
 
-/** the once-a-second beat on the live line. hollow while the server isn't answering */
-export function LivePulse({ paused, className }: { paused?: boolean; className?: string }) {
+const PULSE = {
+  live: "n-pulse-beat bg-n-ok-fg",
+  paused: "bg-n-part-fg",
+  idle: "bg-n-text-3",
+  empty: "border-[1.5px] border-n-text-3",
+};
+
+/** the once-a-second beat on the live line. only live beats; nothing yet is hollow, as
+    is anything while the server isn't answering */
+export function LivePulse({ tone = "live", className }: { tone?: keyof typeof PULSE; className?: string }) {
   const unreachable = useFrozen();
   return (
-    <span
-      aria-hidden
-      className={cn(
-        "inline-block size-[7px] shrink-0 rounded-full",
-        unreachable ? "border-[1.5px] border-n-text-3" : paused ? "bg-n-part-fg" : "n-pulse-beat bg-n-ok-fg",
-        className,
-      )}
-    />
+    <span aria-hidden className={cn("inline-block size-[7px] shrink-0 rounded-full", PULSE[unreachable ? "empty" : tone], className)} />
   );
 }

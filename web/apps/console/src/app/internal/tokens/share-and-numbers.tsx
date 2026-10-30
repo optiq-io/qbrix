@@ -208,7 +208,7 @@ function Numbers() {
       </div>
       <div className={row}>
         <span className={name}>frozen</span>
-        <LivePulse paused />
+        <LivePulse tone="paused" />
         <LiveNumber mode="frozen" value="44%" since={paused} />
       </div>
     </div>
