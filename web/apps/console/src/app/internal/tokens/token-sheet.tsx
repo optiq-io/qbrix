@@ -6,6 +6,7 @@ import { NextRoot } from "@qbrix/ui/next/root";
 import { Controls } from "./controls";
 import { Modules } from "./modules";
 import { RailAndStream } from "./rail-and-stream";
+import { ShareAndNumbers } from "./share-and-numbers";
 import { States } from "./states";
 
 const NEUTRALS = [
@@ -32,8 +33,8 @@ const STATES = [
 const RAMP = [
   ["ink", "bg-n-ink", "leading option"],
   ["viz-2", "bg-n-viz-2", "second option, past bars"],
-  ["viz-3", "bg-n-viz-3", "third option, others"],
-  ["viz-track", "bg-n-viz-track", "empty share, chart track"],
+  ["viz-3", "bg-n-viz-3", "third option"],
+  ["viz-track", "bg-n-viz-track", "others, chart track"],
 ] as const;
 
 const TYPE = [
@@ -189,6 +190,10 @@ export function TokenSheet() {
 
         <Section title="Time rail and stream">
           <RailAndStream />
+        </Section>
+
+        <Section title="Share of decisions and living numbers">
+          <ShareAndNumbers />
         </Section>
 
         <Section title="Empty, loading and error">
