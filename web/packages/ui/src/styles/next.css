@@ -24,7 +24,7 @@
   --n-on-ink: light-dark(#FFFFFF, #121211);
 
   /* the chart ramp runs toward the ground, so ink is the leading option in
-     both themes and viz-3 is the "others" band. */
+     both themes and viz-track is the "others" band. */
   --n-viz-2: light-dark(#BDBBB6, #6F6E6A);
   --n-viz-3: light-dark(#D9D7D3, #46453F);
   --n-viz-track: light-dark(#ECEAE6, #262523);
@@ -127,4 +127,31 @@
   font-size: 0.75rem;
   line-height: 1.5;
   font-weight: 400;
+}
+
+/* living numbers. motion only: the value and its "from" still change when reduced */
+@media (prefers-reduced-motion: no-preference) {
+  .n-number-step {
+    animation: n-number-step 500ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+
+  .n-pulse-beat {
+    animation: n-pulse-beat 1s ease-out infinite;
+  }
+}
+
+@keyframes n-number-step {
+  from {
+    transform: translateY(55%);
+    opacity: 0;
+  }
+}
+
+@keyframes n-pulse-beat {
+  from {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--n-ok-fg) 40%, transparent);
+  }
+  to {
+    box-shadow: 0 0 0 7px transparent;
+  }
 }
