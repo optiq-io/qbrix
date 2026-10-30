@@ -10,6 +10,9 @@ import { StateBadge, type State } from "./state";
 
 export type ChangeLayout = "inbox" | "history" | "phone";
 
+/** how far below a history row's top its first line starts, for placing it on the time rail */
+export const HISTORY_LINE_INSET = 11;
+
 export type ChangeTarget = { kind: "loop" | "metric" | "other"; name: string; href?: string };
 
 export type ChangeDiff = { field: string; before?: string; after?: string };

@@ -5,6 +5,7 @@ import { useTheme, type Theme } from "@qbrix/ui/lib/theme";
 import { NextRoot } from "@qbrix/ui/next/root";
 import { Controls } from "./controls";
 import { Modules } from "./modules";
+import { RailAndStream } from "./rail-and-stream";
 import { States } from "./states";
 
 const NEUTRALS = [
@@ -184,6 +185,10 @@ export function TokenSheet() {
 
         <Section title="Modules">
           <Modules />
+        </Section>
+
+        <Section title="Time rail and stream">
+          <RailAndStream />
         </Section>
 
         <Section title="Empty, loading and error">
