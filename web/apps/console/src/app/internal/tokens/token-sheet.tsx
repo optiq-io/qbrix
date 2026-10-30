@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTheme, type Theme } from "@qbrix/ui/lib/theme";
 import { NextRoot } from "@qbrix/ui/next/root";
 import { Controls } from "./controls";
+import { HeaderSheet } from "./header";
 import { Modules } from "./modules";
 import { RailAndStream } from "./rail-and-stream";
 import { ShareAndNumbers } from "./share-and-numbers";
@@ -194,6 +195,10 @@ export function TokenSheet() {
 
         <Section title="Share of decisions and living numbers">
           <ShareAndNumbers />
+        </Section>
+
+        <Section title="Header">
+          <HeaderSheet />
         </Section>
 
         <Section title="Empty, loading and error">

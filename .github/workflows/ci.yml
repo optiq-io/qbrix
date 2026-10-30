@@ -44,6 +44,10 @@ jobs:
         working-directory: web
         run: pnpm --filter @qbrix/ui test
 
+      - name: Test the console
+        working-directory: web
+        run: pnpm --filter @qbrix/console test
+
       - name: Build the console
         working-directory: web
         run: pnpm --filter @qbrix/console build
