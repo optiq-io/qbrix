@@ -234,7 +234,7 @@ function Who({ change, phone }: { change: ChangeData; phone: boolean }) {
     return (
       <p className={cn(size, "text-n-text-2")}>
         {proposed ? "Asked by" : "For"}{" "}
-        <ActorMark actor={person} size={16} className="mr-1 align-[-3px]" />
+        <ActorMark actor={person} size={16} className="mr-1 align-[2px]" />
         <span className="font-medium text-n-text-1">{actor.onBehalfOf}</span> {proposed ? "in" : "through"} {actor.name}.
         {proposed && " Nothing changes until you approve."}
       </p>
