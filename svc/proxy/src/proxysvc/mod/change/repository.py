@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Collection
+from collections.abc import Sequence
+from datetime import datetime
 
 from sqlalchemy import and_
 from sqlalchemy import func
@@ -34,6 +36,25 @@ def _older_than(before: Position):
         Change.created_at < created_at,
         and_(Change.created_at == created_at, Change.id < change_id),
     )
+
+
+def _workspace_filters(
+    *,
+    kinds: Collection[str] = (),
+    targets: Collection[tuple[str, str]] = (),
+    undoable: bool | None = None,
+) -> list:
+    """every filter given narrows the changes, targets included."""
+    filters = []
+    if kinds:
+        filters.append(Change.kind.in_(kinds))
+    for target_type, target_id in targets:
+        filters.append(Change.target_type == target_type)
+        filters.append(Change.target_id == target_id)
+    if undoable is not None:
+        can_undo = and_(Change.kind.in_(UNDOABLE_KINDS), Change.status == "applied")
+        filters.append(can_undo if undoable else not_(can_undo))
+    return filters
 
 
 class ChangeRepository:
@@ -187,25 +208,39 @@ class ChangeRepository:
         targets: Collection[tuple[str, str]] = (),
         undoable: bool | None = None,
     ) -> list[Change]:
-        """the workspace's changes newest first, from just after before. every
-        filter given narrows the page, targets included."""
-        stmt = select(Change).where(Change.tenant_id == self._tenant_id)
+        """the workspace's changes newest first, from just after before."""
+        stmt = select(Change).where(
+            Change.tenant_id == self._tenant_id,
+            *_workspace_filters(kinds=kinds, targets=targets, undoable=undoable),
+        )
         if before is not None:
             stmt = stmt.where(_older_than(before))
         if actor_kinds:
             stmt = stmt.where(Change.actor_kind.in_(actor_kinds))
-        if kinds:
-            stmt = stmt.where(Change.kind.in_(kinds))
-        for target_type, target_id in targets:
-            stmt = stmt.where(
-                Change.target_type == target_type, Change.target_id == target_id
-            )
-        if undoable is not None:
-            can_undo = and_(Change.kind.in_(UNDOABLE_KINDS), Change.status == "applied")
-            stmt = stmt.where(can_undo if undoable else not_(can_undo))
         stmt = stmt.order_by(Change.created_at.desc(), Change.id.desc()).limit(limit)
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
+
+    async def count_workspace(
+        self,
+        since: datetime,
+        *,
+        kinds: Collection[str] = (),
+        targets: Collection[tuple[str, str]] = (),
+        undoable: bool | None = None,
+    ) -> Sequence[tuple[str, str | None, str, int]]:
+        """how many changes since then, per actor kind, client and status."""
+        stmt = (
+            select(Change.actor_kind, Change.client_name, Change.status, func.count())
+            .where(
+                Change.tenant_id == self._tenant_id,
+                Change.created_at >= since,
+                *_workspace_filters(kinds=kinds, targets=targets, undoable=undoable),
+            )
+            .group_by(Change.actor_kind, Change.client_name, Change.status)
+        )
+        result = await self._session.execute(stmt)
+        return [tuple(row) for row in result.all()]
 
     async def undone_by_each(self, change_ids: Collection[str]) -> dict[str, Change]:
         """the change that undid each of these, in one query."""

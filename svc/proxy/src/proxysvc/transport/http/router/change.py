@@ -114,6 +114,25 @@ class ChangePage(BaseModel):
     next_cursor: Optional[str] = None
 
 
+class CountsByWho(BaseModel):
+    member: int
+    connection: int
+    qbrix: int
+
+
+class ClientCount(BaseModel):
+    name: str
+    count: int
+
+
+class ChangeCounts(BaseModel):
+    since: str
+    total: int
+    undone: int
+    who: CountsByWho
+    clients: list[ClientCount]
+
+
 class UndoRequest(BaseModel):
     reason: Optional[str] = None
 
@@ -155,6 +174,37 @@ async def list_changes(
     except MetricNotFoundError:
         raise MetricNotFoundException(f"no metric named or with id {metric!r}")
     return ChangePage(**page)
+
+
+@router.get(
+    "/counts",
+    status_code=status.HTTP_200_OK,
+    response_model=ChangeCounts,
+)
+async def count_changes(
+    who: Optional[list[Literal["member", "connection", "qbrix"]]] = Query(default=None),
+    kind: Optional[list[str]] = Query(default=None),
+    loop: Optional[str] = None,
+    metric: Optional[str] = None,
+    undoable: Optional[bool] = None,
+    tenant_id: str = Depends(get_current_tenant_id),
+    _scoped=Depends(require_scopes(["loop:read"])),
+):
+    """how many changes the workspace made in the last seven days."""
+    try:
+        found = await get_proxy_service().count_workspace_changes(
+            tenant_id,
+            who=who or (),
+            kinds=kind or (),
+            loop=loop,
+            metric=metric,
+            undoable=undoable,
+        )
+    except LoopNotFoundError:
+        raise LoopNotFoundException(f"no loop with the key or id {loop!r}")
+    except MetricNotFoundError:
+        raise MetricNotFoundException(f"no metric named or with id {metric!r}")
+    return ChangeCounts(**found)
 
 
 @router.get(

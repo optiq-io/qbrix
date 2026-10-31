@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
+from collections.abc import Collection
 from collections.abc import Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -17,6 +19,7 @@ from proxysvc.mod.metric.serialize import window_label
 from proxysvc.mod.people import People
 
 FOLD_WITHIN = timedelta(minutes=10)
+COUNTS_WITHIN = timedelta(days=7)
 
 VERBS = {
     "loop.create": "created",
@@ -51,6 +54,34 @@ class TargetName:
 
     name: str | None
     key: str | None = None
+
+
+def counts(
+    rows: Sequence[tuple[str, str | None, str, int]], who: Collection[str] = ()
+) -> dict:
+    """totals from count_workspace's rows. who narrows everything but the
+    breakdown by who, which offers the other choices while one is selected."""
+    by_who = {"member": 0, "connection": 0, "qbrix": 0}
+    by_client: Counter[str] = Counter()
+    total = undone = 0
+    for actor_kind, client_name, status, count in rows:
+        by_who[actor_kind] += count
+        if who and actor_kind not in who:
+            continue
+        total += count
+        if status == "undone":
+            undone += count
+        if actor_kind == "connection" and client_name:
+            by_client[client_name] += count
+    return {
+        "total": total,
+        "undone": undone,
+        "who": by_who,
+        "clients": [
+            {"name": name, "count": count}
+            for name, count in sorted(by_client.items(), key=lambda c: (-c[1], c[0]))
+        ],
+    }
 
 
 def fold(changes: Sequence[Change]) -> list[list[Change]]:

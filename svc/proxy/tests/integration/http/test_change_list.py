@@ -9,7 +9,8 @@ invariants verified:
   sentence never does. a deleted target keeps its last name. undo writes the
   inverse, the original then names who undid it, and every refusal is a 409 with
   its reason, a moved change naming the later change. a viewer and a key can't
-  undo.
+  undo. counts cover the workspace's last seven days under the list's filters
+  and agree with the unfolded list; who narrows all but the breakdown by who.
 """
 
 from __future__ import annotations
@@ -539,3 +540,83 @@ class TestUndo:
             del overrides[get_actor]
 
         assert resp.status_code == 403
+
+
+async def _counts(api, **params) -> dict:
+    resp = await api.get("/api/v1/changes/counts", params=params)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+class TestCounts:
+
+    async def test_by_who_and_client(self, api, wired_app):
+        loop = await _loop(api)
+        await _rename(wired_app, loop, "One")
+        await _rename(wired_app, loop, "Two")
+        await _rename(wired_app, loop, "Three", actor=CURSOR)
+        await _rename(wired_app, loop, "Four", actor=Actor.qbrix())
+
+        counts = await _counts(api)
+
+        assert counts["total"] == 6
+        assert counts["undone"] == 0
+        assert counts["who"] == {"member": 2, "connection": 3, "qbrix": 1}
+        assert counts["clients"] == [
+            {"name": "Claude Code", "count": 2},
+            {"name": "Cursor", "count": 1},
+        ]
+        assert counts["since"]
+
+    async def test_who_narrows_everything_but_its_own_breakdown(self, api, wired_app):
+        loop = await _loop(api)
+        await _rename(wired_app, loop, "By agent")
+
+        people = await _counts(api, who="member")
+
+        assert people["total"] == 2
+        assert people["clients"] == []
+        assert people["who"] == {"member": 2, "connection": 1, "qbrix": 0}
+
+    async def test_total_agrees_with_the_unfolded_list(self, api, wired_app):
+        loop = await _loop(api)
+        await _rename(wired_app, loop, "One")
+        await _rename(wired_app, loop, "Two")
+        for params in ({}, {"kind": "loop.rename"}, {"undoable": "false"}):
+            listed = (await _changes(api, fold="false", **params))["changes"]
+            assert (await _counts(api, **params))["total"] == len(listed)
+
+    async def test_loop_and_metric_narrow(self, api, wired_app):
+        await _loop(api, "First")
+        second = await _loop(api, "Second")
+        await _rename(wired_app, second, "Second again")
+
+        assert (await _counts(api, loop=second["key"]))["total"] == 2
+        assert (await _counts(api, metric="purchase"))["total"] == 1
+
+    async def test_older_than_a_week_is_not_counted(self, api, wired_app):
+        loop = await _loop(api)
+        await _rename(wired_app, loop, "Recent")
+        await _spread(minutes=60 * 24 * 8)
+
+        assert (await _counts(api))["total"] == 1
+
+    async def test_undone_follows_who_made_the_change(self, api, wired_app):
+        loop = await _loop(api)
+        await _rename(wired_app, loop, "By agent")
+        rename = (await _changes(api, kind="loop.rename"))["changes"][0]
+        resp = await api.post(f"/api/v1/changes/{rename['id']}/undo")
+        assert resp.status_code == 200, resp.text
+
+        assert (await _counts(api, who="connection"))["undone"] == 1
+        assert (await _counts(api, who="member"))["undone"] == 0
+
+    async def test_never_another_workspaces(self, api, wired_app):
+        await _loop(api)
+
+        with as_tenant(wired_app.app, tenant_id="other-tenant"):
+            assert (await _counts(api))["total"] == 0
+
+    async def test_an_unknown_loop_or_metric_is_not_found(self, api):
+        assert (await api.get("/api/v1/changes/counts?loop=nope")).status_code == 404
+        assert (await api.get("/api/v1/changes/counts?metric=nope")).status_code == 404
