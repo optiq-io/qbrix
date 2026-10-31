@@ -63,7 +63,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3.2.4
         with:
-          version: "0.4.x"
+          version: "0.9.x"
 
       - name: Check the docs deploy never publishes docs-next
         run: bin/check-docs-deploy
@@ -82,7 +82,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3.2.4
         with:
-          version: "0.4.x"
+          version: "0.9.x"
 
       - name: Lint, render and check the chart
         run: bin/check-chart
