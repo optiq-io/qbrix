@@ -1,3 +1,0 @@
-# dnspython's fix needs python 3.11 and the images run 3.10. nothing queries dns
-# through it: pydantic calls email-validator with check_deliverability=False.
-CVE-2026-114605 exp:2027-01-31

@@ -15,7 +15,7 @@ PROTO_GRPCIO_TOOLS_VERSION="1.76.0"
 PROTO_VENV="$ROOT_DIR/.proto-venv"
 
 echo "Setting up proto generation environment (grpcio-tools==$PROTO_GRPCIO_TOOLS_VERSION)..."
-uv venv "$PROTO_VENV" --python 3.10 -q
+uv venv "$PROTO_VENV" --python 3.14 -q
 uv pip install --python "$PROTO_VENV/bin/python" -q \
     "grpcio-tools==$PROTO_GRPCIO_TOOLS_VERSION" \
     "mypy-protobuf"

@@ -3,7 +3,7 @@ name = "qbrixstore"
 version = "0.2.0"  # x-release-please-version
 description = "Storage layer for qbrix - Postgres models and Redis clients"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.14"
 dependencies = [
     "sqlalchemy>=2.0.0",
     "alembic>=1.13.0",

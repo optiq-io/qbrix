@@ -364,7 +364,7 @@ per IP and, for login and forgot-password, per email, returning `429` with
 
 ## Tech stack
 
-Python 3.10+ with uv workspaces; Postgres; Redis (params cache and streams);
+Python 3.14+ with uv workspaces; Postgres; Redis (params cache and streams);
 cachebox; gRPC; FastAPI; ClickHouse (analytics); Stripe (cloud edition); Docker
 Compose and Helm. Frontend: Next.js 15, TypeScript, Tailwind CSS v4, pnpm.
 
