@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Collection
+from datetime import datetime
+from datetime import timezone
 from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +17,9 @@ from proxysvc.core.error import ChangeConflictError
 from proxysvc.core.error import ChangeNotUndoableError
 from proxysvc.core.error import LoopNotFoundError
 from proxysvc.core.error import MetricNotFoundError
+from proxysvc.mod.change.entry import COUNTS_WITHIN
 from proxysvc.mod.change.entry import TargetName
+from proxysvc.mod.change.entry import counts
 from proxysvc.mod.change.entry import fold as fold_bursts
 from proxysvc.mod.change.entry import workspace_entry
 from proxysvc.mod.change.repository import ChangeRepository
@@ -109,6 +113,24 @@ def _restored_part(change: Change, state: dict | None) -> dict | None:
     if change.target_type == "loop":
         return {name: state[name] for name in _restored_loop_fields(change)}
     return {"name": state["name"]}
+
+
+async def _targets(
+    session: AsyncSession, tenant_id: str, loop: str | None, metric: str | None
+) -> list[tuple[str, str]]:
+    """the targets a loop or metric filter names, which must exist."""
+    targets = []
+    if loop is not None:
+        found = await LoopRepository(session, tenant_id).resolve(loop)
+        if found is None:
+            raise LoopNotFoundError(loop)
+        targets.append(("loop", found.id))
+    if metric is not None:
+        named = await MetricRepository(session, tenant_id).resolve(metric)
+        if named is None:
+            raise MetricNotFoundError(metric)
+        targets.append(("metric", named.id))
+    return targets
 
 
 async def _rows(
@@ -238,17 +260,7 @@ class ChangeService:
         it, and one cut by the page's end goes on as its own row on the next."""
         before = pages.decode(cursor) if cursor else None
         async with get_session() as session:
-            targets = []
-            if loop is not None:
-                found = await LoopRepository(session, tenant_id).resolve(loop)
-                if found is None:
-                    raise LoopNotFoundError(loop)
-                targets.append(("loop", found.id))
-            if metric is not None:
-                named = await MetricRepository(session, tenant_id).resolve(metric)
-                if named is None:
-                    raise MetricNotFoundError(metric)
-                targets.append(("metric", named.id))
+            targets = await _targets(session, tenant_id, loop, metric)
             rows = await ChangeRepository(session, tenant_id).page_workspace(
                 before,
                 limit + 1,
@@ -263,6 +275,25 @@ class ChangeService:
                 "changes": await _rows(session, tenant_id, groups),
                 "next_cursor": next_cursor,
             }
+
+    async def count_workspace(
+        self,
+        tenant_id: str,
+        *,
+        who: Collection[str] = (),
+        kinds: Collection[str] = (),
+        loop: str | None = None,
+        metric: str | None = None,
+        undoable: bool | None = None,
+    ) -> dict:
+        """how many changes the workspace made this week."""
+        since = datetime.now(timezone.utc) - COUNTS_WITHIN
+        async with get_session() as session:
+            targets = await _targets(session, tenant_id, loop, metric)
+            rows = await ChangeRepository(session, tenant_id).count_workspace(
+                since, kinds=kinds, targets=targets, undoable=undoable
+            )
+        return {"since": since.isoformat(), **counts(rows, who)}
 
     async def get_entry(self, tenant_id: str, change_id: str) -> dict | None:
         async with get_session() as session:

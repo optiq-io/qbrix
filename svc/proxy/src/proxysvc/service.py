@@ -439,6 +439,25 @@ class ProxyService:
     async def get_change(self, tenant_id: str, change_id: str) -> dict | None:
         return await self._change_service.get_change(tenant_id, change_id)
 
+    async def count_workspace_changes(
+        self,
+        tenant_id: str,
+        *,
+        who: Collection[str] = (),
+        kinds: Collection[str] = (),
+        loop: str | None = None,
+        metric: str | None = None,
+        undoable: bool | None = None,
+    ) -> dict:
+        return await self._change_service.count_workspace(
+            tenant_id,
+            who=who,
+            kinds=kinds,
+            loop=loop,
+            metric=metric,
+            undoable=undoable,
+        )
+
     async def list_workspace_changes(
         self,
         tenant_id: str,

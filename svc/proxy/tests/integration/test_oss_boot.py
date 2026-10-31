@@ -199,6 +199,7 @@ class TestNextSwitch:
             "/api/v1/pins",
             "/api/v1/pins/{kind}/{ref}",
             "/api/v1/changes",
+            "/api/v1/changes/counts",
             "/api/v1/changes/{change_id}",
             "/api/v1/changes/{change_id}/undo",
             "/.well-known/oauth-authorization-server",
