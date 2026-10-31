@@ -396,6 +396,21 @@ class LoopNotPausedException(ConflictException):
     code = "LOOP_NOT_PAUSED"
 
 
+class ChangeNotFoundException(NotFoundException):
+    """change not found in this workspace."""
+
+    detail = "change not found"
+    code = "CHANGE_NOT_FOUND"
+
+
+class ChangeNotUndoableException(ConflictException):
+    """the change can't be undone. context names the later change that moved
+    its target, when one did."""
+
+    detail = "the change can't be undone"
+    code = "CHANGE_NOT_UNDOABLE"
+
+
 class InvalidDecisionContextException(BadRequestException):
     """a select's context has no unit, or properties that aren't an object."""
 

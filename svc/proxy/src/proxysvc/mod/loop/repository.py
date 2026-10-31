@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Collection
 from collections.abc import Sequence
 
 from sqlalchemy import and_
@@ -62,6 +63,16 @@ class LoopRepository:
 
     async def get_by_key(self, key: str) -> Loop | None:
         return await self._one(Loop.key == key)
+
+    async def names(self, loop_ids: Collection[str]) -> dict[str, tuple[str, str]]:
+        """each loop's key and name, in one query."""
+        if not loop_ids:
+            return {}
+        stmt = select(Loop.id, Loop.key, Loop.name).where(
+            Loop.tenant_id == self._tenant_id, Loop.id.in_(loop_ids)
+        )
+        rows = (await self._session.execute(stmt)).all()
+        return {row.id: (row.key, row.name) for row in rows}
 
     async def resolve(self, ref: str) -> Loop | None:
         """a loop by its id, else by its key."""

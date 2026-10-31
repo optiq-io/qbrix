@@ -54,9 +54,11 @@ TOOLS = [
     "loop_get",
     "loop_results",
     "metrics_list",
+    "changes_list",
     "loop_create",
     "loop_launch",
     "metric_create",
+    "change_undo",
 ]
 
 LOOP = {
@@ -470,6 +472,158 @@ class TestChangeLimit:
         assert not created.is_error
 
 
+class TestChangesAndUndo:
+
+    async def test_changes_list_says_who_what_and_why(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            draft = await _draft(client)
+            result = await _call(client, "changes_list", {"kind": ["loop.create"]})
+
+        assert not result.is_error, result
+        entry = result.structured_content["changes"][0]
+        assert entry["id"] == draft["change"]["id"]
+        assert entry["via"]["client"] == entry["pieces"][0]["actor"]["name"]
+        assert entry["target"]["key"] == "checkout-headline"
+        line = result.content[0].text
+        client_name = entry["via"]["client"]
+        assert f"{client_name} created Checkout headline." in line
+        assert f"Mustafa via {client_name}" in line
+        assert '"test which headline sells"' in line
+        assert "can be undone" in line
+
+    async def test_changes_list_says_why_qbrix_paused(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _draft(client)
+            await _call(
+                client, "loop_launch", {"loop": "checkout-headline", "reason": "go"}
+            )
+            await wired_app.svc.loops.pause_loop(
+                TENANT, "checkout-headline", actor=Actor.qbrix(), evidence=EVIDENCE
+            )
+            result = await _call(client, "changes_list", {"who": ["qbrix"]})
+
+        line = result.content[0].text
+        assert "qbrix paused Checkout headline." in line
+        assert "state live -> paused" in line
+        assert "decision errors 23.8% of 629 calls" in line
+
+    async def test_changes_list_reads_the_same_as_http(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _draft(client)
+            result = await _call(client, "changes_list")
+
+        page = await wired_app.svc.list_workspace_changes(TENANT, limit=20)
+        assert [entry["id"] for entry in result.structured_content["changes"]] == [
+            entry["id"] for entry in page["changes"]
+        ]
+
+    async def test_changes_list_filters_and_refuses_an_unknown_loop(
+        self, mcp, wired_app
+    ):
+        async with _session(mcp, wired_app) as client:
+            await _draft(client)
+            metric = await _call(client, "changes_list", {"metric": "purchase"})
+            unknown = await _call(client, "changes_list", {"loop": "checkout-hedline"})
+
+        kinds = [entry["kind"] for entry in metric.structured_content["changes"]]
+        assert kinds == ["metric.create"]
+        assert "Did you mean checkout-headline?" in _error(unknown)
+
+    async def test_an_undo_is_recorded_as_the_person_via_the_client(
+        self, mcp, wired_app
+    ):
+        async with _session(mcp, wired_app) as client:
+            draft = await _draft(client)
+            result = await _call(
+                client,
+                "change_undo",
+                {"change": draft["change"]["id"], "reason": "not needed after all"},
+            )
+
+        assert not result.is_error, result
+        undone = result.structured_content["undone"]
+        assert undone["kind"] == "loop.delete"
+        assert undone["undoes_id"] == draft["change"]["id"]
+        assert undone["reason"] == "not needed after all"
+        assert undone["who"]["user_id"] == "user-member"
+        assert undone["via"]["client"]
+        change = result.structured_content["change"]
+        assert change["url"] == (
+            f"{proxysvc.config.settings.console_origin}/changes?change={change['id']}"
+        )
+
+    async def test_a_repeated_undo_applies_once(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            draft = await _draft(client)
+            arguments = {"change": draft["change"]["id"], "reason": "not needed"}
+            first = await _call(client, "change_undo", arguments)
+            second = await _call(client, "change_undo", arguments)
+
+        assert not first.is_error and not second.is_error
+        assert (
+            first.structured_content["change"]["id"]
+            == second.structured_content["change"]["id"]
+        )
+
+    async def test_a_launch_is_refused_with_what_to_do(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _draft(client)
+            launched = await _call(
+                client, "loop_launch", {"loop": "checkout-headline", "reason": "go"}
+            )
+            result = await _call(
+                client,
+                "change_undo",
+                {"change": launched.structured_content["change"]["id"], "reason": "no"},
+            )
+
+        assert _error(result).startswith(
+            "Launching a loop starts its first cycle, so it cannot be undone."
+        )
+
+    async def test_a_moved_change_names_the_later_one(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            draft = await _draft(client)
+            launched = await _call(
+                client, "loop_launch", {"loop": "checkout-headline", "reason": "go"}
+            )
+            result = await _call(
+                client,
+                "change_undo",
+                {"change": draft["change"]["id"], "reason": "no"},
+            )
+
+        message = _error(result)
+        assert launched.structured_content["change"]["id"] in message
+        assert message.endswith("Nothing was undone.")
+
+    async def test_an_unknown_change_says_where_to_look(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            result = await _call(
+                client, "change_undo", {"change": "nope", "reason": "no"}
+            )
+
+        assert _error(result) == (
+            "No change with id nope. Call changes_list to see this workspace's changes."
+        )
+
+    async def test_a_viewer_reads_changes_and_cannot_undo(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as member:
+            draft = await _draft(member)
+        async with _session(mcp, wired_app, user="user-viewer") as viewer:
+            read = await _call(viewer, "changes_list")
+            result = await _call(
+                viewer,
+                "change_undo",
+                {"change": draft["change"]["id"], "reason": "no"},
+            )
+
+        assert not read.is_error
+        assert _error(result) == (
+            "Your role can't undo this change. Ask an admin of this workspace."
+        )
+
+
 class TestViewer:
 
     async def test_a_viewer_reads_every_read_tool(self, mcp, wired_app):
@@ -481,6 +635,7 @@ class TestViewer:
                 await _call(viewer, "loop_get", {"loop": "checkout-headline"}),
                 await _call(viewer, "loop_results", {"loop": "checkout-headline"}),
                 await _call(viewer, "metrics_list"),
+                await _call(viewer, "changes_list"),
             ]
 
         assert not any(result.is_error for result in results)

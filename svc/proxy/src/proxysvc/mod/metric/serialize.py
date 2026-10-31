@@ -1,6 +1,13 @@
 from qbrixstore.postgres.models import Metric
 
 
+def window_label(seconds: int) -> str:
+    for unit, size in (("d", 86400), ("h", 3600), ("m", 60)):
+        if seconds % size == 0:
+            return f"{seconds // size}{unit}"
+    return f"{seconds}s"
+
+
 def metric_to_dict(metric: Metric) -> dict:
     current = metric.versions[-1]
     return {

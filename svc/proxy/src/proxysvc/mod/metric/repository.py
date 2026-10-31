@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Collection
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -51,6 +53,16 @@ class MetricRepository:
 
     async def get_by_name(self, name: str) -> Metric | None:
         return await self._one(Metric.name == name)
+
+    async def names(self, metric_ids: Collection[str]) -> dict[str, str]:
+        """each metric's name, in one query."""
+        if not metric_ids:
+            return {}
+        stmt = select(Metric.id, Metric.name).where(
+            Metric.tenant_id == self._tenant_id, Metric.id.in_(metric_ids)
+        )
+        rows = (await self._session.execute(stmt)).all()
+        return {row.id: row.name for row in rows}
 
     async def resolve(self, ref: str) -> Metric | None:
         """a metric by its id, else by its name."""

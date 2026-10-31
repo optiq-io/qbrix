@@ -16,3 +16,8 @@ def change_url(
     if target == "loop":
         return f"{console_origin}/loops/{ref}/history?change={change_id}"
     return f"{console_origin}/metrics/{ref}?change={change_id}"
+
+
+def changes_url(console_origin: str, change_id: str) -> str:
+    """the workspace's changes, opened at one."""
+    return f"{console_origin}/changes?change={change_id}"

@@ -1,3 +1,4 @@
+from collections.abc import Collection
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
@@ -437,6 +438,34 @@ class ProxyService:
 
     async def get_change(self, tenant_id: str, change_id: str) -> dict | None:
         return await self._change_service.get_change(tenant_id, change_id)
+
+    async def list_workspace_changes(
+        self,
+        tenant_id: str,
+        *,
+        who: Collection[str] = (),
+        kinds: Collection[str] = (),
+        loop: str | None = None,
+        metric: str | None = None,
+        undoable: bool | None = None,
+        fold: bool = True,
+        cursor: str | None = None,
+        limit: int,
+    ) -> dict:
+        return await self._change_service.list_workspace(
+            tenant_id,
+            who=who,
+            kinds=kinds,
+            loop=loop,
+            metric=metric,
+            undoable=undoable,
+            fold=fold,
+            cursor=cursor,
+            limit=limit,
+        )
+
+    async def get_change_entry(self, tenant_id: str, change_id: str) -> dict | None:
+        return await self._change_service.get_entry(tenant_id, change_id)
 
     async def undo_change(
         self,
