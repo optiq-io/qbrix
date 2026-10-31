@@ -36,6 +36,11 @@ def is_undoable(kind: str) -> bool:
     return kind in UNDOABLE_KINDS
 
 
+def undo_scope(target_type: str) -> str:
+    """undoing a change takes what writing to its target takes."""
+    return f"{target_type}:write"
+
+
 @dataclass(frozen=True, slots=True)
 class Undoing:
     """the change a write undoes, recorded on the write's own change.

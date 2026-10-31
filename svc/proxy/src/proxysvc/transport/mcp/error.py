@@ -5,9 +5,15 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from difflib import get_close_matches
 
+from proxysvc.core.error import ChangeConflictError
+from proxysvc.core.error import ChangeMovedError
+from proxysvc.core.error import ChangeNotUndoableError
+from proxysvc.core.error import ExperimentLimitError
+from proxysvc.core.error import ExperimentRunningError
 from proxysvc.core.error import InvalidCursorError
 from proxysvc.core.error import LoopInvalidError
 from proxysvc.core.error import LoopKeyTakenError
+from proxysvc.core.error import LoopStateError
 from proxysvc.core.error import MetricInvalidError
 from proxysvc.core.error import MetricNameTakenError
 
@@ -65,6 +71,34 @@ def no_cycle(key: str, number: int, last: int | None) -> Refusal:
         f"The loop {key} has no cycle {number}; its cycles are 1 to {last}. "
         f"Leave cycle out for the current one."
     )
+
+
+def unknown_change(ref: str) -> Refusal:
+    return Refusal(
+        f"No change with id {ref}. Call changes_list to see this workspace's changes."
+    )
+
+
+@contextmanager
+def undo_refusals() -> Iterator[None]:
+    """why an undo was refused. nothing was applied in any of these."""
+    try:
+        yield
+    except ChangeMovedError as e:
+        raise Refusal(f"{_sentence(str(e))} Nothing was undone.") from e
+    except ChangeNotUndoableError as e:
+        raise Refusal(
+            f"{_sentence(str(e))} Make a new change instead, if it is still needed."
+        ) from e
+    except ExperimentRunningError as e:
+        raise Refusal(f"{_sentence(str(e))} Nothing was undone.") from e
+    except (
+        ChangeConflictError,
+        ExperimentLimitError,
+        LoopKeyTakenError,
+        LoopStateError,
+    ) as e:
+        raise Refusal(f"{_sentence(str(e))} Nothing was undone.") from e
 
 
 def too_many_changes(limit: int, retry_after: int) -> Refusal:

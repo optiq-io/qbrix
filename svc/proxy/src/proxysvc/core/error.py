@@ -86,8 +86,20 @@ class ChangeConflictError(BaseAPIError):
     already undone, a later change exists, or its target is gone."""
 
 
+class ChangeMovedError(ChangeConflictError):
+    """raised when a later change moved what an undo would restore."""
+
+    def __init__(self, message: str, later_change_id: str):
+        super().__init__(message)
+        self.later_change_id = later_change_id
+
+
 class MetricInvalidError(BaseAPIError):
     """raised when a metric's name, type, range, window or semantic is refused."""
+
+
+class MetricNotFoundError(BaseAPIError):
+    """raised when a request names a metric the workspace doesn't have."""
 
 
 class MetricNameTakenError(BaseAPIError):
@@ -107,7 +119,7 @@ class LoopStateError(BaseAPIError):
 
 
 class LoopNotFoundError(BaseAPIError):
-    """raised when select names a loop the workspace doesn't have."""
+    """raised when a request names a loop the workspace doesn't have."""
 
 
 class CycleNotFoundError(BaseAPIError):

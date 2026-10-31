@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Collection
 from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,11 +9,17 @@ from qbrixstore.postgres.models import Change
 from qbrixstore.postgres.session import get_session
 from qbrixstore.redis import Learning
 
+from proxysvc.core import cursor as pages
 from proxysvc.core.actor import Actor
 from proxysvc.core.error import ChangeConflictError
 from proxysvc.core.error import ChangeNotUndoableError
+from proxysvc.core.error import LoopNotFoundError
+from proxysvc.core.error import MetricNotFoundError
+from proxysvc.mod.change.entry import TargetName
+from proxysvc.mod.change.entry import fold as fold_bursts
+from proxysvc.mod.change.entry import workspace_entry
 from proxysvc.mod.change.repository import ChangeRepository
-from proxysvc.mod.change.repository import later_change_message
+from proxysvc.mod.change.repository import moved_since
 from proxysvc.mod.change.serialize import change_to_dict
 from proxysvc.mod.change.serialize import snapshot
 from proxysvc.mod.change.undo import NOT_UNDOABLE
@@ -52,6 +59,23 @@ def _changed_fields(change: Change) -> list[str]:
     ]
 
 
+def _restored_loop_fields(change: Change) -> tuple[str, ...]:
+    """what an undo of this change writes back: only the fields it moved, so an
+    unrelated later change doesn't refuse it. undoing a create removes the loop,
+    so anything changed since refuses it. a key locks at launch, so undoing a
+    key's change also needs the loop still in that state."""
+    if change.before is None:
+        return _RESTORABLE_LOOP_FIELDS
+    moved = {
+        name
+        for name in _RESTORABLE_LOOP_FIELDS
+        if change.before[name] != change.after[name]
+    }
+    if "key" in moved:
+        moved.add("state")
+    return tuple(moved)
+
+
 def _unversioned_gate(config: dict | None) -> dict | None:
     """a gate as an undo compares it. a period keeps the offset it was written
     with but reads back in utc, so it compares as an instant."""
@@ -83,8 +107,55 @@ def _restored_part(change: Change, state: dict | None) -> dict | None:
     if change.kind == "experiment.update":
         return {name: state[name] for name in _changed_fields(change)}
     if change.target_type == "loop":
-        return {name: state[name] for name in _RESTORABLE_LOOP_FIELDS}
+        return {name: state[name] for name in _restored_loop_fields(change)}
     return {"name": state["name"]}
+
+
+async def _rows(
+    session: AsyncSession, tenant_id: str, groups: list[list[Change]]
+) -> list[dict]:
+    """the entries for these groups, every name they mention read in a fixed
+    number of queries, however many the page holds. a target that is gone goes by
+    its last name, from the snapshot of its latest change."""
+    changes = [change for group in groups for change in group]
+    repo = ChangeRepository(session, tenant_id)
+    undoers = await repo.undone_by_each([change.id for change in changes])
+    people = await People.load(
+        session,
+        tenant_id,
+        [c.actor_user_id for c in changes]
+        + [u.actor_user_id for u in undoers.values()],
+    )
+    loops = await LoopRepository(session, tenant_id).names(
+        {c.target_id for c in changes if c.target_type == "loop"}
+    )
+    metrics = await MetricRepository(session, tenant_id).names(
+        {c.target_id for c in changes if c.target_type == "metric"}
+    )
+    targets = {
+        **{
+            ("loop", loop_id): TargetName(name=name, key=key)
+            for loop_id, (key, name) in loops.items()
+        },
+        **{
+            ("metric", metric_id): TargetName(name=name)
+            for metric_id, name in metrics.items()
+        },
+    }
+    for target_type in ("loop", "metric"):
+        gone = {
+            c.target_id
+            for c in changes
+            if c.target_type == target_type
+            and (target_type, c.target_id) not in targets
+        }
+        latest = await repo.latest_for_each(target_type, gone)
+        for target_id, change in latest.items():
+            last = change.before or change.after or {}
+            targets[(target_type, target_id)] = TargetName(
+                name=last.get("name"), key=last.get("key")
+            )
+    return [workspace_entry(group, people, targets, undoers) for group in groups]
 
 
 async def _current_state(
@@ -148,6 +219,58 @@ class ChangeService:
             repo = ChangeRepository(session, tenant_id)
             change = await repo.get(change_id)
             return change_to_dict(change) if change else None
+
+    async def list_workspace(
+        self,
+        tenant_id: str,
+        *,
+        who: Collection[str] = (),
+        kinds: Collection[str] = (),
+        loop: str | None = None,
+        metric: str | None = None,
+        undoable: bool | None = None,
+        fold: bool = True,
+        cursor: str | None = None,
+        limit: int,
+    ) -> dict:
+        """every change in the workspace, newest first. limit counts changes,
+        not rows: a fold is computed on the page, so the cursor never moves with
+        it, and one cut by the page's end goes on as its own row on the next."""
+        before = pages.decode(cursor) if cursor else None
+        async with get_session() as session:
+            targets = []
+            if loop is not None:
+                found = await LoopRepository(session, tenant_id).resolve(loop)
+                if found is None:
+                    raise LoopNotFoundError(loop)
+                targets.append(("loop", found.id))
+            if metric is not None:
+                named = await MetricRepository(session, tenant_id).resolve(metric)
+                if named is None:
+                    raise MetricNotFoundError(metric)
+                targets.append(("metric", named.id))
+            rows = await ChangeRepository(session, tenant_id).page_workspace(
+                before,
+                limit + 1,
+                actor_kinds=who,
+                kinds=kinds,
+                targets=targets,
+                undoable=undoable,
+            )
+            changes, next_cursor = pages.page(rows, limit)
+            groups = fold_bursts(changes) if fold else [[c] for c in changes]
+            return {
+                "changes": await _rows(session, tenant_id, groups),
+                "next_cursor": next_cursor,
+            }
+
+    async def get_entry(self, tenant_id: str, change_id: str) -> dict | None:
+        async with get_session() as session:
+            change = await ChangeRepository(session, tenant_id).get(change_id)
+            if change is None:
+                return None
+            entries = await _rows(session, tenant_id, [[change]])
+            return entries[0]
 
     async def undo(
         self,
@@ -220,11 +343,11 @@ class ChangeService:
         if change.kind in _LEARNING_KINDS:
             for newer in later:
                 if newer.kind in _LEARNING_KINDS:
-                    raise ChangeConflictError(later_change_message(newer))
+                    raise moved_since(newer)
             return
         current = await _current_state(session, tenant_id, change)
         if _restored_part(change, current) != _restored_part(change, change.after):
-            raise ChangeConflictError(later_change_message(later[0]))
+            raise moved_since(later[0])
 
     @staticmethod
     async def _baseline_applied(repo: ChangeRepository, change: Change) -> int:

@@ -41,6 +41,8 @@ from proxysvc.transport.http.exception.base import ExperimentRunningException
 from proxysvc.transport.http.exception.base import MetricNotFoundException
 from proxysvc.transport.http.exception.base import InvalidMetricException
 from proxysvc.transport.http.exception.base import MetricNameTakenException
+from proxysvc.transport.http.exception.base import ChangeNotFoundException
+from proxysvc.transport.http.exception.base import ChangeNotUndoableException
 from proxysvc.transport.http.exception.base import LoopNotFoundException
 from proxysvc.transport.http.exception.base import CycleNotFoundException
 from proxysvc.transport.http.exception.base import InvalidLoopException
@@ -99,6 +101,8 @@ __all__ = [
     "MetricNotFoundException",
     "InvalidMetricException",
     "MetricNameTakenException",
+    "ChangeNotFoundException",
+    "ChangeNotUndoableException",
     "LoopNotFoundException",
     "CycleNotFoundException",
     "InvalidLoopException",
