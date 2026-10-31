@@ -196,6 +196,10 @@ class ConnectionNotFoundError(BaseAPIError):
     """raised when a connection doesn't exist or isn't the caller's to see."""
 
 
+class PinTargetNotFoundError(BaseAPIError):
+    """raised when a pin names a loop or metric the workspace doesn't have."""
+
+
 class ConnectionTokenInvalidError(BaseAPIError):
     """raised when a connection's token is unknown, expired, revoked or meant
     for another resource."""

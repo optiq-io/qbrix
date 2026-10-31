@@ -141,6 +141,11 @@ export const queryKeys = {
     request: (id: string) => ["connections", "request", id] as const,
   },
 
+  // resource: pins (qbrix next)
+  pins: {
+    all: ["pins"] as const,
+  },
+
   apiKeys: {
     all: ["api-keys"] as const,
     list: ["api-keys", "list"] as const,

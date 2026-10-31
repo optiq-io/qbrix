@@ -431,6 +431,13 @@ class ConnectionNotFoundException(NotFoundException):
     code = "CONNECTION_NOT_FOUND"
 
 
+class PinTargetNotFoundException(NotFoundException):
+    """a pin naming a loop or metric the workspace doesn't have."""
+
+    detail = "nothing to pin"
+    code = "PIN_TARGET_NOT_FOUND"
+
+
 class OAuthRequestNotFoundException(NotFoundException):
     """a sign-in request that expired or was already answered."""
 

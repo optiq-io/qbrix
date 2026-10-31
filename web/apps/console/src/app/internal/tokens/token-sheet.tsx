@@ -6,6 +6,7 @@ import { NextRoot } from "@qbrix/ui/next/root";
 import { Controls } from "./controls";
 import { HeaderSheet } from "./header";
 import { Modules } from "./modules";
+import { PinnedSheet } from "./pinned";
 import { RailAndStream } from "./rail-and-stream";
 import { ShareAndNumbers } from "./share-and-numbers";
 import { States } from "./states";
@@ -203,6 +204,10 @@ export function TokenSheet() {
 
         <Section title="Empty, loading and error">
           <States />
+        </Section>
+
+        <Section title="Pinned">
+          <PinnedSheet />
         </Section>
 
         <Section title="Type">

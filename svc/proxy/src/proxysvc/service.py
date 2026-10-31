@@ -27,6 +27,7 @@ from proxysvc.mod.gate import GateService
 from proxysvc.mod.gate.config import FeatureGateConfig
 from proxysvc.mod.gate.schema import GateConfigPatchRequest
 from proxysvc.mod.gate.schema import GateConfigRequest
+from proxysvc.mod.pin.service import PinService
 from proxysvc.mod.loop.outcome import LoopOutcomeService
 from proxysvc.mod.loop.read import LoopReadService
 from proxysvc.mod.loop.result import LoopResultService
@@ -69,6 +70,7 @@ class ProxyService:
         self._experiment_service: ExperimentService | None = None
         self._connection_service: ConnectionService | None = None
         self._oauth_service: OAuthService | None = None
+        self._pin_service: PinService | None = None
         self._cimd: CIMDFetcher | None = None
         self._entitlements: Entitlements | None = None
 
@@ -184,6 +186,7 @@ class ProxyService:
             connections=self._connection_service,
             fetcher=self._cimd or CIMDFetcher(),
         )
+        self._pin_service = PinService()
 
     @property
     def entitlements(self) -> Entitlements:
@@ -202,6 +205,12 @@ class ProxyService:
         if self._loop_service is None:
             raise RuntimeError("proxy service not started")
         return self._loop_service
+
+    @property
+    def pins(self) -> PinService:
+        if self._pin_service is None:
+            raise RuntimeError("proxy service not started")
+        return self._pin_service
 
     @property
     def connections(self) -> ConnectionService:

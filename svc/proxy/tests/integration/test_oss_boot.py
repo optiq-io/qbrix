@@ -196,6 +196,8 @@ class TestNextSwitch:
             "/api/v1/connections",
             "/api/v1/connections/{connection_id}",
             "/api/v1/connections/requests/{request_id}",
+            "/api/v1/pins",
+            "/api/v1/pins/{kind}/{ref}",
             "/.well-known/oauth-authorization-server",
             "/oauth/register",
             "/oauth/authorize",
