@@ -13,16 +13,16 @@
   },
   "dependencies": {
     "@qbrix/ui": "workspace:*",
-    "@sentry/nextjs": "^10.76.2",
-    "@tanstack/query-sync-storage-persister": "^5.104.1",
-    "@tanstack/react-query": "^5.104.1",
-    "@tanstack/react-query-persist-client": "^5.104.1",
+    "@sentry/nextjs": "^10.77.1",
+    "@tanstack/query-sync-storage-persister": "^5.105.0",
+    "@tanstack/react-query": "^5.105.0",
+    "@tanstack/react-query-persist-client": "^5.105.0",
     "cmdk": "^1.1.1",
     "date-fns": "^4.4.0",
     "lucide-react": "^0.577.0",
     "next": "^15.5.28",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
