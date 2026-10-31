@@ -485,9 +485,27 @@ class TestChangesAndUndo:
         assert entry["via"]["client"] == entry["pieces"][0]["actor"]["name"]
         assert entry["target"]["key"] == "checkout-headline"
         line = result.content[0].text
-        assert "for Mustafa created Checkout headline." in line
+        client_name = entry["via"]["client"]
+        assert f"{client_name} created Checkout headline." in line
+        assert f"Mustafa via {client_name}" in line
         assert '"test which headline sells"' in line
         assert "can be undone" in line
+
+    async def test_changes_list_says_why_qbrix_paused(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _draft(client)
+            await _call(
+                client, "loop_launch", {"loop": "checkout-headline", "reason": "go"}
+            )
+            await wired_app.svc.loops.pause_loop(
+                TENANT, "checkout-headline", actor=Actor.qbrix(), evidence=EVIDENCE
+            )
+            result = await _call(client, "changes_list", {"who": ["qbrix"]})
+
+        line = result.content[0].text
+        assert "qbrix paused Checkout headline." in line
+        assert "state live -> paused" in line
+        assert "decision errors 23.8% of 629 calls" in line
 
     async def test_changes_list_reads_the_same_as_http(self, mcp, wired_app):
         async with _session(mcp, wired_app) as client:

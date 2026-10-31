@@ -59,6 +59,23 @@ def _changed_fields(change: Change) -> list[str]:
     ]
 
 
+def _restored_loop_fields(change: Change) -> tuple[str, ...]:
+    """what an undo of this change writes back: only the fields it moved, so an
+    unrelated later change doesn't refuse it. undoing a create removes the loop,
+    so anything changed since refuses it. a key locks at launch, so undoing a
+    key's change also needs the loop still in that state."""
+    if change.before is None:
+        return _RESTORABLE_LOOP_FIELDS
+    moved = {
+        name
+        for name in _RESTORABLE_LOOP_FIELDS
+        if change.before[name] != change.after[name]
+    }
+    if "key" in moved:
+        moved.add("state")
+    return tuple(moved)
+
+
 def _unversioned_gate(config: dict | None) -> dict | None:
     """a gate as an undo compares it. a period keeps the offset it was written
     with but reads back in utc, so it compares as an instant."""
@@ -90,15 +107,16 @@ def _restored_part(change: Change, state: dict | None) -> dict | None:
     if change.kind == "experiment.update":
         return {name: state[name] for name in _changed_fields(change)}
     if change.target_type == "loop":
-        return {name: state[name] for name in _RESTORABLE_LOOP_FIELDS}
+        return {name: state[name] for name in _restored_loop_fields(change)}
     return {"name": state["name"]}
 
 
 async def _rows(
     session: AsyncSession, tenant_id: str, groups: list[list[Change]]
 ) -> list[dict]:
-    """the entries for these groups, every name they mention read in one query
-    each, however many the page holds."""
+    """the entries for these groups, every name they mention read in a fixed
+    number of queries, however many the page holds. a target that is gone goes by
+    its last name, from the snapshot of its latest change."""
     changes = [change for group in groups for change in group]
     repo = ChangeRepository(session, tenant_id)
     undoers = await repo.undone_by_each([change.id for change in changes])
@@ -124,6 +142,19 @@ async def _rows(
             for metric_id, name in metrics.items()
         },
     }
+    for target_type in ("loop", "metric"):
+        gone = {
+            c.target_id
+            for c in changes
+            if c.target_type == target_type
+            and (target_type, c.target_id) not in targets
+        }
+        latest = await repo.latest_for_each(target_type, gone)
+        for target_id, change in latest.items():
+            last = change.before or change.after or {}
+            targets[(target_type, target_id)] = TargetName(
+                name=last.get("name"), key=last.get("key")
+            )
     return [workspace_entry(group, people, targets, undoers) for group in groups]
 
 

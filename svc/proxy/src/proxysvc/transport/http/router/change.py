@@ -69,6 +69,7 @@ class ActorMark(BaseModel):
     kind: Literal["member", "connection", "qbrix"]
     name: Optional[str] = None
     on_behalf_of: Optional[str] = None
+    via: Optional[str] = None
 
 
 class Piece(BaseModel):
@@ -94,6 +95,7 @@ class UndoneBy(BaseModel):
 
 
 class ChangeEntry(HistoryEntry):
+    api_key_id: Optional[str] = None
     target: ChangeTarget
     before: Optional[dict[str, Any]] = None
     after: Optional[dict[str, Any]] = None

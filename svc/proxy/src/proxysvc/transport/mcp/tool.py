@@ -186,10 +186,7 @@ def _sentence(entry: dict) -> str:
     words = []
     for piece in entry["pieces"]:
         if piece["kind"] == "actor":
-            actor = piece["actor"]
-            name = actor.get("name") or "qbrix"
-            for_whom = actor.get("on_behalf_of")
-            words.append(f"{name} for {for_whom}" if for_whom else name)
+            words.append(piece["actor"].get("name") or "qbrix")
         else:
             words.append(piece.get("text") or piece.get("name") or "")
     return "".join(words)
@@ -207,7 +204,12 @@ def _difference_line(difference: dict) -> str:
 
 def _change_line(entry: dict) -> str:
     parts = [entry["at"], _sentence(entry)]
+    if entry["via"]:
+        parts.append(_who(entry))
     parts += [_difference_line(difference) for difference in entry["diff"]]
+    evidence = _decision_errors(entry)
+    if evidence:
+        parts.append(f"decision errors {_failed(evidence)}")
     if entry["reason"]:
         parts.append(f'"{entry["reason"]}"')
     if entry["undone_by"]:

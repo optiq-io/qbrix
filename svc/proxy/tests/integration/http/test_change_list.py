@@ -333,6 +333,7 @@ class TestPiecesAndDiff:
                     "kind": "connection",
                     "name": "Claude Code",
                     "on_behalf_of": rename["who"]["name"],
+                    "via": None,
                 },
                 "text": None,
                 "name": None,
@@ -368,17 +369,35 @@ class TestPiecesAndDiff:
 
     async def test_a_deleted_target_keeps_its_id_and_last_name(self, api, wired_app):
         loop = await _loop(api)
+        await _rename(wired_app, loop, "Last name")
         deleted = await wired_app.svc.loops.delete_loop(
             TENANT, loop["id"], actor=CLAUDE
         )
         assert deleted
 
-        changes = (await _changes(api, who="connection"))["changes"]
+        changes = (await _changes(api, fold="false"))["changes"]
+        about_it = [c for c in changes if c["target"]["id"] == loop["id"]]
 
-        assert changes[0]["kind"] == "loop.delete"
-        assert changes[0]["target"]["id"] == loop["id"]
-        assert changes[0]["target"]["name"] == "Pricing page CTA"
-        assert changes[0]["target"]["key"] == loop["key"]
+        assert [c["kind"] for c in about_it] == [
+            "loop.delete",
+            "loop.rename",
+            "loop.create",
+        ]
+        assert {c["target"]["name"] for c in about_it} == {"Last name"}
+        assert {c["target"]["key"] for c in about_it} == {loop["key"]}
+
+    async def test_a_write_through_a_key_says_so(self, api, wired_app):
+        loop = await _loop(api)
+        by_key = Actor.member("dev-user", api_key_id="key-1")
+        await _rename(wired_app, loop, "Renamed", by_key)
+
+        rename = (await _changes(api, kind="loop.rename"))["changes"][0]
+        create = (await _changes(api, kind="loop.create"))["changes"][0]
+
+        assert rename["api_key_id"] == "key-1"
+        assert rename["pieces"][0]["actor"]["via"] == "API key"
+        assert create["api_key_id"] is None
+        assert create["pieces"][0]["actor"]["via"] is None
 
 
 class TestUndo:
@@ -456,6 +475,40 @@ class TestUndo:
         assert resp.status_code == 409
         assert resp.json()["context"] == {"later_change_id": second["id"]}
         assert second["id"] in resp.json()["detail"]
+
+    async def test_an_unrelated_later_change_does_not_refuse_it(self, api, wired_app):
+        loop = await _loop(api)
+        launched = await api.post(f"/api/v1/loops/{loop['key']}/launch")
+        assert launched.status_code == 200
+        await wired_app.svc.loops.pause_loop(TENANT, loop["id"], actor=Actor.qbrix())
+        await _rename(wired_app, loop, "Renamed while paused")
+        pause = (await _changes(api, kind="loop.pause"))["changes"][0]
+        rename = (await _changes(api, kind="loop.rename"))["changes"][0]
+
+        resumed = await api.post(f"/api/v1/changes/{pause['id']}/undo")
+
+        assert resumed.status_code == 200, resumed.text
+        assert resumed.json()["kind"] == "loop.resume"
+        current = (await api.get(f"/api/v1/loops/{loop['key']}")).json()
+        assert current["state"] == "live"
+        assert current["name"] == "Renamed while paused"
+
+        renamed_back = await api.post(f"/api/v1/changes/{rename['id']}/undo")
+
+        assert renamed_back.status_code == 200, renamed_back.text
+        current = (await api.get(f"/api/v1/loops/{loop['key']}")).json()
+        assert current["state"] == "live"
+        assert current["name"] == "Pricing page CTA"
+
+    async def test_a_create_is_refused_once_the_loop_moved(self, api, wired_app):
+        loop = await _loop(api)
+        await _rename(wired_app, loop, "Renamed")
+        create = (await _changes(api, kind="loop.create"))["changes"][0]
+
+        resp = await api.post(f"/api/v1/changes/{create['id']}/undo")
+
+        assert resp.status_code == 409
+        assert resp.json()["context"]["later_change_id"]
 
     async def test_an_unknown_change_is_not_found(self, api):
         resp = await api.post("/api/v1/changes/nope/undo")

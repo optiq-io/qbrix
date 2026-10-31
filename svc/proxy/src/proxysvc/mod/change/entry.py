@@ -47,9 +47,9 @@ _PLAIN_FIELDS = ("name", "key", "state", "audience")
 
 @dataclass(frozen=True, slots=True)
 class TargetName:
-    """what a target is called now, for a target that still exists."""
+    """what a target is called now, or was last called if it is gone."""
 
-    name: str
+    name: str | None
     key: str | None = None
 
 
@@ -140,8 +140,8 @@ def diff(before: dict | None, after: dict | None) -> list[dict]:
 
 
 def _target(change: Change, targets: Mapping[tuple[str, str], TargetName]) -> dict:
-    """a target by its name now; one that is gone keeps its last name and key
-    from the snapshot."""
+    """a target by its name now. kinds with no name lookup, such as a pool, go
+    by the snapshot on the change."""
     found = targets.get((change.target_type, change.target_id))
     snapshot = change.after or change.before or {}
     return {
@@ -163,6 +163,8 @@ def _actor_piece(change: Change, people: People) -> dict:
         }
     else:
         actor = {"kind": "member", "name": people.name(change.actor_user_id)}
+        if change.api_key_id:
+            actor["via"] = "API key"
     return {"kind": "actor", "actor": actor}
 
 
@@ -203,6 +205,7 @@ def workspace_entry(
     undoer = undoers.get(newest.id)
     return {
         **history_entry(newest, people),
+        "api_key_id": newest.api_key_id,
         "target": target,
         "before": oldest.before,
         "after": newest.after,
