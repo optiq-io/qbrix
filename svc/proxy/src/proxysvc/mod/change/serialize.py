@@ -34,23 +34,27 @@ def learning_snapshot(learnings: dict[str, Learning]) -> dict:
     }
 
 
+def who_made(change: Change, people: People) -> dict:
+    by_qbrix = change.actor_kind == "qbrix"
+    return {
+        "kind": change.actor_kind,
+        "user_id": None if by_qbrix else change.actor_user_id,
+        "name": None if by_qbrix else people.name(change.actor_user_id),
+    }
+
+
 def history_entry(change: Change, people: People) -> dict:
     """a change as history reads it: what, when, who and through what, why.
 
     a connection acts for its person, so it reads as that person via the
     client; a change by qbrix has no person.
     """
-    by_qbrix = change.actor_kind == "qbrix"
     return {
         "id": change.id,
         "kind": change.kind,
         "at": change.created_at.isoformat() if change.created_at else None,
         "status": change.status,
-        "who": {
-            "kind": change.actor_kind,
-            "user_id": None if by_qbrix else change.actor_user_id,
-            "name": None if by_qbrix else people.name(change.actor_user_id),
-        },
+        "who": who_made(change, people),
         "via": (
             {"connection_id": change.connection_id, "client": change.client_name}
             if change.connection_id

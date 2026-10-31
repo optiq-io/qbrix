@@ -21,18 +21,25 @@ from pydantic import Field
 from proxysvc.config import ProxySettings
 from proxysvc.core.error import ConnectionRateLimitedError
 from proxysvc.core.error import CycleNotFoundError
+from proxysvc.core.error import LoopNotFoundError
 from proxysvc.core.error import LoopStateError
+from proxysvc.core.error import MetricNotFoundError
 from proxysvc.mod.auth.scope import ROLE_SCOPES
 from proxysvc.mod.change.applied import Applied
+from proxysvc.mod.change.undo import undo_scope
 from proxysvc.mod.connection.service import ConnectionPrincipal
+from proxysvc.mod.metric.serialize import window_label
 from proxysvc.mod.safety.rule import DECISION_ERRORS
 from proxysvc.service import ProxyService
+from proxysvc.transport.http.router.change import ChangePage
 from proxysvc.transport.mcp import error
 from proxysvc.transport.mcp.error import Refusal
 from proxysvc.transport.mcp.error import refusals
 from proxysvc.transport.mcp.link import change_url
+from proxysvc.transport.mcp.link import changes_url
 from proxysvc.transport.mcp.repeat import RepeatGuard
 from proxysvc.transport.mcp.repeat import repeat_key
+from proxysvc.transport.mcp.schema import ChangeUndone
 from proxysvc.transport.mcp.schema import Detail
 from proxysvc.transport.mcp.schema import LoopChanged
 from proxysvc.transport.mcp.schema import LoopPage
@@ -53,7 +60,7 @@ _CREATE = ToolAnnotations(
     idempotent_hint=False,
     open_world_hint=False,
 )
-_LAUNCH = ToolAnnotations(
+_DESTRUCTIVE = ToolAnnotations(
     read_only_hint=False,
     destructive_hint=True,
     idempotent_hint=True,
@@ -126,13 +133,6 @@ def _who(entry: dict | None) -> str:
     return f"{name} via {via['client']}" if via else name
 
 
-def _window(seconds: int) -> str:
-    for unit, size in (("d", 86400), ("h", 3600), ("m", 60)):
-        if seconds % size == 0:
-            return f"{seconds // size}{unit}"
-    return f"{seconds}s"
-
-
 def _concise(loop: dict, detail: Detail) -> dict:
     if detail == "full":
         return loop
@@ -180,6 +180,42 @@ def _paused_line(loop: dict) -> str | None:
     elif entry.get("reason"):
         line += f": {entry['reason']}"
     return f"{line}. Everyone gets the fallback until a person resumes it."
+
+
+def _sentence(entry: dict) -> str:
+    words = []
+    for piece in entry["pieces"]:
+        if piece["kind"] == "actor":
+            actor = piece["actor"]
+            name = actor.get("name") or "qbrix"
+            for_whom = actor.get("on_behalf_of")
+            words.append(f"{name} for {for_whom}" if for_whom else name)
+        else:
+            words.append(piece.get("text") or piece.get("name") or "")
+    return "".join(words)
+
+
+def _difference_line(difference: dict) -> str:
+    before = difference["before"]
+    after = difference["after"]
+    if before is None:
+        return f"{difference['field']} + {after}"
+    if after is None:
+        return f"{difference['field']} - {before}"
+    return f"{difference['field']} {before} -> {after}"
+
+
+def _change_line(entry: dict) -> str:
+    parts = [entry["at"], _sentence(entry)]
+    parts += [_difference_line(difference) for difference in entry["diff"]]
+    if entry["reason"]:
+        parts.append(f'"{entry["reason"]}"')
+    if entry["undone_by"]:
+        parts.append(f"undone by {_who(entry['undone_by'])}")
+    elif entry["undoable"]:
+        parts.append("can be undone")
+    parts.append(f"change {entry['id']}")
+    return " · ".join(parts)
 
 
 def _share_line(share: list[dict]) -> str:
@@ -397,7 +433,7 @@ def register(
             return _refused(refusal)
         metrics = await service().metrics_in_use(principal.tenant_id)
         lines = [
-            f"{metric['name']} · {metric['type']} · window {_window(metric['window_seconds'])}"
+            f"{metric['name']} · {metric['type']} · window {window_label(metric['window_seconds'])}"
             f" · {metric['semantic']}"
             + (
                 f" · used by {', '.join(loop['key'] for loop in metric['loops'])}"
@@ -407,6 +443,73 @@ def register(
             for metric in metrics
         ] or ["No metrics yet. Create one with metric_create."]
         return _result("\n".join(lines), MetricList(metrics=metrics))
+
+    async def changes_list(
+        who: Annotated[
+            Optional[list[Literal["member", "connection", "qbrix"]]],
+            Field(
+                description="Only changes by people in the console (member), "
+                "through a connected client (connection), or by qbrix."
+            ),
+        ] = None,
+        kind: Annotated[
+            Optional[list[str]],
+            Field(description="Only these kinds of change, such as loop.rename."),
+        ] = None,
+        loop: Annotated[
+            Optional[str],
+            Field(description="Only changes to this loop: its key or its id."),
+        ] = None,
+        metric: Annotated[
+            Optional[str],
+            Field(description="Only changes to this metric: its name or its id."),
+        ] = None,
+        undoable: Annotated[
+            Optional[bool],
+            Field(description="true for changes that can still be undone."),
+        ] = None,
+        fold: Annotated[
+            bool,
+            Field(
+                description="Bursts of the same change by the same actor come back "
+                "as one entry with a count; false returns each change."
+            ),
+        ] = True,
+        cursor: Annotated[
+            Optional[str],
+            Field(description="next_cursor from the previous page."),
+        ] = None,
+        limit: Annotated[int, Field(ge=1, le=LIMIT_MAX)] = LIMIT_DEFAULT,
+    ) -> Annotated[CallToolResult, ChangePage]:
+        """List every change in the workspace, newest first: who made it and through which client, what it touched, each changed field before and after, why, and whether it can be undone."""
+        principal = current_principal()
+        try:
+            _require(principal, "loop:read", "read changes")
+            try:
+                with refusals():
+                    page = await service().list_workspace_changes(
+                        principal.tenant_id,
+                        who=who or (),
+                        kinds=kind or (),
+                        loop=loop,
+                        metric=metric,
+                        undoable=undoable,
+                        fold=fold,
+                        cursor=cursor,
+                        limit=limit,
+                    )
+            except LoopNotFoundError as e:
+                raise await refused_loop(principal, loop) from e
+            except MetricNotFoundError as e:
+                raise await refused_metric(principal, metric) from e
+        except Refusal as refusal:
+            return _refused(refusal)
+        lines = [_change_line(entry) for entry in page["changes"]] or [
+            "No changes match."
+        ]
+        if page["next_cursor"]:
+            lines.append(f"More changes: call again with cursor {page['next_cursor']}.")
+        return _result("\n".join(lines), ChangePage(**page))
 
     async def loop_create(
         name: Annotated[str, Field(description="What people call the loop.")],
@@ -556,20 +659,59 @@ def register(
             change = changed(created, "metric", metric["name"])
             return _result(
                 f"Created the metric {metric['name']} ({metric['type']}, window "
-                f"{_window(metric['window_seconds'])}). "
+                f"{window_label(metric['window_seconds'])}). "
                 f"Change {change['id']}, can be undone: {change['url']}",
                 MetricChanged(status="applied", change=change, metric=metric),
             )
 
         return await once("metric_create", arguments, call)
 
+    async def change_undo(
+        change: Annotated[str, Field(description="The id of the change to undo.")],
+        reason: Reason,
+    ) -> Annotated[CallToolResult, ChangeUndone]:
+        """Undo an earlier change by writing its inverse as a new change. Refused when its kind can't be undone, it was already undone, or a later change moved what it would restore; the refusal says which and names that later change."""
+
+        async def call(principal: ConnectionPrincipal) -> CallToolResult:
+            found = await service().get_change(principal.tenant_id, change)
+            if found is None:
+                raise error.unknown_change(change)
+            _require(principal, undo_scope(found["target_type"]), "undo this change")
+            with error.undo_refusals():
+                undo = await service().undo_change(
+                    principal.tenant_id,
+                    change,
+                    actor=principal.actor,
+                    reason=reason,
+                )
+            entry = await service().get_change_entry(principal.tenant_id, undo["id"])
+            url = changes_url(settings.console_origin, undo["id"])
+            return _result(
+                f"{_sentence(entry)} This undoes change {change}. "
+                f"Change {undo['id']}: {url}",
+                ChangeUndone(
+                    status="applied",
+                    change={
+                        "id": undo["id"],
+                        "kind": undo["kind"],
+                        "undoable": entry["undoable"],
+                        "url": url,
+                    },
+                    undone=entry,
+                ),
+            )
+
+        return await once("change_undo", {"change": change, "reason": reason}, call)
+
     for fn, hints in (
         (loops_list, _READ),
         (loop_get, _READ),
         (loop_results, _READ),
         (metrics_list, _READ),
+        (changes_list, _READ),
         (loop_create, _CREATE),
-        (loop_launch, _LAUNCH),
+        (loop_launch, _DESTRUCTIVE),
         (metric_create, _CREATE),
+        (change_undo, _DESTRUCTIVE),
     ):
         server.add_tool(fn, annotations=hints)

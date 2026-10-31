@@ -14,15 +14,6 @@ from proxysvc.mod.loop.serialize import loop_to_dict
 from proxysvc.mod.people import People
 
 
-def _page(rows: list, limit: int) -> tuple[list, str | None]:
-    """the page's rows, and the cursor to the next page when there is one."""
-    if len(rows) <= limit:
-        return rows, None
-    rows = rows[:limit]
-    last = rows[-1]
-    return rows, pages.encode(last.created_at, last.id)
-
-
 class LoopReadService:
     """loops as people, agents and the console read them: one loop, the list
     with each loop's latest change and results, a loop's cycles and its
@@ -70,7 +61,7 @@ class LoopReadService:
             rows = await LoopRepository(session, tenant_id).page(
                 states, before, limit + 1
             )
-            loops, next_cursor = _page(rows, limit)
+            loops, next_cursor = pages.page(rows, limit)
             latest = await ChangeRepository(session, tenant_id).latest_for_each(
                 "loop", [loop.id for loop in loops]
             )
@@ -124,7 +115,7 @@ class LoopReadService:
             rows = await ChangeRepository(session, tenant_id).page_for(
                 "loop", loop.id, before, limit + 1
             )
-            changes, next_cursor = _page(rows, limit)
+            changes, next_cursor = pages.page(rows, limit)
             people = await People.load(
                 session, tenant_id, [change.actor_user_id for change in changes]
             )

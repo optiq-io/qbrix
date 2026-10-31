@@ -428,6 +428,8 @@ class Change(Base):
             "target_id",
             "created_at",
         ),
+        # the workspace's changes, newest first
+        Index("ix_changes_tenant_id_created_at", "tenant_id", "created_at", "id"),
     )
 
     id: Mapped[str] = mapped_column(

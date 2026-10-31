@@ -18,6 +18,15 @@ def encode(created_at: datetime, row_id: str) -> str:
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
 
+def page(rows: list, limit: int) -> tuple[list, str | None]:
+    """the page's rows, and the cursor to the next page when there is one."""
+    if len(rows) <= limit:
+        return rows, None
+    rows = rows[:limit]
+    last = rows[-1]
+    return rows, encode(last.created_at, last.id)
+
+
 def decode(cursor: str) -> Position:
     try:
         raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode()

@@ -4,6 +4,7 @@ from collections.abc import Collection
 
 from sqlalchemy import and_
 from sqlalchemy import func
+from sqlalchemy import not_
 from sqlalchemy import or_
 from sqlalchemy import select
 from sqlalchemy import update
@@ -14,13 +15,24 @@ from qbrixstore.postgres.models import Change
 from proxysvc.core.actor import Actor
 from proxysvc.core.cursor import Position
 from proxysvc.core.error import ChangeConflictError
+from proxysvc.core.error import ChangeMovedError
+from proxysvc.mod.change.undo import UNDOABLE_KINDS
 from proxysvc.mod.change.undo import Undoing
 
 
-def later_change_message(later: Change) -> str:
-    return (
+def moved_since(later: Change) -> ChangeMovedError:
+    return ChangeMovedError(
         f"a later change exists on this {later.target_type}: {later.kind} "
-        f"({later.id}). undo that one first"
+        f"({later.id}). undo that one first",
+        later_change_id=later.id,
+    )
+
+
+def _older_than(before: Position):
+    created_at, change_id = before
+    return or_(
+        Change.created_at < created_at,
+        and_(Change.created_at == created_at, Change.id < change_id),
     )
 
 
@@ -83,7 +95,7 @@ class ChangeRepository:
         undo was checked, or a concurrent undo, still refuses it."""
         latest = await self.latest_for(target_type, target_id)
         if latest is not None and latest.id != undoing.latest_id:
-            raise ChangeConflictError(later_change_message(latest))
+            raise moved_since(latest)
         change_id = undoing.change_id
         result = await self._session.execute(
             update(Change)
@@ -160,16 +172,50 @@ class ChangeRepository:
             Change.target_id == target_id,
         )
         if before is not None:
-            created_at, change_id = before
-            stmt = stmt.where(
-                or_(
-                    Change.created_at < created_at,
-                    and_(Change.created_at == created_at, Change.id < change_id),
-                )
-            )
+            stmt = stmt.where(_older_than(before))
         stmt = stmt.order_by(Change.created_at.desc(), Change.id.desc()).limit(limit)
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
+
+    async def page_workspace(
+        self,
+        before: Position | None,
+        limit: int,
+        *,
+        actor_kinds: Collection[str] = (),
+        kinds: Collection[str] = (),
+        targets: Collection[tuple[str, str]] = (),
+        undoable: bool | None = None,
+    ) -> list[Change]:
+        """the workspace's changes newest first, from just after before. every
+        filter given narrows the page, targets included."""
+        stmt = select(Change).where(Change.tenant_id == self._tenant_id)
+        if before is not None:
+            stmt = stmt.where(_older_than(before))
+        if actor_kinds:
+            stmt = stmt.where(Change.actor_kind.in_(actor_kinds))
+        if kinds:
+            stmt = stmt.where(Change.kind.in_(kinds))
+        for target_type, target_id in targets:
+            stmt = stmt.where(
+                Change.target_type == target_type, Change.target_id == target_id
+            )
+        if undoable is not None:
+            can_undo = and_(Change.kind.in_(UNDOABLE_KINDS), Change.status == "applied")
+            stmt = stmt.where(can_undo if undoable else not_(can_undo))
+        stmt = stmt.order_by(Change.created_at.desc(), Change.id.desc()).limit(limit)
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def undone_by_each(self, change_ids: Collection[str]) -> dict[str, Change]:
+        """the change that undid each of these, in one query."""
+        if not change_ids:
+            return {}
+        stmt = select(Change).where(
+            Change.tenant_id == self._tenant_id, Change.undoes_id.in_(change_ids)
+        )
+        result = await self._session.execute(stmt)
+        return {change.undoes_id: change for change in result.scalars().all()}
 
     async def latest_for_each(
         self, target_type: str, target_ids: Collection[str]
