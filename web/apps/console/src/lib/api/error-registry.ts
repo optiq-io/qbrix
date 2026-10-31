@@ -13,6 +13,10 @@ export type ErrorEntry = {
 };
 
 export const errorRegistry: Record<string, ErrorEntry> = {
+  PIN_TARGET_NOT_FOUND: {
+    title: "Couldn't pin this",
+    description: () => "It's no longer in this workspace.",
+  },
   POOL_HAS_EXPERIMENTS: {
     title: "Pool has active experiments",
     description: () =>

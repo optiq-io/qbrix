@@ -7,6 +7,7 @@ import { cn } from "@qbrix/ui/lib/utils";
 import { useAuth } from "@/lib/auth/context";
 import { useWorkspaceName } from "@/components/shell/workspace-row";
 import { isNextNavActive, nextNav } from "./nav";
+import { PinnedSection } from "./pinned";
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -40,10 +41,7 @@ export function Sidebar() {
       </nav>
 
       <span className="h-[18px] shrink-0" />
-      <p className="px-2 py-1 n-label text-n-text-3">Pinned</p>
-      <p className="px-2 py-1.5 n-label font-normal text-n-text-3">
-        Pin a loop or metric from its ⋯ menu
-      </p>
+      <PinnedSection />
 
       <span className="flex-1" />
       <YouRow />

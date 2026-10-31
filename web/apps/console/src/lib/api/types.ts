@@ -579,3 +579,16 @@ export interface ConnectionRequest {
 export interface ConnectionDecision {
   redirect_to: string;
 }
+
+export type PinKind = "loop" | "metric";
+
+/** GET /v1/pins: a loop or metric a person keeps in their sidebar */
+export interface Pin {
+  kind: PinKind;
+  ref: string;
+  name: string;
+  /** a loop's key; a metric's name */
+  key: string;
+  /** a metric has none */
+  state: string | null;
+}

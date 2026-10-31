@@ -53,6 +53,7 @@ from proxysvc.transport.http.exception.base import InvalidRequestIdException
 from proxysvc.transport.http.exception.base import InvalidCursorException
 from proxysvc.transport.http.exception.base import ConnectionNotFoundException
 from proxysvc.transport.http.exception.base import OAuthRequestNotFoundException
+from proxysvc.transport.http.exception.base import PinTargetNotFoundException
 
 __all__ = [
     "BaseAPIException",
@@ -110,4 +111,5 @@ __all__ = [
     "InvalidCursorException",
     "ConnectionNotFoundException",
     "OAuthRequestNotFoundException",
+    "PinTargetNotFoundException",
 ]

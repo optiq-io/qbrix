@@ -638,6 +638,32 @@ class Cycle(Base):
     metric_version: Mapped["MetricVersion"] = relationship("MetricVersion")
 
 
+class Pin(Base):
+    """a loop or metric a person keeps in their sidebar. ref is the target's id,
+    in the table kind names, so a deleted target leaves a row nothing lists."""
+
+    __tablename__ = "pins"
+    __table_args__ = (
+        UniqueConstraint("user_id", "kind", "ref", name="uq_pin_user_kind_ref"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: uuid4().hex
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    ref: Mapped[str] = mapped_column(String(32), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
 class OAuthClient(Base):
     """a client that registered itself (dynamic client registration). a client
     identified by a metadata document url is never stored."""

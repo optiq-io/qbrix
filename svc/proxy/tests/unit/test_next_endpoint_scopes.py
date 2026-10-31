@@ -34,6 +34,19 @@ def test_resolves_to_its_scope(method, path, scope):
 @pytest.mark.parametrize(
     "method, path",
     [
+        ("GET", "/api/v1/pins"),
+        ("PUT", "/api/v1/pins/loop/abc"),
+        ("DELETE", "/api/v1/pins/metric/abc"),
+    ],
+)
+def test_pinning_needs_no_scope(method, path):
+    """a pin is a person's own navigation, so a viewer's role reaches it too."""
+    assert AuthMiddleware._get_required_scope_for_path(method, path) is None
+
+
+@pytest.mark.parametrize(
+    "method, path",
+    [
         ("GET", "/api/v1/connections"),
         ("DELETE", "/api/v1/connections/abc"),
         ("GET", "/api/v1/connections/requests/abc"),
