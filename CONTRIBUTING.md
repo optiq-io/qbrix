@@ -12,7 +12,7 @@ Thanks for your interest. Bug reports, fixes, docs and new policies are all welc
 
 ## Development setup
 
-You need Python 3.10+, [uv](https://github.com/astral-sh/uv), Docker, and for the
+You need Python 3.14+, [uv](https://github.com/astral-sh/uv), Docker, and for the
 console, Node.js 22 with [pnpm](https://pnpm.io).
 
 ```bash

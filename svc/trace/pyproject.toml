@@ -3,7 +3,7 @@ name = "tracesvc"
 version = "0.2.0"  # x-release-please-version
 description = "Qbrix Trace Service - event persistence to ClickHouse"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.14"
 dependencies = [
     "click>=8.3.1",
     "grpcio>=1.76.0",

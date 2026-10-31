@@ -3,7 +3,7 @@ name = "qbrixproto"
 version = "0.2.0"  # x-release-please-version
 description = "gRPC protocol definitions for qbrix services"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.14"
 dependencies = [
     "grpcio>=1.60.0",
     "protobuf>=6.31.1,<7.0.0",

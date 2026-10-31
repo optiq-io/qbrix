@@ -1,18 +1,9 @@
 """shared fixtures for integration tests."""
 
-import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from qbrixstore.postgres.models import Base, Tenant
-
-
-@pytest.fixture(scope="session")
-def event_loop_policy():
-    """use default event loop policy."""
-    import asyncio
-
-    return asyncio.DefaultEventLoopPolicy()
 
 
 @pytest_asyncio.fixture

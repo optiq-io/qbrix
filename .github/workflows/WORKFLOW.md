@@ -19,7 +19,7 @@ Every `uses:` is pinned to a full commit SHA, with the release it came from as a
 trailing comment. Dependabot (`.github/dependabot.yml`) moves the SHA and the
 comment together, once a week, alongside the Docker base images and the compose
 images (pinned by digest) and the uv and npm lockfiles. It proposes minor and
-patch updates only: a major version, Python past 3.10, and a new ClickHouse release
+patch updates only: a major version, Python past 3.14, and a new ClickHouse release
 (its versions are year.month, so every "minor" is one) are deliberate changes with
 their own ticket. Its titles are `ci: ...` and `build: ...`, so they pass the
 title check.
