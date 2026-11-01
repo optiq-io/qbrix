@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Target } from "lucide-react";
 import { cn } from "@qbrix/ui/lib/utils";
 import type { MenuItem } from "@qbrix/ui/next/menu";
 import { StateDot, type State } from "@qbrix/ui/next/state";
@@ -52,34 +53,45 @@ export function usePin(target: Pin): { pinned: boolean; menuItem: MenuItem } {
 }
 
 export function PinnedList({ pins, pathname }: { pins: Pin[]; pathname: string | null }) {
-  if (pins.length === 0) {
-    return <p className="px-2 py-1.5 n-label font-normal text-n-text-3">Pin a loop or metric from its ⋯ menu</p>;
-  }
-
   return (
-    <ul className="flex flex-col gap-0.5">
-      {pins.map((pin) => {
-        const href = pin.kind === "loop" ? routes.next.loop(pin.key) : routes.next.metric(pin.key);
-        const state = pin.state ? STATE[pin.state] : undefined;
-        const active = isNextNavActive(pathname, href);
-        return (
-          <li key={`${pin.kind}:${pin.ref}`}>
-            <Link
-              href={href}
-              aria-current={active ? "page" : undefined}
-              className={cn(
-                "flex items-center gap-2 rounded-n-control px-2 py-1 n-body text-n-text-2 hover:bg-n-fill-1",
-                active && "bg-n-fill-2 font-medium text-n-text-1 hover:bg-n-fill-2",
-              )}
-            >
-              {state ? <StateDot state={state} /> : <span aria-hidden className="w-1.5 shrink-0" />}
-              <span className={cn("min-w-0 truncate", pin.kind === "metric" && "font-n-mono text-[12px]")}>{pin.name}</span>
-              {pin.state && pin.state !== "live" && <span className="shrink-0 n-meta text-n-text-3">· {pin.state}</span>}
-            </Link>
-          </li>
-        );
-      })}
-    </ul>
+    <>
+      {pins.length > 0 && (
+        <ul className="flex flex-col gap-0.5">
+          {pins.map((pin) => {
+            const href = pin.kind === "loop" ? routes.next.loop(pin.key) : routes.next.metric(pin.key);
+            const state = pin.state ? STATE[pin.state] : undefined;
+            const active = isNextNavActive(pathname, href);
+            return (
+              <li key={`${pin.kind}:${pin.ref}`}>
+                <Link
+                  href={href}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "flex items-center gap-2 rounded-n-control px-2 py-1 n-body text-n-text-2 hover:bg-n-fill-1",
+                    active && "bg-n-fill-2 font-medium text-n-text-1 hover:bg-n-fill-2",
+                  )}
+                >
+                  <span aria-hidden className="flex size-[15px] shrink-0 items-center justify-center">
+                    {pin.kind === "metric" ? (
+                      <Target size={15} className="text-n-text-2" />
+                    ) : (
+                      state && <StateDot state={state} className="size-[7px]" />
+                    )}
+                  </span>
+                  <span className={cn("min-w-0 flex-1 truncate", pin.kind === "metric" && "font-n-mono text-[12px]")}>
+                    {pin.name}
+                  </span>
+                  {pin.state && pin.state !== "live" && (
+                    <span className="n-label shrink-0 font-normal text-n-text-3">{pin.state}</span>
+                  )}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <p className="px-2 py-1.5 n-label font-normal text-n-text-3">Pin a loop or metric from its ⋯ menu</p>
+    </>
   );
 }
 
