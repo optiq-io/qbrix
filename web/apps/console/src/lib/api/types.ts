@@ -673,6 +673,23 @@ export interface ChangePiece {
   name: string | null;
 }
 
+/** what a safety pause recorded on its change */
+export interface DecisionErrorEvidence {
+  signal: "decision_errors";
+  rate: number;
+  errors: number;
+  calls: number;
+  window_start: string;
+  window_end: string;
+  reasons: Record<string, number>;
+}
+
+/** POST /v1/loops/{loop}/resume */
+export interface LoopResumed {
+  loop: Loop;
+  serving_within_seconds: number;
+}
+
 /** one row of GET /v1/changes */
 export interface ChangeEntry {
   id: string;
@@ -680,6 +697,7 @@ export interface ChangeEntry {
   at: string | null;
   status: string;
   reason: string | null;
+  evidence: DecisionErrorEvidence | { signal?: string } | null;
   pieces: ChangePiece[];
   diff: { field: string; before: string | null; after: string | null }[];
   undone_by: { id: string; who: { kind: string; name: string | null }; at: string } | null;

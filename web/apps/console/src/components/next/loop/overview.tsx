@@ -8,8 +8,10 @@ import { facts } from "@/lib/header/fact";
 import { eyebrow, type StatusRow, type LoopStatus } from "@/lib/header/status";
 import { toHeaderEvent, toPin } from "@/lib/loop/event";
 import { chartCaption, loopCounters, loopFacts } from "@/lib/loop/fact";
+import type { Pause } from "@/lib/loop/pause";
 import { DraftOverview } from "./draft-overview";
 import { historyRowId, RecentHistory } from "./history";
+import { PausedOverview } from "./paused-overview";
 
 const RECENT = 5;
 
@@ -17,6 +19,7 @@ export function LoopOverview({
   loop,
   row,
   status,
+  pause,
   cycleResults,
   dayResults,
   chartResults,
@@ -25,11 +28,13 @@ export function LoopOverview({
   changes,
   now,
   staging,
-  onStagingEnd,
+  onCancel,
+  onDone,
 }: {
   loop: Loop;
   row: StatusRow;
   status: LoopStatus;
+  pause: Pause | null;
   cycleResults: LoopResults | undefined;
   dayResults: LoopResults | undefined;
   chartResults: LoopResults | undefined;
@@ -38,10 +43,15 @@ export function LoopOverview({
   changes: ChangeEntry[];
   now: number;
   staging: boolean;
-  onStagingEnd: () => void;
+  onCancel: () => void;
+  onDone: () => void;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
-  const events = useMemo(() => changes.map(toHeaderEvent), [changes]);
+  const alertId = pause?.byQbrix ? pause.id : null;
+  const events = useMemo(
+    () => changes.map((entry) => toHeaderEvent(entry, entry.id === alertId)),
+    [changes, alertId],
+  );
   const started = loop.cycle?.started_at ? Date.parse(loop.cycle.started_at) : null;
   const pins = useMemo(
     () => changes.filter((entry) => started !== null && entry.at && Date.parse(entry.at) >= started).map(toPin),
@@ -61,10 +71,10 @@ export function LoopOverview({
         row={row}
         eyebrow={eyebrow(row, cycleResults ? loopCounters(cycleResults, now) : {})}
         events={events}
-        facts={facts(row, loopFacts(status, loop, { cycle: cycleResults, day: dayResults }, now))}
+        facts={facts(row, loopFacts(status, loop, { cycle: cycleResults, day: dayResults, pause }, now))}
       />
       {loop.state === "draft" && (
-        <DraftOverview loop={loop} results={cycleResults} staging={staging} onStagingEnd={onStagingEnd} />
+        <DraftOverview loop={loop} results={cycleResults} staging={staging} onCancel={onCancel} onDone={onDone} />
       )}
       {share && chartResults && (
         <ShareChart
@@ -77,6 +87,18 @@ export function LoopOverview({
           range={range}
           onRangeChange={onRangeChange}
           caption={chartCaption(chartResults, range, status === "warming_up")}
+          frozen={loop.state === "paused"}
+        />
+      )}
+      {loop.state === "paused" && (
+        <PausedOverview
+          loop={loop}
+          pause={pause}
+          results={cycleResults}
+          now={now}
+          staging={staging}
+          onCancel={onCancel}
+          onDone={onDone}
         />
       )}
       {loop.cycle && loop.state === "live" && (

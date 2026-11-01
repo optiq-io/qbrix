@@ -42,16 +42,20 @@ function atMs(entry: ChangeEntry): number {
   return entry.at ? Date.parse(entry.at) : 0;
 }
 
-export function toHeaderEvent(entry: ChangeEntry): HeaderEvent {
+/** an alert reads as what happened and its stored reason, with no chips or quote */
+export function toHeaderEvent(entry: ChangeEntry, alert = false): HeaderEvent {
+  const reason = entry.reason ?? undefined;
   return {
     id: entry.id,
     kind: entry.kind,
     at: atMs(entry),
     firstAt: entry.count > 1 && entry.first_at ? Date.parse(entry.first_at) : undefined,
     pieces: tokens(entry),
-    diff: differences(entry),
-    reason: entry.reason ?? undefined,
+    diff: alert ? [] : differences(entry),
+    reason: alert ? undefined : reason,
+    context: alert ? reason : undefined,
     source: actorName(actorOf(entry)),
+    alert: alert || undefined,
   };
 }
 

@@ -124,6 +124,24 @@ describe("loopFacts, warming up", () => {
   });
 });
 
+describe("loopFacts, paused", () => {
+  const loop = { fallback: "a", options: [{ key: "a", name: "Relevance" }] } as Loop;
+  const cycle = results({ calls: { live: 0, draft: 0, paused: 1214 } });
+  const pause = { id: "p", at: NOW - 89 * MINUTE, byQbrix: true, evidence: null };
+
+  it("reads what's served, for how long and how many it answered", () => {
+    expect(loopFacts("paused", loop, { cycle, day: undefined, pause }, NOW)).toEqual({
+      serving: "Relevance",
+      pausedFor: { value: "1 h 29 m", caption: "since 12:51" },
+      answered: "1,214",
+    });
+  });
+
+  it("leaves Paused for to a dash when the pause isn't in the changes", () => {
+    expect(loopFacts("paused", loop, { cycle, day: undefined, pause: null }, NOW).pausedFor).toBeUndefined();
+  });
+});
+
 describe("healthSignals", () => {
   it("reads each signal from the counters", () => {
     expect(healthSignals(results(), NOW).map(({ label, value }) => [label, value])).toEqual([
@@ -132,6 +150,11 @@ describe("healthSignals", () => {
       ["Outcomes learned", "90.0%"],
       ["Waiting to seal", "30"],
     ]);
+  });
+
+  it("takes a paused loop's errors from the pause, however clean the last hour reads", () => {
+    const atPause = { label: "Decision errors", value: "9.0% at pause", state: "part" as const };
+    expect(healthSignals(results(), NOW, atPause)[0]).toEqual(atPause);
   });
 
   it("dashes outcomes before any arrive", () => {

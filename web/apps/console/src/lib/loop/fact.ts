@@ -3,6 +3,7 @@ import type { Signal } from "@qbrix/ui/next/health";
 import type { Loop, LoopCycle, LoopResults, ResultsRange } from "@/lib/api/types";
 import type { FactValue } from "@/lib/header/fact";
 import type { LoopStatus } from "@/lib/header/status";
+import { pausedFor, type Pause } from "./pause";
 
 const MINUTE = 60;
 const HOUR = 60 * MINUTE;
@@ -193,9 +194,16 @@ export function launchConsequence(loop: Pick<Loop, "options">): { title: string;
 export function loopFacts(
   status: LoopStatus,
   loop: Loop,
-  { cycle, day }: { cycle: LoopResults | undefined; day: LoopResults | undefined },
+  { cycle, day, pause }: { cycle: LoopResults | undefined; day: LoopResults | undefined; pause?: Pause | null },
   now: number,
 ): Record<string, FactValue | undefined> {
+  if (status === "paused") {
+    return {
+      serving: fallbackName(loop),
+      pausedFor: pause ? pausedFor(pause, now) : undefined,
+      answered: cycle?.calls.paused.toLocaleString("en"),
+    };
+  }
   if (status === "draft") {
     const { done, required } = readiness(loop, cycle);
     return {
@@ -221,14 +229,15 @@ export function loopFacts(
   };
 }
 
-export function healthSignals(results: LoopResults | undefined, now: number): Signal[] {
+/** `unmeasured` replaces the error rate when there is none: a paused loop makes no decisions */
+export function healthSignals(results: LoopResults | undefined, now: number, unmeasured?: Signal): Signal[] {
   if (!results) return [];
   const { decision_errors: errors, outcomes, last_outcome_at: lastOutcome } = results.health;
   const calls = results.calls.live + errors;
   const errorRate = calls ? errors / calls : 0;
   const arrived = outcomes.learned + outcomes.late + outcomes.duplicate + outcomes.earlier_cycle;
   return [
-    {
+    unmeasured ?? {
       label: "Decision errors",
       value: preciseRate(errorRate),
       state: errorRate >= ERRORS_NEED_A_LOOK ? "part" : "ok",

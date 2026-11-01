@@ -6,6 +6,7 @@ import type { State } from "@qbrix/ui/next/state";
 import { Wire } from "@qbrix/ui/next/wire";
 import type { Loop, LoopResults } from "@/lib/api/types";
 import { DRAFT_SIGNALS, fallbackName, healthSignals, windowLabel } from "@/lib/loop/fact";
+import { pausedErrors, type Pause } from "@/lib/loop/pause";
 
 const STATE: Record<Loop["state"], { label: string; state?: State }> = {
   draft: { label: "Draft" },
@@ -21,16 +22,21 @@ function engine(loop: Loop): string {
 
 export function LoopRail({
   loop,
+  pause,
   results,
   prompts,
   now,
 }: {
   loop: Loop;
+  pause: Pause | null;
   results: LoopResults | undefined;
   prompts: string[];
   now: number;
 }) {
-  const signals = loop.state === "draft" ? DRAFT_SIGNALS : healthSignals(results, now);
+  const signals =
+    loop.state === "draft"
+      ? DRAFT_SIGNALS
+      : healthSignals(results, now, loop.state === "paused" ? pausedErrors(pause) : undefined);
 
   return (
     <>
