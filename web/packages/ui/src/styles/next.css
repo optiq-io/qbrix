@@ -37,8 +37,8 @@
   --n-part-bg: light-dark(#FBF0DC, #3A2A10);
   --n-no-fg: light-dark(#A33A2B, #F0806E);
   --n-no-bg: light-dark(#FBE9E6, #3A1A15);
-  --n-new-fg: light-dark(#4B44C9, #A5A0F7);
-  --n-new-bg: light-dark(#ECEBFD, #25234A);
+  --n-new-fg: light-dark(#9C2F86, #E98FD2);
+  --n-new-bg: light-dark(#F9E8F5, #37182F);
 }
 
 @media (prefers-color-scheme: dark) {

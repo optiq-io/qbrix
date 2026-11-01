@@ -1,6 +1,6 @@
 import { cn } from "../lib/utils";
 
-export type ButtonVariant = "primary" | "secondary" | "quiet" | "danger" | "inverse" | "inverse-quiet";
+export type ButtonVariant = "primary" | "secondary" | "quiet" | "danger";
 export type ButtonSize = "sm" | "md" | "lg";
 
 const BASE =
@@ -11,8 +11,6 @@ const VARIANT: Record<ButtonVariant, string> = {
   secondary: "border border-n-line bg-n-surface text-n-text-1 hover:bg-n-fill-1",
   quiet: "text-n-text-3 hover:text-n-text-1",
   danger: "text-n-no-fg hover:bg-n-no-bg",
-  inverse: "bg-n-on-ink text-n-ink hover:opacity-90 focus-visible:outline-n-on-ink",
-  "inverse-quiet": "text-n-on-ink/60 hover:text-n-on-ink focus-visible:outline-n-on-ink",
 };
 
 const SIZE: Record<ButtonSize, string> = {

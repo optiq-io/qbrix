@@ -79,6 +79,22 @@ export function StagedAndWire() {
       <Fixture label="Applying">
         <Bar changes={TWO} applying />
       </Fixture>
+      <Fixture label="Creating something new">
+        <StagedBar
+          label="New loop"
+          action="Create draft"
+          changes={[
+            {
+              summary: "Create checkout-headline",
+              consequence:
+                "Creates checkout-headline as a draft. Your app gets the fallback, Pay in one tap, until you launch it.",
+            },
+          ]}
+          onReview={noop}
+          onDiscard={noop}
+          onApply={noop}
+        />
+      </Fixture>
       <Fixture label="No changes: nothing renders">
         <div className="rounded-n-control border border-dashed border-n-line p-2">
           <Bar changes={[]} />

@@ -19,11 +19,17 @@ export function StagedBar({
   onReview,
   onDiscard,
   onApply,
+  label,
+  action,
   applying = false,
   canEdit = true,
   className,
 }: {
   changes: StagedChange[];
+  /** replaces the count, for what isn't a change to something that exists: "New loop" */
+  label?: string;
+  /** replaces the apply label: "Create draft" */
+  action?: string;
   onReview: () => void;
   onDiscard: () => void;
   onApply: () => void;
@@ -39,28 +45,28 @@ export function StagedBar({
     <section
       aria-label="Staged changes"
       aria-busy={applying}
-      className={cn("flex min-h-[46px] shrink-0 items-center gap-3 bg-n-ink px-6 py-2", className)}
+      className={cn("flex min-h-[46px] shrink-0 items-center gap-3 bg-n-new-bg px-6 py-2", className)}
     >
-      <Layers size={14} className="shrink-0 text-n-on-ink" />
-      <span className="n-body shrink-0 font-medium tabular-nums text-n-on-ink">
-        {count} staged {count === 1 ? "change" : "changes"}
+      <Layers size={14} className="shrink-0 text-n-new-fg" />
+      <span className="n-body shrink-0 font-medium tabular-nums text-n-new-fg">
+        {label ?? `${count} staged ${count === 1 ? "change" : "changes"}`}
       </span>
-      <span aria-hidden className="h-4 w-px shrink-0 bg-n-on-ink/30" />
-      <p className="n-body min-w-0 flex-1 whitespace-pre-wrap text-n-on-ink/60">
+      <span aria-hidden className="h-4 w-px shrink-0 bg-n-new-fg/30" />
+      <p className="n-body min-w-0 flex-1 whitespace-pre-wrap text-n-text-1">
         {count === 1
           ? changes[0].consequence
           : changes.map((change) => `${change.summary} → ${change.consequence}`).join("   ·   ")}
       </p>
       {count > 1 && (
-        <Button variant="inverse-quiet" size="sm" onClick={onReview} disabled={applying}>
+        <Button variant="quiet" size="sm" onClick={onReview} disabled={applying} className="text-n-text-2">
           Review
         </Button>
       )}
-      <Button variant="inverse-quiet" size="sm" onClick={onDiscard} disabled={applying}>
+      <Button variant="quiet" size="sm" onClick={onDiscard} disabled={applying} className="text-n-text-2">
         Discard
       </Button>
-      <Button variant="inverse" size="sm" onClick={onApply} disabled={applying} className="px-3">
-        {applying ? "Applying…" : applyLabel(count)}
+      <Button size="sm" onClick={onApply} disabled={applying}>
+        {applying ? "Applying…" : (action ?? applyLabel(count))}
       </Button>
     </section>
   );

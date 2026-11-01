@@ -22,7 +22,7 @@ const NEUTRALS = [
   ["text-1", "bg-n-text-1", "primary text"],
   ["text-2", "bg-n-text-2", "supporting text"],
   ["text-3", "bg-n-text-3", "meta, labels, axes"],
-  ["ink", "bg-n-ink", "things, figures, the leading option, primary buttons, the staged bar"],
+  ["ink", "bg-n-ink", "things, figures, the leading option, primary buttons"],
   ["on-ink", "bg-n-on-ink", "text on ink"],
 ] as const;
 
