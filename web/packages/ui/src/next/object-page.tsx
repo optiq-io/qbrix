@@ -17,6 +17,7 @@ export function ObjectPage({
   tabs,
   activeTab,
   rail,
+  staged,
   canEdit = true,
   className,
   children,
@@ -30,6 +31,8 @@ export function ObjectPage({
   tabs?: ObjectTab[];
   activeTab?: string;
   rail: React.ReactNode;
+  /** the staged bar: above the tabs, because it collects edits from all of them */
+  staged?: React.ReactNode;
   /** false for a person who can't change this object: actions are absent, never disabled */
   canEdit?: boolean;
   className?: string;
@@ -62,6 +65,8 @@ export function ObjectPage({
           {menu}
         </div>
       </header>
+
+      {staged}
 
       {tabs && tabs.length > 0 && (
         <nav aria-label="Sections" className="flex h-[42px] shrink-0 gap-6 border-b border-n-line-2 px-6">
