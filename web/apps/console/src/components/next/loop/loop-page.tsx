@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { notFound } from "next/navigation";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Rocket } from "lucide-react";
+import { Play, Rocket } from "lucide-react";
 import { Button } from "@qbrix/ui/next/button";
 import { Menu } from "@qbrix/ui/next/menu";
 import { ObjectPage } from "@qbrix/ui/next/object-page";
@@ -16,10 +16,12 @@ import { queryKeys } from "@/lib/api/query-keys";
 import { ApiError, type Loop, type ResultsRange } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/context";
 import { prompts, statusRow } from "@/lib/header/status";
+import { pauseOf } from "@/lib/loop/pause";
 import { loopStatus } from "@/lib/loop/status";
 import { LoopLoading } from "./loading";
 import { LoopOverview } from "./overview";
 import { LoopRail } from "./rail";
+import { useStagedAction } from "./staged-action";
 
 const RESULTS_POLL_MS = 10_000;
 const DETAIL_POLL_MS = 30_000;
@@ -116,34 +118,47 @@ function LoopFrame({
   onRangeChange,
   changes,
   now,
-}: Omit<React.ComponentProps<typeof LoopOverview>, "row" | "status" | "staging" | "onStagingEnd"> & { loop: Loop }) {
+}: Omit<
+  React.ComponentProps<typeof LoopOverview>,
+  "row" | "status" | "pause" | "staging" | "onCancel" | "onDone"
+> & { loop: Loop }) {
   const { user } = useAuth();
-  const [staging, setStaging] = useState(false);
+  const { staging, actionRef, open, cancel, finish } = useStagedAction(loop.state);
   const canEdit = user?.role !== "viewer";
   const pin = usePin({ kind: "loop", ref: loop.id, name: loop.name, key: loop.key, state: loop.state });
   const status = loopStatus(loop.state, cycleResults);
-  const row = statusRow({ kind: "loop", status });
+  const pause = pauseOf(loop, changes);
+  const row = statusRow({ kind: "loop", status, alert: pause?.byQbrix });
+  const paused = loop.state === "paused";
 
   return (
     <ObjectPage
       crumbs={[{ label: "Loops", href: routes.next.home }, { label: loop.name }]}
       menu={<Menu items={[pin.menuItem]} />}
       actions={
-        loop.state === "draft" && !staging ? (
-          <Button size="sm" onClick={() => setStaging(true)}>
+        staging ? undefined : loop.state === "draft" ? (
+          <Button ref={actionRef} size="sm" onClick={open}>
             <Rocket size={13} />
             Launch
+          </Button>
+        ) : paused ? (
+          <Button ref={actionRef} size="sm" onClick={open}>
+            <Play size={13} />
+            Resume
           </Button>
         ) : undefined
       }
       canEdit={canEdit}
-      viewOnly={`Ask ${loop.owner.name} to change this loop`}
-      rail={<LoopRail loop={loop} results={cycleResults} prompts={prompts(row, loop.name)} now={now} />}
+      viewOnly={`Ask ${loop.owner.name} to ${paused ? "resume" : "change"} this loop`}
+      rail={
+        <LoopRail loop={loop} pause={pause} results={cycleResults} prompts={prompts(row, loop.name)} now={now} />
+      }
     >
       <LoopOverview
         loop={loop}
         row={row}
         status={status}
+        pause={pause}
         cycleResults={cycleResults}
         dayResults={dayResults}
         chartResults={chartResults}
@@ -152,7 +167,8 @@ function LoopFrame({
         changes={changes}
         now={now}
         staging={staging && canEdit}
-        onStagingEnd={() => setStaging(false)}
+        onCancel={cancel}
+        onDone={finish}
       />
     </ObjectPage>
   );

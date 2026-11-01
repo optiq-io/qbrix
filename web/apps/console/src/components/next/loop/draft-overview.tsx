@@ -1,25 +1,26 @@
 "use client";
 
-import { useEffect, useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CircleCheck, CircleDashed, Rocket } from "lucide-react";
 import { Button } from "@qbrix/ui/next/button";
-import { Consequence } from "@qbrix/ui/next/staged";
 import { loops } from "@/lib/api/loops";
 import { queryKeys } from "@/lib/api/query-keys";
 import type { Loop, LoopResults } from "@/lib/api/types";
 import { launchConsequence, readiness, type ReadyCheck } from "@/lib/loop/fact";
+import { StagedPanel } from "./staged-action";
 
 export function DraftOverview({
   loop,
   results,
   staging,
-  onStagingEnd,
+  onCancel,
+  onDone,
 }: {
   loop: Loop;
   results: LoopResults | undefined;
   staging: boolean;
-  onStagingEnd: () => void;
+  onCancel: () => void;
+  onDone: () => void;
 }) {
   const { checks, done, required } = readiness(loop, results);
 
@@ -38,7 +39,7 @@ export function DraftOverview({
           ))}
         </ul>
       </section>
-      {staging && <LaunchConsequence loop={loop} onEnd={onStagingEnd} />}
+      {staging && <LaunchConsequence loop={loop} onCancel={onCancel} onDone={onDone} />}
     </div>
   );
 }
@@ -56,21 +57,15 @@ function Check({ check }: { check: ReadyCheck }) {
   );
 }
 
-function LaunchConsequence({ loop, onEnd }: { loop: Loop; onEnd: () => void }) {
+function LaunchConsequence({ loop, onCancel, onDone }: { loop: Loop; onCancel: () => void; onDone: () => void }) {
   const queryClient = useQueryClient();
-  const panel = useRef<HTMLDivElement>(null);
   const { title, body } = launchConsequence(loop);
-
-  useEffect(() => {
-    panel.current?.focus();
-    panel.current?.scrollIntoView({ block: "nearest" });
-  }, []);
 
   const launch = useMutation({
     mutationFn: () => loops.launch(loop.key),
     onSuccess: (launched) => {
       queryClient.setQueryData(queryKeys.loops.detail(loop.key), launched);
-      onEnd();
+      onDone();
     },
     // not onError: that would replace the global toast a failed launch should show
     onSettled: () => {
@@ -80,23 +75,21 @@ function LaunchConsequence({ loop, onEnd }: { loop: Loop; onEnd: () => void }) {
   });
 
   return (
-    <div ref={panel} tabIndex={-1} className="rounded-n-panel outline-none">
-      <Consequence
-        title={title}
-        action={
-          <div className="flex shrink-0 items-center gap-2">
-            <Button variant="secondary" disabled={launch.isPending} onClick={onEnd}>
-              Cancel
-            </Button>
-            <Button disabled={launch.isPending} onClick={() => launch.mutate()}>
-              <Rocket size={13} />
-              {launch.isPending ? "Launching" : "Launch"}
-            </Button>
-          </div>
-        }
-      >
-        {body}
-      </Consequence>
-    </div>
+    <StagedPanel
+      title={title}
+      action={
+        <div className="flex shrink-0 items-center gap-2">
+          <Button variant="secondary" disabled={launch.isPending} onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button disabled={launch.isPending} onClick={() => launch.mutate()}>
+            <Rocket size={13} />
+            {launch.isPending ? "Launching" : "Launch"}
+          </Button>
+        </div>
+      }
+    >
+      {body}
+    </StagedPanel>
   );
 }

@@ -12,6 +12,7 @@ function entry(overrides: Partial<ChangeEntry> = {}): ChangeEntry {
     at: AT.toISOString(),
     status: "applied",
     reason: "reads better",
+    evidence: null,
     pieces: [
       {
         kind: "actor",
@@ -32,6 +33,18 @@ function entry(overrides: Partial<ChangeEntry> = {}): ChangeEntry {
 }
 
 describe("toHeaderEvent", () => {
+  it("pins an alert, with its reason as context and no chips", () => {
+    const event = toHeaderEvent(entry(), true);
+    expect(event).toMatchObject({ alert: true, context: "reads better", diff: [] });
+    expect(event.reason).toBeUndefined();
+  });
+
+  it("isn't an alert unless asked", () => {
+    const event = toHeaderEvent(entry());
+    expect(event.alert).toBeUndefined();
+    expect(event.context).toBeUndefined();
+  });
+
   it("keeps the sentence's order and maps the actor", () => {
     const event = toHeaderEvent(entry());
     expect(event.pieces[0]).toEqual({

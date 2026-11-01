@@ -84,7 +84,7 @@ const LOOP: Record<LoopStatus, StatusRow> = {
     facts: [
       { key: "serving", label: "Serving", caption: "the default" },
       { key: "pausedFor", label: "Paused for" },
-      { key: "failingNow", label: "Failing now", caption: "of calls, last 10 minutes" },
+      { key: "answered", label: "Answered", caption: "with the fallback, last hour" },
     ],
     prompts: [
       "Why did the decisions in {name} fail?",

@@ -68,7 +68,7 @@ describe("the headers drawn in the band", () => {
       facts: [
         ["Serving", "Relevance", "the default"],
         ["Paused for", "6 h 29 m", "since 03:12"],
-        ["Failing now", "0.2%", "of calls, last 10 minutes"],
+        ["Answered", "214", "with the fallback, last hour"],
       ],
     });
   });

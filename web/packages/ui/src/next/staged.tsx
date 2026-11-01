@@ -49,20 +49,24 @@ export function StagedPreview({ className, children }: { className?: string; chi
 /** what an action will do, beside the action: launching a draft */
 export function Consequence({
   title,
+  field,
   action,
   className,
   children,
 }: {
   title: string;
+  /** asked for before the action, such as a reason. the action lines up with its foot */
+  field?: React.ReactNode;
   action?: React.ReactNode;
   className?: string;
   children?: React.ReactNode;
 }) {
   return (
-    <div className={cn("flex items-center gap-4 rounded-n-panel bg-n-bg p-4", className)}>
+    <div className={cn("flex gap-4 rounded-n-panel bg-n-bg p-4", field ? "items-end" : "items-center", className)}>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <p className="n-body font-medium text-n-text-1">{title}</p>
         {children && <p className="n-meta text-n-text-2">{children}</p>}
+        {field && <div className="mt-2">{field}</div>}
       </div>
       {action}
     </div>

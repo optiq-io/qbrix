@@ -148,7 +148,7 @@ export const FIXTURES: HeaderFixture[] = [
     values: {
       serving: "Relevance",
       pausedFor: { value: "6 h 29 m", caption: "since 03:12" },
-      failingNow: "0.2%",
+      answered: "214",
     },
     events: (now) => [
       paused("alert", now - 6.5 * HOUR),

@@ -1,5 +1,5 @@
 import { apiFetch } from "./client";
-import type { ChangeEntry, Loop, LoopResults, ResultsRange } from "./types";
+import type { ChangeEntry, Loop, LoopResults, LoopResumed, ResultsRange } from "./types";
 
 const RECENT_CHANGES = 50;
 
@@ -14,6 +14,13 @@ export const loops = {
 
   async launch(key: string): Promise<Loop> {
     return apiFetch<Loop>(`${path(key)}/launch`, { method: "POST" });
+  },
+
+  async resume(key: string, reason?: string): Promise<LoopResumed> {
+    return apiFetch<LoopResumed>(`${path(key)}/resume`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    });
   },
 
   async results(key: string, range: ResultsRange): Promise<LoopResults> {
