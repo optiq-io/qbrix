@@ -9,19 +9,20 @@ import { Modules } from "./modules";
 import { PinnedSheet } from "./pinned";
 import { RailAndStream } from "./rail-and-stream";
 import { ShareAndNumbers } from "./share-and-numbers";
+import { StagedAndWire } from "./staged-and-wire";
 import { States } from "./states";
 
 const NEUTRALS = [
   ["bg", "bg-n-bg", "the page behind panels"],
   ["surface", "bg-n-surface", "panels, the main column"],
-  ["fill-1", "bg-n-fill-1", "selected row, hover, the staged bar"],
+  ["fill-1", "bg-n-fill-1", "selected row, hover, a staged field"],
   ["fill-2", "bg-n-fill-2", "chips, filters, secondary controls"],
   ["line", "bg-n-line", "dividers between regions, panel and control borders"],
   ["line-2", "bg-n-line-2", "rows inside a list or table"],
   ["text-1", "bg-n-text-1", "primary text"],
   ["text-2", "bg-n-text-2", "supporting text"],
   ["text-3", "bg-n-text-3", "meta, labels, axes"],
-  ["ink", "bg-n-ink", "things, figures, the leading option, primary buttons"],
+  ["ink", "bg-n-ink", "things, figures, the leading option, primary buttons, the staged bar"],
   ["on-ink", "bg-n-on-ink", "text on ink"],
 ] as const;
 
@@ -208,6 +209,10 @@ export function TokenSheet() {
 
         <Section title="Pinned">
           <PinnedSheet />
+        </Section>
+
+        <Section title="Wire and staged changes">
+          <StagedAndWire />
         </Section>
 
         <Section title="Type">
