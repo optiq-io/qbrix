@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 import type { Loop, LoopResults } from "@/lib/api/types";
-import { chartCaption, firstSeal, healthSignals, loopCounters, loopFacts, nowLine, windowLabel } from "./fact";
+import {
+  chartCaption,
+  fallbackName,
+  firstSeal,
+  healthSignals,
+  launchConsequence,
+  loopCounters,
+  loopFacts,
+  nowLine,
+  readiness,
+  windowLabel,
+} from "./fact";
 
 const NOW = new Date(2026, 9, 30, 14, 20).getTime();
 const MINUTE = 60_000;
@@ -154,5 +165,63 @@ describe("wording", () => {
     expect(windowLabel(7 * 86_400)).toBe("7 days");
     expect(windowLabel(3_600)).toBe("1 hour");
     expect(windowLabel(90)).toBe("90 seconds");
+  });
+});
+
+const DRAFT = {
+  fallback: "b",
+  options: [
+    { key: "a", name: "Pay in one tap" },
+    { key: "b", name: "Fewer returns" },
+    { key: "c", name: "Ships today" },
+  ],
+  metric: { name: "checkout_completed", window_seconds: 86_400 },
+} as Loop;
+const draftResults = (draft: number) =>
+  results({ cycle: null, share: null, lift: null, calls: { live: 0, draft, paused: 0 } });
+
+describe("a draft", () => {
+  it("reads its calls, its fallback and how much is ready", () => {
+    expect(loopFacts("draft", DRAFT, { cycle: draftResults(1214), day: undefined }, NOW)).toEqual({
+      calls: "1,214",
+      serving: "Fewer returns",
+      ready: "3 of 3",
+    });
+  });
+
+  it("isn't ready until select calls arrive, and shows what to do", () => {
+    const { checks, done, required } = readiness(DRAFT, draftResults(0));
+    expect([done, required]).toEqual([2, 3]);
+    expect(checks[2]).toMatchObject({ label: "select calls arriving", done: false });
+    expect(checks[2].detail).toContain("Wire it");
+  });
+
+  it("names its options and its metric's window", () => {
+    const { checks } = readiness(DRAFT, draftResults(214));
+    expect(checks[0]).toEqual({ label: "Three options", detail: "Pay in one tap, Fewer returns, Ships today", done: true });
+    expect(checks[1].detail).toBe("checkout_completed, window 24 hours");
+    expect(checks[2].detail).toBe("214 in the last hour · all answered with the fallback");
+  });
+
+  it("never counts the optional webhook", () => {
+    const { checks, required } = readiness(DRAFT, draftResults(214));
+    expect(checks.filter((check) => check.optional).map((check) => check.label)).toEqual(["Alerts webhook"]);
+    expect(required).toBe(3);
+  });
+
+  it("counts one option as not ready", () => {
+    const [check] = readiness({ ...DRAFT, options: DRAFT.options.slice(0, 1) }, draftResults(1)).checks;
+    expect(check).toMatchObject({ label: "One option", done: false });
+  });
+
+  it("falls back to the key when no option matches", () => {
+    expect(fallbackName({ fallback: "gone", options: [] })).toBe("gone");
+  });
+
+  it("says each option's starting share by how many there are", () => {
+    const body = (count: number) => launchConsequence({ options: Array(count).fill(DRAFT.options[0]) }).body;
+    expect(body(2)).toContain("near half");
+    expect(body(3)).toContain("near a third");
+    expect(body(5)).toContain("near an even share");
   });
 });

@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { notFound } from "next/navigation";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { Rocket } from "lucide-react";
+import { Button } from "@qbrix/ui/next/button";
 import { Menu } from "@qbrix/ui/next/menu";
 import { ObjectPage } from "@qbrix/ui/next/object-page";
 import { CouldntLoad } from "@qbrix/ui/next/page-error";
@@ -54,7 +56,7 @@ export function LoopPage({ loopKey }: { loopKey: string }) {
   });
   const launched = Boolean(detail.data?.cycle);
 
-  const cycle = useResults(loopKey, "cycle", launched);
+  const cycle = useResults(loopKey, "cycle", detail.isSuccess);
   const day = useResults(loopKey, "24h", launched);
   const chart = useResults(loopKey, range, launched, true);
   const changes = useQuery({
@@ -114,8 +116,10 @@ function LoopFrame({
   onRangeChange,
   changes,
   now,
-}: Omit<React.ComponentProps<typeof LoopOverview>, "row" | "status"> & { loop: Loop }) {
+}: Omit<React.ComponentProps<typeof LoopOverview>, "row" | "status" | "staging" | "onStagingEnd"> & { loop: Loop }) {
   const { user } = useAuth();
+  const [staging, setStaging] = useState(false);
+  const canEdit = user?.role !== "viewer";
   const pin = usePin({ kind: "loop", ref: loop.id, name: loop.name, key: loop.key, state: loop.state });
   const status = loopStatus(loop.state, cycleResults);
   const row = statusRow({ kind: "loop", status });
@@ -124,7 +128,15 @@ function LoopFrame({
     <ObjectPage
       crumbs={[{ label: "Loops", href: routes.next.home }, { label: loop.name }]}
       menu={<Menu items={[pin.menuItem]} />}
-      canEdit={user?.role !== "viewer"}
+      actions={
+        loop.state === "draft" && !staging ? (
+          <Button size="sm" onClick={() => setStaging(true)}>
+            <Rocket size={13} />
+            Launch
+          </Button>
+        ) : undefined
+      }
+      canEdit={canEdit}
       viewOnly={`Ask ${loop.owner.name} to change this loop`}
       rail={<LoopRail loop={loop} results={cycleResults} prompts={prompts(row, loop.name)} now={now} />}
     >
@@ -139,6 +151,8 @@ function LoopFrame({
         onRangeChange={onRangeChange}
         changes={changes}
         now={now}
+        staging={staging && canEdit}
+        onStagingEnd={() => setStaging(false)}
       />
     </ObjectPage>
   );

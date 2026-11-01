@@ -8,6 +8,29 @@ const MINUTE = 60;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 const ERRORS_NEED_A_LOOK = 0.01;
+const MIN_OPTIONS = 2;
+
+const COUNT_WORD: Record<number, string> = {
+  1: "One",
+  2: "Two",
+  3: "Three",
+  4: "Four",
+  5: "Five",
+  6: "Six",
+  7: "Seven",
+  8: "Eight",
+  9: "Nine",
+  10: "Ten",
+};
+
+const EVEN_SHARE: Record<number, string> = { 2: "near half", 3: "near a third" };
+
+export const DRAFT_SIGNALS: Signal[] = [
+  { label: "Decision errors", value: "none" },
+  { label: "Outcomes arriving", value: "—" },
+  { label: "Outcomes learned", value: "after launch" },
+  { label: "Waiting to seal", value: "—" },
+];
 
 const STEP_WORD: Record<number, string> = {
   [MINUTE]: "minute",
@@ -109,12 +132,78 @@ export function firstSeal(cycle: LoopResults | undefined, windowSeconds: number,
   return sealTime(Math.max(started, Date.parse(first.at)) + windowSeconds * 1000, now);
 }
 
+export function fallbackName(loop: Pick<Loop, "fallback" | "options">): string {
+  return loop.options.find((option) => option.key === loop.fallback)?.name ?? loop.fallback;
+}
+
+export type ReadyCheck = { label: string; detail: string; done: boolean; optional?: boolean };
+
+export type Readiness = { checks: ReadyCheck[]; done: number; required: number };
+
+function optionCount(count: number): string {
+  const word = COUNT_WORD[count] ?? String(count);
+  return `${word} ${count === 1 ? "option" : "options"}`;
+}
+
+/** what a draft has so far. it informs and gates nothing: launching is always possible */
+export function readiness(loop: Loop, results: LoopResults | undefined): Readiness {
+  const calls = results?.calls.draft ?? 0;
+  const required: ReadyCheck[] = [
+    {
+      label: optionCount(loop.options.length),
+      detail: loop.options.map((option) => option.name).join(", "),
+      done: loop.options.length >= MIN_OPTIONS,
+    },
+    {
+      label: "A metric",
+      detail: `${loop.metric.name}, window ${windowLabel(loop.metric.window_seconds)}`,
+      done: true,
+    },
+    {
+      label: "select calls arriving",
+      detail: calls
+        ? `${calls.toLocaleString("en")} in the last hour · all answered with the fallback`
+        : "none in the last hour · the calls are under Wire it",
+      done: calls > 0,
+    },
+  ];
+  return {
+    checks: [
+      ...required,
+      {
+        label: "Alerts webhook",
+        detail: "optional · not set up · alerts only reach the console without it",
+        done: false,
+        optional: true,
+      },
+    ],
+    done: required.filter((check) => check.done).length,
+    required: required.length,
+  };
+}
+
+export function launchConsequence(loop: Pick<Loop, "options">): { title: string; body: string } {
+  const share = EVEN_SHARE[loop.options.length] ?? "near an even share";
+  return {
+    title: "Launching starts cycle 1 for everyone.",
+    body: `Each option starts ${share} of decisions and moves as qbrix learns. A launched loop can't go back to a draft.`,
+  };
+}
+
 export function loopFacts(
   status: LoopStatus,
   loop: Loop,
   { cycle, day }: { cycle: LoopResults | undefined; day: LoopResults | undefined },
   now: number,
 ): Record<string, FactValue | undefined> {
+  if (status === "draft") {
+    const { done, required } = readiness(loop, cycle);
+    return {
+      calls: cycle?.calls.draft.toLocaleString("en"),
+      serving: fallbackName(loop),
+      ready: `${done} of ${required}`,
+    };
+  }
   if (status === "warming_up") {
     const outcomes = cycle?.health.outcomes.learned;
     return {

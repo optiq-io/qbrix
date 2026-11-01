@@ -5,7 +5,7 @@ import { Property, RailSection } from "@qbrix/ui/next/object-page";
 import type { State } from "@qbrix/ui/next/state";
 import { Wire } from "@qbrix/ui/next/wire";
 import type { Loop, LoopResults } from "@/lib/api/types";
-import { healthSignals, windowLabel } from "@/lib/loop/fact";
+import { DRAFT_SIGNALS, fallbackName, healthSignals, windowLabel } from "@/lib/loop/fact";
 
 const STATE: Record<Loop["state"], { label: string; state?: State }> = {
   draft: { label: "Draft" },
@@ -30,14 +30,13 @@ export function LoopRail({
   prompts: string[];
   now: number;
 }) {
-  const fallback = loop.options.find((option) => option.key === loop.fallback)?.name ?? loop.fallback;
-  const signals = healthSignals(results, now);
+  const signals = loop.state === "draft" ? DRAFT_SIGNALS : healthSignals(results, now);
 
   return (
     <>
       <RailSection title="Loop">
         <Property label="State" value={STATE[loop.state].label} state={STATE[loop.state].state} />
-        {loop.cycle && <Property label="Cycle" value={`${loop.cycle.number} of ${loop.cycle.number}`} />}
+        <Property label="Cycle" value={loop.cycle ? `${loop.cycle.number} of ${loop.cycle.number}` : "none yet"} />
         <Property label="Engine" value={engine(loop)} />
         <Property label="Metric" value={<MetricRef name={loop.metric.name} />} />
         <Property label="Window" value={windowLabel(loop.metric.window_seconds)} />
@@ -45,7 +44,7 @@ export function LoopRail({
       <RailSection title="Delivery">
         <Property label="Audience" value="Everyone" />
         <Property label="Rollout" value="100%" />
-        <Property label="Fallback" value={fallback} />
+        <Property label="Fallback" value={fallbackName(loop)} />
       </RailSection>
       {signals.length > 0 && <Health signals={signals} />}
       <Wire loopKey={loop.key} metricKind="outcome" />
