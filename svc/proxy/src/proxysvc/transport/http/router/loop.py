@@ -255,6 +255,7 @@ class Health(BaseModel):
     decision_errors: int
     outcomes: Outcomes
     last_outcome_at: Optional[str] = None
+    last_learned_at: Optional[str] = None
     ledger_lag_ms: Optional[int] = None
 
 
@@ -264,11 +265,12 @@ class ResultsResponse(BaseModel):
     share: Optional[Share] = None
     lift: Optional[Lift] = None
     calls: Calls
+    decisions_per_second: float
     health: Health
 
 
 LoopState = Literal["draft", "live", "paused"]
-ResultsPeriod = Literal["24h", "7d"]
+ResultsPeriod = Literal["24h", "7d", "cycle"]
 PAGE_LIMIT = 50
 PAGE_LIMIT_MAX = 200
 

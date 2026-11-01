@@ -167,6 +167,13 @@ function Item({ events, shortcuts }: { events: HeaderEvent[]; shortcuts: boolean
       className={cn("flex min-h-[42px] gap-3 rounded-n-chip", FOCUS)}
     >
       <div className="grid min-w-0 flex-1" aria-live="polite">
+        {/* the row holds its tallest event, so stepping never moves the page below it */}
+        {many &&
+          picked.set.map((event) => (
+            <div key={`size-${event.id}`} aria-hidden className="invisible min-w-0 [grid-area:1/1]">
+              <ItemBody event={event} now={now} />
+            </div>
+          ))}
         {leaving && leaving.id !== shown.id && (
           <div
             key={`leaving-${leaving.id}`}

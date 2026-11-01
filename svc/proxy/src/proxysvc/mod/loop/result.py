@@ -19,6 +19,7 @@ from qbrixstore.postgres.models import Loop
 from qbrixstore.postgres.session import get_session
 from qbrixstore.redis.client import RedisClient
 from qbrixstore.redis.health import LedgerProgress
+from qbrixstore.redis.health import LoopSelectReason
 from qbrixstore.redis.health import OutcomeDisposition
 from qbrixstore.redis.health import OutcomeHealth
 from qbrixstore.redis.health import SelectHealth
@@ -27,6 +28,7 @@ from proxysvc.core.error import CycleNotFoundError
 from proxysvc.mod.loop.repository import LoopRepository
 from proxysvc.mod.loop.serialize import cycle_to_dict
 from proxysvc.mod.loop.stat import DAY_MS
+from proxysvc.mod.loop.stat import MINUTE_MS
 from proxysvc.mod.loop.stat import columns
 from proxysvc.mod.loop.stat import lift
 from proxysvc.mod.loop.stat import option_range
@@ -34,10 +36,15 @@ from proxysvc.mod.loop.stat import step_for
 
 T = TypeVar("T")
 
-PERIODS_MS = {"24h": DAY_MS, "7d": 7 * DAY_MS}
+PERIODS_MS: dict[str, int | None] = {
+    "24h": DAY_MS,
+    "7d": 7 * DAY_MS,
+    "cycle": None,
+}
 SUMMARY_PERIOD = "24h"
 LIFT_RANGE_MS = 7 * DAY_MS
 HEALTH_MINUTES = 60
+RATE_MINUTES = 5
 CACHE_TTL_SEC = 5.0
 CACHE_MAXSIZE = 1024
 OUTCOME_ENDINGS = (
@@ -66,13 +73,13 @@ def _window_ms(loop: Loop) -> int:
 
 
 def _share_span(
-    cycle: Cycle, period_ms: int, now_ms: int
+    cycle: Cycle, period_ms: int | None, now_ms: int
 ) -> tuple[CycleSpan, int, list[int]]:
     """the span share reads, snapped to the series' columns, its step and
-    the columns."""
+    the columns. no period reads the whole cycle."""
     started = _ms(cycle.started_at)
     end = _ms(cycle.ended_at) if cycle.ended_at else now_ms
-    start = max(started, end - period_ms)
+    start = started if period_ms is None else max(started, end - period_ms)
     step = step_for(end - start)
     cells = columns(start, end, step)
     return CycleSpan(cycle.id, cells[0] if cells else start, end), step, cells
@@ -95,6 +102,15 @@ def _lift_span(
         since = max(started, until - LIFT_RANGE_MS)
         return CycleSpan(cycle.id, since, until), started > until - LIFT_RANGE_MS
     return CycleSpan(cycle.id, started, until), until < ended
+
+
+def _rate(decisions: int, cycle: Cycle | None, now_ms: int) -> float:
+    """decisions a second over the last few minutes, the current one only as
+    far as it has run, and never over more than the cycle has run."""
+    elapsed = (RATE_MINUTES - 1) * MINUTE_MS + now_ms % MINUTE_MS
+    if cycle is not None:
+        elapsed = min(elapsed, now_ms - _ms(cycle.started_at))
+    return decisions / (elapsed / 1000) if elapsed > 0 else 0.0
 
 
 def _pick_cycle(loop: Loop, number: int | None) -> Cycle | None:
@@ -159,8 +175,12 @@ class LoopResultService:
         cycle = _pick_cycle(loop, cycle_number)
         progress = await self._redis.ledger_progress()
 
-        calls, health, ledger = await asyncio.gather(
+        now = self._clock()
+        calls, recent, health, ledger = await asyncio.gather(
             self._redis.loop_selects(tenant_id, loop.id, HEALTH_MINUTES),
+            self._redis.loop_selects(
+                tenant_id, loop.id, RATE_MINUTES, now_minute=now // MINUTE_MS
+            ),
             self._health(tenant_id, cycle, progress),
             self._cycle_results(tenant_id, loop, cycle, period, progress),
         )
@@ -169,6 +189,9 @@ class LoopResultService:
             "range": period,
             **ledger,
             "calls": calls,
+            "decisions_per_second": _rate(
+                recent[LoopSelectReason.LIVE.value], cycle, now
+            ),
             "health": health,
         }
 
@@ -217,13 +240,16 @@ class LoopResultService:
     async def _health(
         self, tenant_id: str, cycle: Cycle | None, progress: LedgerProgress | None
     ) -> dict:
+        learned_up_to = 0
         if cycle is None:
             selects, outcomes = SelectHealth(), OutcomeHealth()
         else:
-            selects, outcomes = await asyncio.gather(
+            selects, outcomes, learning = await asyncio.gather(
                 self._redis.select_health(tenant_id, cycle.id, HEALTH_MINUTES),
                 self._redis.outcome_health(tenant_id, cycle.id, HEALTH_MINUTES),
+                self._redis.read_learning(tenant_id, cycle.id),
             )
+            learned_up_to = learning.sealed_up_to
         return {
             "decision_errors": selects.error,
             "outcomes": {
@@ -238,6 +264,7 @@ class LoopResultService:
                 if outcomes.last_arrival_ms is not None
                 else None
             ),
+            "last_learned_at": _iso(learned_up_to) if learned_up_to else None,
             "ledger_lag_ms": progress.lag_ms if progress else None,
         }
 

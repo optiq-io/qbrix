@@ -146,6 +146,14 @@ export const queryKeys = {
     all: ["pins"] as const,
   },
 
+  // resource: loops (qbrix next)
+  loops: {
+    all: ["loops"] as const,
+    detail: (key: string) => ["loops", "detail", key] as const,
+    results: (key: string, range: string) => ["loops", "results", key, range] as const,
+    changes: (key: string) => ["loops", "changes", key] as const,
+  },
+
   apiKeys: {
     all: ["api-keys"] as const,
     list: ["api-keys", "list"] as const,
