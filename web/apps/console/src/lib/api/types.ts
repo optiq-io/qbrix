@@ -592,3 +592,97 @@ export interface Pin {
   /** a metric has none */
   state: string | null;
 }
+
+export type LoopState = "draft" | "live" | "paused";
+
+export interface LoopCycle {
+  id: string;
+  number: number;
+  engine: string;
+  engine_version: string;
+  metric_version: string;
+  started_at: string | null;
+  ended_at: string | null;
+}
+
+/** GET /v1/loops/{loop} */
+export interface Loop {
+  id: string;
+  key: string;
+  name: string;
+  purpose: string;
+  metric: { id: string; name: string; type: string; window_seconds: number };
+  engine: string;
+  state: LoopState;
+  paused_from: string | null;
+  live_since: string | null;
+  owner: { id: string; name: string };
+  /** an option's key */
+  fallback: string;
+  options: { id: string; key: string; name: string; config: Record<string, unknown> }[];
+  cycle: LoopCycle | null;
+}
+
+export type ResultsRange = "24h" | "7d" | "cycle";
+
+export interface ResultsOption {
+  key: string;
+  name: string;
+  decisions: number;
+  share: number | null;
+  sealed: number;
+  waiting: number;
+}
+
+/** GET /v1/loops/{loop}/results */
+export interface LoopResults {
+  cycle: LoopCycle | null;
+  range: ResultsRange;
+  share: {
+    since: string;
+    until: string;
+    step_seconds: number;
+    options: ResultsOption[];
+    series: { at: string; decisions: number[] }[];
+  } | null;
+  lift: { value: number | null; early: boolean; since: string; until: string } | null;
+  /** the last hour's calls by reason */
+  calls: { live: number; draft: number; paused: number };
+  /** over the last few minutes */
+  decisions_per_second: number;
+  health: {
+    decision_errors: number;
+    outcomes: { learned: number; late: number; duplicate: number; earlier_cycle: number };
+    last_outcome_at: string | null;
+    last_learned_at: string | null;
+    ledger_lag_ms: number | null;
+  };
+}
+
+export interface ChangeActorMark {
+  kind: "member" | "connection" | "qbrix";
+  name: string | null;
+  on_behalf_of: string | null;
+  via: string | null;
+}
+
+export interface ChangePiece {
+  kind: "actor" | "text" | "loop" | "metric";
+  actor: ChangeActorMark | null;
+  text: string | null;
+  name: string | null;
+}
+
+/** one row of GET /v1/changes */
+export interface ChangeEntry {
+  id: string;
+  kind: string;
+  at: string | null;
+  status: string;
+  reason: string | null;
+  pieces: ChangePiece[];
+  diff: { field: string; before: string | null; after: string | null }[];
+  undone_by: { id: string; who: { kind: string; name: string | null }; at: string } | null;
+  count: number;
+  first_at: string | null;
+}

@@ -25,7 +25,9 @@ import pytest_asyncio
 import proxysvc.config
 from qbrixstore.postgres.models import Cycle
 from qbrixstore.postgres.session import get_session
+from qbrixstore.redis import Learning
 from qbrixstore.redis.health import LedgerProgress
+from qbrixstore.redis.health import LoopSelectReason
 from qbrixstore.redis.health import OutcomeDisposition
 from qbrixstore.redis.health import SelectErrorReason
 from qbrixstore.redis.health import SelectOutcome
@@ -175,6 +177,30 @@ class TestShare:
         assert len(day["series"]) == 48
         assert week["step_seconds"] == 6 * 60 * 60
         assert len(week["series"]) <= 48
+
+    async def test_the_cycle_range_reads_from_the_cycles_start(self, wired_app, api):
+        loop = await _loop(wired_app)
+        start = _started_ms(loop)
+        ledger = wired_app.ledger
+        ledger.decide(loop["cycle"]["id"], "first", 0, start + 1_000)
+        _at(wired_app, start + 30 * DAY_MS)
+
+        results = await _results(api, range="cycle")
+        share = results["share"]
+
+        assert results["range"] == "cycle"
+        assert share["step_seconds"] == 24 * 60 * 60
+        assert len(share["series"]) in (30, 31)
+        assert share["options"][0]["decisions"] == 1
+
+    async def test_a_young_cycles_range_reads_by_the_minute(self, wired_app, api):
+        loop = await _loop(wired_app)
+        _at(wired_app, _started_ms(loop) + 30 * MINUTE_MS)
+
+        share = (await _results(api, range="cycle"))["share"]
+
+        assert share["step_seconds"] == 60
+        assert len(share["series"]) in (30, 31)
 
     async def test_waiting_and_sealed_add_up_to_complete_up_to(self, wired_app, api):
         loop = await _loop(wired_app)
@@ -382,8 +408,53 @@ class TestHealth:
             "decision_errors": 1,
             "outcomes": {"learned": 5, "late": 2, "duplicate": 1, "earlier_cycle": 0},
             "last_outcome_at": "2026-01-01T00:00:00+00:00",
+            "last_learned_at": None,
             "ledger_lag_ms": None,
         }
+
+    async def test_the_rate_reads_recent_decisions_not_the_hour(self, wired_app, api):
+        loop = await _loop(wired_app)
+        now = _started_ms(loop) + DAY_MS
+        redis = wired_app.svc._redis
+        for _ in range(600):
+            await redis.record_loop_select(TENANT, loop["id"], LoopSelectReason.LIVE)
+        for _ in range(60):
+            await redis.record_loop_select(
+                TENANT,
+                loop["id"],
+                LoopSelectReason.LIVE,
+                minute=now // MINUTE_MS - 1,
+            )
+        _at(wired_app, now)
+
+        results = await _results(api)
+
+        assert results["calls"]["live"] == 600
+        elapsed = 4 * 60 + (now % MINUTE_MS) / 1000
+        assert results["decisions_per_second"] == 60 / elapsed
+
+    async def test_a_young_cycles_rate_reads_only_what_it_has_run(self, wired_app, api):
+        loop = await _loop(wired_app)
+        now = _started_ms(loop) + 30_000
+        for _ in range(30):
+            await wired_app.svc._redis.record_loop_select(
+                TENANT, loop["id"], LoopSelectReason.LIVE, minute=now // MINUTE_MS
+            )
+        _at(wired_app, now)
+
+        assert (await _results(api))["decisions_per_second"] == 1.0
+
+    async def test_reads_when_the_cycle_last_learned(self, wired_app, api):
+        loop = await _loop(wired_app)
+        await wired_app.svc._redis.restore_learning(
+            TENANT,
+            loop["cycle"]["id"],
+            Learning(params={}, sealed_up_to=1_767_225_600_000),
+        )
+
+        health = (await _results(api))["health"]
+
+        assert health["last_learned_at"] == "2026-01-01T00:00:00+00:00"
 
 
 class TestReading:
