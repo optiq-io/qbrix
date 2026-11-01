@@ -12,6 +12,10 @@ export const loops = {
     return apiFetch<Loop>(path(key));
   },
 
+  async launch(key: string): Promise<Loop> {
+    return apiFetch<Loop>(`${path(key)}/launch`, { method: "POST" });
+  },
+
   async results(key: string, range: ResultsRange): Promise<LoopResults> {
     return apiFetch<LoopResults>(`${path(key)}/results?range=${range}`);
   },
