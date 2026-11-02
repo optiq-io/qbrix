@@ -3,10 +3,10 @@
 import { useCallback, useMemo, useState } from "react";
 import { ShareChart } from "@qbrix/ui/next/share-chart";
 import { Header } from "@/components/next/header/header";
-import type { ChangeEntry, Loop, LoopResults, ResultsRange } from "@/lib/api/types";
+import type { ChangeEntry, Loop, LoopEvent, LoopResults, ResultsRange } from "@/lib/api/types";
 import { facts } from "@/lib/header/fact";
 import { eyebrow, type StatusRow, type LoopStatus } from "@/lib/header/status";
-import { toHeaderEvent, toPin } from "@/lib/loop/event";
+import { milestoneToHeaderEvent, toHeaderEvent, toPin } from "@/lib/loop/event";
 import { chartCaption, loopCounters, loopFacts } from "@/lib/loop/fact";
 import type { Pause } from "@/lib/loop/pause";
 import { DraftOverview } from "./draft-overview";
@@ -26,6 +26,7 @@ export function LoopOverview({
   range,
   onRangeChange,
   changes,
+  milestones,
   now,
   staging,
   onCancel,
@@ -41,6 +42,7 @@ export function LoopOverview({
   range: ResultsRange;
   onRangeChange: (range: ResultsRange) => void;
   changes: ChangeEntry[];
+  milestones: LoopEvent[];
   now: number;
   staging: boolean;
   onCancel: () => void;
@@ -49,8 +51,11 @@ export function LoopOverview({
   const [selected, setSelected] = useState<string | null>(null);
   const alertId = pause?.byQbrix ? pause.id : null;
   const events = useMemo(
-    () => changes.map((entry) => toHeaderEvent(entry, entry.id === alertId)),
-    [changes, alertId],
+    () => [
+      ...changes.map((entry) => toHeaderEvent(entry, entry.id === alertId)),
+      ...milestones.map(milestoneToHeaderEvent),
+    ],
+    [changes, milestones, alertId],
   );
   const started = loop.cycle?.started_at ? Date.parse(loop.cycle.started_at) : null;
   const pins = useMemo(
@@ -71,7 +76,7 @@ export function LoopOverview({
         row={row}
         eyebrow={eyebrow(row, cycleResults ? loopCounters(cycleResults, now) : {})}
         events={events}
-        facts={facts(row, loopFacts(status, loop, { cycle: cycleResults, day: dayResults, pause }, now))}
+        facts={facts(row, loopFacts(status, loop, { cycle: cycleResults, day: dayResults, pause, events: milestones }, now))}
       />
       {loop.state === "draft" && (
         <DraftOverview loop={loop} results={cycleResults} staging={staging} onCancel={onCancel} onDone={onDone} />

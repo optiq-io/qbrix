@@ -7,6 +7,8 @@ from qbrixstore.redis.health import OutcomeHealth
 from qbrixstore.redis.health import SelectErrorReason
 from qbrixstore.redis.health import SelectHealth
 from qbrixstore.redis.health import SelectOutcome
+from qbrixstore.redis.milestone import MilestoneCycle
+from qbrixstore.redis.milestone import MilestoneState
 from qbrixstore.redis.pubsub import BroadcastBus
 from qbrixstore.redis.pubsub import RedisPubSubPublisher, RedisPubSubConsumer
 from qbrixstore.redis.streams import RedisStreamPublisher, RedisStreamConsumer
@@ -16,6 +18,8 @@ __all__ = [
     "Learning",
     "LedgerProgress",
     "LoopSelectReason",
+    "MilestoneCycle",
+    "MilestoneState",
     "OutcomeDisposition",
     "OutcomeHealth",
     "RedisClient",

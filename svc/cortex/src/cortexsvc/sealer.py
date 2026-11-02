@@ -22,6 +22,7 @@ from qbrixstore.redis.streams import stream_ms
 from qbrixstore.stream import topology
 from qbrixruntime.task import drain
 
+from cortexsvc.milestone import MilestoneWatch
 from cortexsvc.seal import Classified
 from cortexsvc.seal import seal_slice
 from cortexsvc.trainer import POLICY_MAP
@@ -70,6 +71,7 @@ class Sealer:
         self._stall_ms = int(stall_sec * 1000)
         self._connected = False
         self._stalled = False
+        self._milestones = MilestoneWatch(redis, clickhouse)
         self._task: asyncio.Task | None = None
 
     async def start(self) -> None:
@@ -150,6 +152,11 @@ class Sealer:
         if end <= mark:
             return False
         await self.seal(mark, end)
+        try:
+            await self._milestones.check(mark, end)
+        except Exception as e:
+            # learning never waits on a sentence; the next check catches up.
+            logger.error("milestone check failed: %s", e)
         await self._redis.set_sealer_mark(end)
         return end < complete
 

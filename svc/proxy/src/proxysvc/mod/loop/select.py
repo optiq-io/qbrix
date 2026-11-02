@@ -5,7 +5,9 @@ import uuid
 from typing import Any
 
 from qbrixlog import get_logger
+from qbrixstore.event import MilestoneEvent
 from qbrixstore.event import SelectionEvent
+from qbrixstore.event.milestone import FIRST_CALL
 from qbrixstore.redis import LoopSelectReason
 from qbrixstore.redis import RedisClient
 from qbrixstore.redis import SelectErrorReason
@@ -97,6 +99,8 @@ class LoopSelectService:
         loop: str,
         unit: Any,
         properties: Any = None,
+        *,
+        source: str | None = None,
     ) -> dict:
         properties = _check_context(unit, properties)
         route = await self._routes.get(tenant_id, loop)
@@ -106,6 +110,8 @@ class LoopSelectService:
         if route.state != "live":
             reason = LoopSelectReason(route.state)
             self._count_reason(tenant_id, route.id, reason)
+            if reason is LoopSelectReason.DRAFT:
+                self._events.dispatch(self._first_call(tenant_id, route.id, source))
             return _answer(route.fallback, None, reason)
 
         try:
@@ -191,6 +197,33 @@ class LoopSelectService:
             await self._redis.record_loop_select(tenant_id, loop_id, reason)
         except Exception as e:
             logger.warning(f"loop select count failed for {loop_id}: {e}")
+
+    async def _first_call(
+        self, tenant_id: str, loop_id: str, source: str | None
+    ) -> None:
+        """the first call a draft has had, as a milestone. the claim is given
+        back if the event can't be published, so the next call tries again."""
+        try:
+            if not await self._redis.first_call_once(tenant_id, loop_id):
+                return
+        except Exception as e:
+            logger.warning(f"first call check failed for {loop_id}: {e}")
+            return
+        try:
+            await self._events.publish_milestone(
+                MilestoneEvent(
+                    event_id=f"first_call:{loop_id}",
+                    kind=FIRST_CALL,
+                    tenant_id=tenant_id,
+                    loop_id=loop_id,
+                    cycle_id="",
+                    payload={"source": source},
+                    at_ms=int(time.time() * 1000),
+                )
+            )
+        except Exception as e:
+            logger.warning(f"first call event failed for {loop_id}: {e}")
+            await self._redis.forget_first_call(tenant_id, loop_id)
 
     async def _record_outcome(
         self,

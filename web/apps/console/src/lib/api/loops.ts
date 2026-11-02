@@ -1,5 +1,14 @@
 import { apiFetch } from "./client";
-import type { ChangeEntry, CreateLoopBody, Loop, LoopListPage, LoopResults, LoopResumed, ResultsRange } from "./types";
+import type {
+  ChangeEntry,
+  CreateLoopBody,
+  Loop,
+  LoopEvent,
+  LoopListPage,
+  LoopResults,
+  LoopResumed,
+  ResultsRange,
+} from "./types";
 
 const RECENT_CHANGES = 50;
 const LIST_PAGE = 200;
@@ -55,5 +64,11 @@ export const loops = {
 
   async changes(key: string): Promise<ChangeEntry[]> {
     return readChanges(new URLSearchParams({ loop: key, limit: String(RECENT_CHANGES) }));
+  },
+
+  async events(key: string): Promise<LoopEvent[]> {
+    const params = new URLSearchParams({ loop: key, limit: String(RECENT_CHANGES) });
+    const { events } = await apiFetch<{ events: LoopEvent[] }>(`/v1/events?${params}`);
+    return events;
   },
 };

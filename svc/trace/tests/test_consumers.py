@@ -23,6 +23,7 @@ from qbrixstore.stream import topology
 from trace_factories import make_audit
 from trace_factories import make_feedback
 from trace_factories import make_metric
+from trace_factories import make_milestone
 from trace_factories import make_selection
 from trace_factories import wait_for
 
@@ -138,6 +139,19 @@ class TestAcking:
         assert await control.xlen(topology.EVENT.name) == 0
 
 
+class TestMilestones:
+    async def test_a_milestone_reaches_clickhouse_and_leaves_the_stream(
+        self, service, control, clickhouse
+    ):
+        await control.xadd(topology.MILESTONE.name, make_milestone().to_dict())
+
+        await wait_for(lambda: len(clickhouse.milestone) == 1)
+        await wait_for(lambda: True)
+
+        assert clickhouse.milestone[0].event_id == "first_seal:cyc-1"
+        assert await control.xlen(topology.MILESTONE.name) == 0
+
+
 class TestLedgerTime:
     """the sealer reads decisions and outcomes by when they reached the
     stream, on redis's clock, the clock it reads the trace group's progress
@@ -182,6 +196,7 @@ class TestEveryStream:
             "qbrix:feedback/trace",
             "qbrix:audit/trace",
             "qbrix:event/trace",
+            "qbrix:milestone/trace",
         ]
 
 
@@ -238,6 +253,7 @@ class TestStopDrainsBufferedRows:
         await control.xadd(topology.FEEDBACK.name, make_feedback().to_dict())
         await control.xadd(topology.AUDIT.name, make_audit().to_dict())
         await control.xadd(topology.EVENT.name, make_metric().to_dict())
+        await control.xadd(topology.MILESTONE.name, make_milestone().to_dict())
         await wait_for(lambda: all(w.buffered == 1 for w in service._workers))
 
         await service.stop()
@@ -247,7 +263,8 @@ class TestStopDrainsBufferedRows:
             len(clickhouse.feedback),
             len(clickhouse.audit),
             len(clickhouse.metric),
-        ) == (1, 1, 1, 1)
+            len(clickhouse.milestone),
+        ) == (1, 1, 1, 1, 1)
 
     async def test_stop_closes_clickhouse(self, service, clickhouse):
         await service.stop()

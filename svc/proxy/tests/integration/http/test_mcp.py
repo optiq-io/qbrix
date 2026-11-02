@@ -31,6 +31,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route
 
 import proxysvc.config
+from qbrixstore.event import MilestoneEvent
 from qbrixstore.postgres import session as session_module
 from qbrixstore.postgres.models import Tenant
 from qbrixstore.postgres.models import User
@@ -55,6 +56,7 @@ TOOLS = [
     "loop_results",
     "metrics_list",
     "changes_list",
+    "events_list",
     "loop_create",
     "loop_launch",
     "metric_create",
@@ -516,6 +518,36 @@ class TestChangesAndUndo:
         assert [entry["id"] for entry in result.structured_content["changes"]] == [
             entry["id"] for entry in page["changes"]
         ]
+
+    async def test_events_list_reads_the_same_as_http(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            loop = (await _draft(client))["loop"]
+            wired_app.ledger.reach(
+                MilestoneEvent(
+                    event_id=f"first_call:{loop['id']}",
+                    kind="loop.first_call",
+                    tenant_id=TENANT,
+                    loop_id=loop["id"],
+                    cycle_id="",
+                    payload={"source": "web-prod"},
+                    at_ms=1_700_000_000_000,
+                )
+            )
+            result = await _call(client, "events_list", {"loop": loop["key"]})
+
+        found = await wired_app.svc.list_events(TENANT, limit=20)
+        assert [e["id"] for e in result.structured_content["events"]] == [
+            e["id"] for e in found["events"]
+        ]
+        assert "web-prod made the first call to Checkout headline." in (
+            result.content[0].text
+        )
+
+    async def test_events_list_refuses_an_unknown_loop(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            result = await _call(client, "events_list", {"loop": "nope"})
+
+        assert result.is_error
 
     async def test_changes_list_filters_and_refuses_an_unknown_loop(
         self, mcp, wired_app

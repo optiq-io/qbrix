@@ -155,7 +155,7 @@ class LoopResultService:
                 self._connected = True
         return self._clickhouse
 
-    async def _read(self, query: Callable[[ClickHouseClient], T]) -> T:
+    async def read(self, query: Callable[[ClickHouseClient], T]) -> T:
         """run a ledger query on a worker thread: the driver blocks, and a
         slow query must never hold a decision on the event loop."""
         return await asyncio.to_thread(lambda: query(self._ledger()))
@@ -215,13 +215,13 @@ class LoopResultService:
         lifted = _lift_span(cycle, _window_ms(loop), now)
         cut = progress.complete_up_to_ms if progress else None
         buckets, counts, stats = await asyncio.gather(
-            self._read(
+            self.read(
                 lambda ch: ch.decision_series(
                     tenant_id, cycle.id, span.since_ms, span.until_ms, step
                 )
             ),
-            self._read(lambda ch: ch.decision_counts(tenant_id, [span], cut)),
-            self._read(
+            self.read(lambda ch: ch.decision_counts(tenant_id, [span], cut)),
+            self.read(
                 lambda ch: ch.sealed_stats(tenant_id, [lifted[0]] if lifted else [])
             ),
         )
@@ -285,10 +285,10 @@ class LoopResultService:
             if (lifted := _lift_span(cycle, _window_ms(loop), now))
         }
         counts, stats, recent = await asyncio.gather(
-            self._read(
+            self.read(
                 lambda ch: ch.decision_counts(tenant_id, list(shares.values()), None)
             ),
-            self._read(
+            self.read(
                 lambda ch: ch.sealed_stats(
                     tenant_id, [span for span, _ in lifts.values()]
                 )

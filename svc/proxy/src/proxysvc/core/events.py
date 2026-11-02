@@ -9,6 +9,7 @@ from qbrixstore.stream import topology
 from qbrixstore.event import AuditEvent
 from qbrixstore.event import FeedbackEvent
 from qbrixstore.event import MetricEvent
+from qbrixstore.event import MilestoneEvent
 from qbrixstore.event import SelectionEvent
 
 logger = get_logger(__name__)
@@ -30,6 +31,7 @@ class EventEmitter:
         self._selection = RedisStreamPublisher(topology.SELECTION, redis)
         self._audit = RedisStreamPublisher(topology.AUDIT, redis)
         self._metric = RedisStreamPublisher(topology.EVENT, redis)
+        self._milestone = RedisStreamPublisher(topology.MILESTONE, redis)
         self._inflight: set[asyncio.Task] = set()
 
     # lifecycle
@@ -39,6 +41,7 @@ class EventEmitter:
         await self._selection.connect()
         await self._audit.connect()
         await self._metric.connect()
+        await self._milestone.connect()
 
     async def stop(self) -> None:
         await self.drain()
@@ -46,6 +49,7 @@ class EventEmitter:
         await self._selection.close()
         await self._audit.close()
         await self._metric.close()
+        await self._milestone.close()
 
     async def drain(self) -> None:
         """await all in-flight dispatch tasks (used by stop() and by tests)."""
@@ -89,6 +93,11 @@ class EventEmitter:
 
     def emit_metric(self, *events: MetricEvent) -> None:
         self.dispatch(asyncio.gather(*(self._publish(self._metric, e) for e in events)))
+
+    async def publish_milestone(self, event: MilestoneEvent) -> None:
+        """publish and raise on failure: a milestone happens once, so its caller
+        must know to try again."""
+        await self._milestone.publish(event)
 
     @staticmethod
     async def _publish(publisher: RedisStreamPublisher, event) -> None:

@@ -71,6 +71,9 @@ def build_http_server(settings: ProxySettings, runtime: ProxyRuntime) -> uvicorn
     from proxysvc.transport.http.router.gate import set_proxy_service as set_gate
     from proxysvc.transport.http.router.loop import set_proxy_service as set_loop
     from proxysvc.transport.http.router.metric import set_proxy_service as set_metric
+    from proxysvc.transport.http.router.milestone import (
+        set_proxy_service as set_milestone,
+    )
     from proxysvc.transport.http.router.oauth import set_proxy_service as set_oauth
     from proxysvc.transport.http.router.outcome import (
         set_proxy_service as set_outcome,
@@ -90,6 +93,7 @@ def build_http_server(settings: ProxySettings, runtime: ProxyRuntime) -> uvicorn
         set_metric,
         set_loop,
         set_change,
+        set_milestone,
         set_select,
         set_outcome,
         set_connection,

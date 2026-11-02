@@ -778,6 +778,20 @@ export interface ChangeEntry {
   ids: string[];
 }
 
+/** one row of GET /v1/events: something a loop reached that isn't anyone's change */
+export interface LoopEvent {
+  id: string;
+  kind: string;
+  at: string;
+  first_at: string | null;
+  count: number;
+  loop: { id: string; key: string; name: string };
+  cycle_id: string | null;
+  source: string;
+  pieces: { kind: "text" | "loop" | "option"; text: string | null; name: string | null }[];
+  diff: { field: string; before: string | null; after: string | null }[];
+}
+
 /** GET /v1/changes. limit counts changes, so a page can hold fewer rows */
 export interface ChangePage {
   changes: ChangeEntry[];

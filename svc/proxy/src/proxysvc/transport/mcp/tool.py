@@ -32,6 +32,7 @@ from proxysvc.mod.metric.serialize import window_label
 from proxysvc.mod.safety.rule import DECISION_ERRORS
 from proxysvc.service import ProxyService
 from proxysvc.transport.http.router.change import ChangePage
+from proxysvc.transport.http.router.milestone import EventList
 from proxysvc.transport.mcp import error
 from proxysvc.transport.mcp.error import Refusal
 from proxysvc.transport.mcp.error import refusals
@@ -218,6 +219,13 @@ def _change_line(entry: dict) -> str:
         parts.append("can be undone")
     parts.append(f"change {entry['id']}")
     return " · ".join(parts)
+
+
+def _event_line(event: dict) -> str:
+    sentence = "".join(
+        piece.get("text") or piece.get("name") or "" for piece in event["pieces"]
+    )
+    return f"{event['at']} · {sentence}"
 
 
 def _share_line(share: list[dict]) -> str:
@@ -513,6 +521,55 @@ def register(
             lines.append(f"More changes: call again with cursor {page['next_cursor']}.")
         return _result("\n".join(lines), ChangePage(**page))
 
+    async def events_list(
+        loop: Annotated[
+            Optional[str],
+            Field(description="Only events of this loop: its key or its id."),
+        ] = None,
+        metric: Annotated[
+            Optional[str],
+            Field(
+                description="Only events of loops using this metric: its name or id."
+            ),
+        ] = None,
+        kind: Annotated[
+            Optional[list[str]],
+            Field(
+                description="Only these kinds: loop.first_call, loop.first_seal, "
+                "loop.leader_changed."
+            ),
+        ] = None,
+        since: Annotated[
+            Optional[datetime],
+            Field(description="Only events at or after this time."),
+        ] = None,
+        limit: Annotated[int, Field(ge=1, le=LIMIT_MAX)] = LIMIT_DEFAULT,
+    ) -> Annotated[CallToolResult, EventList]:
+        """List what the workspace's loops reached, newest first: a draft's first call, a cycle's first window sealing, and a new option taking the lead. Leading means the largest share of decisions over the last 24 hours, held for an hour; it says how traffic is shared, not which option is better."""
+        principal = current_principal()
+        try:
+            _require(principal, "loop:read", "read events")
+            try:
+                with refusals():
+                    found = await service().list_events(
+                        principal.tenant_id,
+                        loop=loop,
+                        metric=metric,
+                        kinds=kind or (),
+                        since=since,
+                        limit=limit,
+                    )
+            except LoopNotFoundError as e:
+                raise await refused_loop(principal, loop) from e
+            except MetricNotFoundError as e:
+                raise await refused_metric(principal, metric) from e
+        except Refusal as refusal:
+            return _refused(refusal)
+        lines = [_event_line(event) for event in found["events"]] or [
+            "No events match."
+        ]
+        return _result("\n".join(lines), EventList(**found))
+
     async def loop_create(
         name: Annotated[str, Field(description="What people call the loop.")],
         metric: Annotated[
@@ -711,6 +768,7 @@ def register(
         (loop_results, _READ),
         (metrics_list, _READ),
         (changes_list, _READ),
+        (events_list, _READ),
         (loop_create, _CREATE),
         (loop_launch, _DESTRUCTIVE),
         (metric_create, _CREATE),

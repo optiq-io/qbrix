@@ -69,7 +69,13 @@ export function LoopPage({ loopKey }: { loopKey: string }) {
     staleTime: DETAIL_POLL_MS / 2,
   });
 
-  const ready = usePageReady([detail, cycle, changes]);
+  const milestones = useQuery({
+    queryKey: queryKeys.loops.events(loopKey),
+    queryFn: () => loops.events(loopKey),
+    refetchInterval: DETAIL_POLL_MS,
+  });
+
+  const ready = usePageReady([detail, cycle, changes, milestones]);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), CLOCK_MS);
@@ -104,6 +110,7 @@ export function LoopPage({ loopKey }: { loopKey: string }) {
       range={range}
       onRangeChange={setRange}
       changes={changes.data ?? []}
+      milestones={milestones.data ?? []}
       now={now}
     />
   );
@@ -117,6 +124,7 @@ function LoopFrame({
   range,
   onRangeChange,
   changes,
+  milestones,
   now,
 }: Omit<
   React.ComponentProps<typeof LoopOverview>,
@@ -165,6 +173,7 @@ function LoopFrame({
         range={range}
         onRangeChange={onRangeChange}
         changes={changes}
+        milestones={milestones}
         now={now}
         staging={staging && canEdit}
         onCancel={cancel}
