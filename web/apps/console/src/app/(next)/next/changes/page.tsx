@@ -1,5 +1,11 @@
-import { NextPage } from "@/components/next/shell/page";
+import { Suspense } from "react";
+import { ChangesPage } from "@/components/next/change/changes-page";
+import { ChangesLoading } from "@/components/next/change/loading";
 
-export default function ChangesPage() {
-  return <NextPage title="Changes" />;
+export default function Changes() {
+  return (
+    <Suspense fallback={<ChangesLoading />}>
+      <ChangesPage />
+    </Suspense>
+  );
 }

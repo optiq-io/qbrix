@@ -53,6 +53,11 @@ function pause(id: string, loopId: string, actor: "qbrix" | "member", at = "2026
     ],
     diff: [],
     undone_by: null,
+    verb: "changed",
+    request_id: null,
+    undoable: true,
+    not_undoable_reason: null,
+    ids: [],
     count: 1,
     first_at: at,
   };
