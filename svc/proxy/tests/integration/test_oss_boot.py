@@ -202,6 +202,7 @@ class TestNextSwitch:
             "/api/v1/changes/counts",
             "/api/v1/changes/{change_id}",
             "/api/v1/changes/{change_id}/undo",
+            "/api/v1/milestones",
             "/.well-known/oauth-authorization-server",
             "/oauth/register",
             "/oauth/authorize",

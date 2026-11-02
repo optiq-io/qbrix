@@ -124,11 +124,31 @@ TTL opened_date + INTERVAL {ttl_days} DAY
 SETTINGS index_granularity = 8192
 """
 
+# no ttl: the event naming a long-standing leader can be older than any other
+# row, and the header reads it for as long as that option leads.
+MILESTONES_TABLE = """
+CREATE TABLE IF NOT EXISTS milestones (
+    event_id String,
+    kind LowCardinality(String),
+    tenant_id String,
+    loop_id String,
+    cycle_id String,
+    payload String,
+    at_ms Int64,
+    event_date Date DEFAULT toDate(fromUnixTimestamp64Milli(at_ms))
+)
+ENGINE = ReplacingMergeTree()
+PARTITION BY toYYYYMM(event_date)
+ORDER BY (tenant_id, loop_id, event_id)
+SETTINGS index_granularity = 8192
+"""
+
 DROP_SELECTION_EVENTS = "DROP TABLE IF EXISTS selection_events"
 DROP_FEEDBACK_EVENTS = "DROP TABLE IF EXISTS feedback_events"
 DROP_AUDIT_EVENTS = "DROP TABLE IF EXISTS audit_events"
 DROP_METRIC_EVENTS = "DROP TABLE IF EXISTS metric_events"
 DROP_SEALED_DECISIONS = "DROP TABLE IF EXISTS sealed_decisions"
+DROP_MILESTONES = "DROP TABLE IF EXISTS milestones"
 
 # idempotent column additions for tables created before the column existed;
 # there is no versioned clickhouse migration runner, so we alter in place.
@@ -158,6 +178,7 @@ METRIC_EVENTS_ALTERS = [
 LEDGER_INDEXES = [
     "ALTER TABLE selection_events ADD INDEX IF NOT EXISTS window_seal greatest(timestamp_ms + window_ms, ledger_ms) TYPE minmax GRANULARITY 4",
     "ALTER TABLE metric_events ADD INDEX IF NOT EXISTS ledger_time ledger_ms TYPE minmax GRANULARITY 4",
+    "ALTER TABLE selection_events ADD INDEX IF NOT EXISTS ledger_time ledger_ms TYPE minmax GRANULARITY 4",
 ]
 
 
@@ -168,6 +189,7 @@ def create_tables(client: Client, ttl_days: int = 90) -> None:
     client.command(AUDIT_EVENTS_TABLE.format(ttl_days=ttl_days))
     client.command(METRIC_EVENTS_TABLE.format(ttl_days=ttl_days))
     client.command(SEALED_DECISIONS_TABLE.format(ttl_days=ttl_days))
+    client.command(MILESTONES_TABLE)
     for alter in SELECTION_EVENTS_ALTERS + METRIC_EVENTS_ALTERS + LEDGER_INDEXES:
         client.command(alter)
 
@@ -179,6 +201,7 @@ def drop_tables(client: Client) -> None:
     client.command(DROP_AUDIT_EVENTS)
     client.command(DROP_METRIC_EVENTS)
     client.command(DROP_SEALED_DECISIONS)
+    client.command(DROP_MILESTONES)
 
 
 def create_database(client: Client, database: str) -> None:

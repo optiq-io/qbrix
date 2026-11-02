@@ -1,5 +1,14 @@
 import { apiFetch } from "./client";
-import type { ChangeEntry, CreateLoopBody, Loop, LoopListPage, LoopResults, LoopResumed, ResultsRange } from "./types";
+import type {
+  ChangeEntry,
+  CreateLoopBody,
+  Loop,
+  LoopListPage,
+  LoopMilestone,
+  LoopResults,
+  LoopResumed,
+  ResultsRange,
+} from "./types";
 
 const RECENT_CHANGES = 50;
 const LIST_PAGE = 200;
@@ -55,5 +64,11 @@ export const loops = {
 
   async changes(key: string): Promise<ChangeEntry[]> {
     return readChanges(new URLSearchParams({ loop: key, limit: String(RECENT_CHANGES) }));
+  },
+
+  async milestones(key: string): Promise<LoopMilestone[]> {
+    const params = new URLSearchParams({ loop: key, limit: String(RECENT_CHANGES) });
+    const { milestones } = await apiFetch<{ milestones: LoopMilestone[] }>(`/v1/milestones?${params}`);
+    return milestones;
   },
 };

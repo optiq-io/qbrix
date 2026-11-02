@@ -3,6 +3,7 @@ from qbrixstore.event.base import Event
 from qbrixstore.event.base import EventDecodeError
 from qbrixstore.event.feedback import FeedbackEvent
 from qbrixstore.event.metric import MetricEvent
+from qbrixstore.event.milestone import MilestoneEvent
 from qbrixstore.event.selection import SelectionEvent
 
 __all__ = [
@@ -11,5 +12,6 @@ __all__ = [
     "EventDecodeError",
     "FeedbackEvent",
     "MetricEvent",
+    "MilestoneEvent",
     "SelectionEvent",
 ]

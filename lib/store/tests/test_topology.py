@@ -140,6 +140,7 @@ class TestDeployedTopology:
             topology.SELECTION,
             topology.AUDIT,
             topology.EVENT,
+            topology.MILESTONE,
         }
 
 
@@ -156,6 +157,7 @@ class TestMemoryBudget:
         topology.SELECTION: 1_930,
         topology.AUDIT: 600,
         topology.EVENT: 1_030,
+        topology.MILESTONE: 450,
     }
 
     def test_every_stream_has_a_measured_size(self):

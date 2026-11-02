@@ -6,6 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter
 from fastapi import Depends
+from fastapi import Request
 from fastapi import status
 from pydantic import BaseModel
 from pydantic import Field
@@ -76,13 +77,19 @@ class SelectResponse(BaseModel):
 )
 async def select(
     body: SelectRequest,
+    request: Request,
     tenant_id: str = Depends(get_current_tenant_id),
     _scoped=Depends(require_scopes(["agent:read"])),
 ):
     """the loop's option for this request, and why."""
+    api_key = getattr(request.state, "api_key", None)
     try:
         answer = await get_proxy_service().select_loop(
-            tenant_id, body.loop, body.context.unit, body.context.properties
+            tenant_id,
+            body.loop,
+            body.context.unit,
+            body.context.properties,
+            source=api_key.name if api_key else None,
         )
     except LoopNotFoundError as e:
         raise LoopNotFoundException(str(e))

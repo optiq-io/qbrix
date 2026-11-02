@@ -13,6 +13,7 @@ from redis.asyncio.client import Pipeline
 from redis.exceptions import WatchError
 
 from qbrixstore.config import RedisSettings
+from qbrixstore.event import MilestoneEvent
 from qbrixstore.redis.health import LEDGER_PROGRESS_TTL_SEC
 from qbrixstore.redis.health import LedgerProgress
 from qbrixstore.redis.health import LoopSelectReason
@@ -23,11 +24,15 @@ from qbrixstore.redis.health import SELECT_HEALTH_TTL_SEC
 from qbrixstore.redis.health import SelectErrorReason
 from qbrixstore.redis.health import SelectHealth
 from qbrixstore.redis.health import SelectOutcome
+from qbrixstore.redis.milestone import MilestoneCycle
+from qbrixstore.redis.milestone import MilestoneState
+from qbrixstore.stream import topology
 
 _LEARNING_ATTEMPTS = 5
 
 SEALER_MARK_KEY = "qbrix:sealer:sealed_up_to"
 LEDGER_PROGRESS_KEY = "qbrix:ledger:progress"
+FIRST_SEALS_DUE_KEY = "qbrix:milestone:first_seal_due"
 
 
 def _stream_id(message_id: str) -> tuple[int, int]:
@@ -264,6 +269,81 @@ class RedisClient:
         if value is None:
             return None
         return LedgerProgress(**json.loads(value))
+
+    @staticmethod
+    def _milestone_key(tenant_id: str, cycle_id: str) -> str:
+        return f"qbrix:tenant:{tenant_id}:milestone:{cycle_id}"
+
+    @staticmethod
+    def _first_call_key(tenant_id: str, loop_id: str) -> str:
+        return f"qbrix:tenant:{tenant_id}:milestone:first_call:{loop_id}"
+
+    async def milestone_states(
+        self, cycles: Sequence[MilestoneCycle]
+    ) -> dict[MilestoneCycle, MilestoneState]:
+        """the state of each cycle that has one."""
+        if not cycles:
+            return {}
+        values = await self.client.mget(
+            [self._milestone_key(c.tenant_id, c.cycle_id) for c in cycles]
+        )
+        return {
+            cycle: MilestoneState.decode(value)
+            for cycle, value in zip(cycles, values)
+            if value is not None
+        }
+
+    async def expect_first_seal(
+        self, cycle: MilestoneCycle, closes_ms: int, state: MilestoneState
+    ) -> None:
+        """start a cycle's state, and remember when its first window closes."""
+        pipe = self.client.pipeline(transaction=True)
+        # noinspection PyAsyncCall
+        pipe.set(self._milestone_key(cycle.tenant_id, cycle.cycle_id), state.encode())
+        # noinspection PyAsyncCall
+        pipe.zadd(FIRST_SEALS_DUE_KEY, {cycle.encode(): closes_ms}, nx=True)
+        await pipe.execute()
+
+    async def first_seals_due(self, until_ms: int) -> list[tuple[MilestoneCycle, int]]:
+        """the cycles whose first window has closed by then, with when it did."""
+        due = await self.client.zrangebyscore(
+            FIRST_SEALS_DUE_KEY, "-inf", until_ms, withscores=True
+        )
+        return [(MilestoneCycle.decode(member), int(score)) for member, score in due]
+
+    async def commit_milestone(
+        self,
+        cycle: MilestoneCycle,
+        state: MilestoneState,
+        event: MilestoneEvent | None = None,
+    ) -> None:
+        """store a cycle's state with the event it gave rise to, or neither, so
+        a crash can't lose an event or emit one twice."""
+        pipe = self.client.pipeline(transaction=True)
+        # noinspection PyAsyncCall
+        pipe.set(self._milestone_key(cycle.tenant_id, cycle.cycle_id), state.encode())
+        if state.first_seal:
+            # noinspection PyAsyncCall
+            pipe.zrem(FIRST_SEALS_DUE_KEY, cycle.encode())
+        if event is not None:
+            # noinspection PyAsyncCall
+            pipe.xadd(
+                topology.MILESTONE.name,
+                event.to_dict(),
+                maxlen=topology.MILESTONE.max_len,
+                approximate=True,
+            )
+        await pipe.execute()
+
+    async def first_call_once(self, tenant_id: str, loop_id: str) -> bool:
+        """whether this is the first call a draft has had."""
+        claimed = await self.client.set(
+            self._first_call_key(tenant_id, loop_id), 1, nx=True
+        )
+        return bool(claimed)
+
+    async def forget_first_call(self, tenant_id: str, loop_id: str) -> None:
+        await self.client.delete(self._first_call_key(tenant_id, loop_id))
 
     async def get_experiment(self, tenant_id: str, experiment_id: str) -> dict | None:
         data = await self.client.get(self._experiment_key(tenant_id, experiment_id))

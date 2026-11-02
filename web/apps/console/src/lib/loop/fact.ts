@@ -1,6 +1,6 @@
 import { addDays, format, isSameDay } from "date-fns";
 import type { Signal } from "@qbrix/ui/next/health";
-import type { Loop, LoopCycle, LoopResults, ResultsRange } from "@/lib/api/types";
+import type { Loop, LoopCycle, LoopMilestone, LoopResults, ResultsRange } from "@/lib/api/types";
 import type { FactValue } from "@/lib/header/fact";
 import type { LoopStatus } from "@/lib/header/status";
 import { pausedFor, type Pause } from "./pause";
@@ -10,6 +10,7 @@ const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 const ERRORS_NEED_A_LOOK = 0.01;
 const MIN_OPTIONS = 2;
+const LEADER_CHANGED = "loop.leader_changed";
 
 const COUNT_WORD: Record<number, string> = {
   1: "One",
@@ -91,13 +92,10 @@ function sum(results: LoopResults | undefined, field: "decisions" | "waiting"): 
   return results?.share?.options.reduce((total, option) => total + option[field], 0) ?? 0;
 }
 
-/** the option with the largest share of the last 24 hours, until leader events name it */
-function ahead(day: LoopResults | undefined) {
-  const shared = day?.share?.options.filter((option) => option.share !== null) ?? [];
-  return shared.reduce<(typeof shared)[number] | undefined>(
-    (best, option) => (!best || (option.share ?? 0) > (best.share ?? 0) ? option : best),
-    undefined,
-  );
+/** the option this cycle's newest leader event names, read from newest first */
+function ahead(milestones: LoopMilestone[], cycleId: string | undefined): string | undefined {
+  const named = milestones.find((m) => m.kind === LEADER_CHANGED && m.cycle_id === cycleId);
+  return named?.diff[0]?.after ?? undefined;
 }
 
 export function signedPercent(value: number): string {
@@ -197,7 +195,17 @@ export function launchConsequence(loop: Pick<Loop, "options">): { title: string;
 export function loopFacts(
   status: LoopStatus,
   loop: Loop,
-  { cycle, day, pause }: { cycle: LoopResults | undefined; day: LoopResults | undefined; pause?: Pause | null },
+  {
+    cycle,
+    day,
+    pause,
+    milestones = [],
+  }: {
+    cycle: LoopResults | undefined;
+    day: LoopResults | undefined;
+    pause?: Pause | null;
+    milestones?: LoopMilestone[];
+  },
   now: number,
 ): Record<string, FactValue | undefined> {
   if (status === "paused") {
@@ -223,10 +231,11 @@ export function loopFacts(
       firstSeal: firstSeal(cycle, loop.metric.window_seconds, now),
     };
   }
-  const leader = ahead(day);
+  const leader = ahead(milestones, cycle?.cycle?.id);
+  const share = day?.share?.options.find((option) => option.name === leader)?.share;
   return {
-    ahead: leader?.name,
-    share: leader?.share !== undefined && leader.share !== null ? percent(leader.share) : undefined,
+    ahead: leader,
+    share: share !== undefined && share !== null ? percent(share) : undefined,
     lift: lift(cycle),
     waiting: cycle ? sum(cycle, "waiting").toLocaleString("en") : undefined,
   };

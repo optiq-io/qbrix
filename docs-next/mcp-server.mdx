@@ -31,6 +31,7 @@ The first time the client calls qbrix, it opens your browser to sign in and appr
 | `loop_get` | One loop: purpose, options, metric, owner, fallback, state and current cycle, its latest change, and the `select` and `outcome` calls that wire it, in Python and JavaScript. A paused loop says who paused it, when and why: for a [safety pause](/docs/alerts), the share of calls that failed and over how long. |
 | `loop_results` | A cycle's results: share of decisions per option, lift over an even split, decisions waiting to seal, and health. |
 | `metrics_list` | The workspace's metrics, with their type and window, and the loops that use each. |
+| `milestones_list` | What the workspace's loops reached, newest first: a draft's first call, a cycle's first window sealing, and a new option taking the lead. Filter by loop, metric, kind and time. |
 | `loop_create` | Creates a draft loop with its options and metric. |
 | `loop_launch` | Takes a draft live: its first cycle starts. |
 | `metric_create` | Creates a metric with what it stands for, its type and its window. |

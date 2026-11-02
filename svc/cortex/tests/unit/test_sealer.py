@@ -76,6 +76,9 @@ class FakeLedger:
             if o.decision_id in wanted and o.ledger_ms < until_ms
         ]
 
+    def trailing_decisions(self, start_ms: int, end_ms: int) -> list:
+        return []
+
     def insert_sealed_decisions(self, sealed) -> None:
         if self.fail_insert:
             self.fail_insert -= 1

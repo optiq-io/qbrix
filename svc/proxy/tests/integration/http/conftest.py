@@ -22,6 +22,7 @@ from qbrixstore.clickhouse.ledger import CycleSpan
 from qbrixstore.clickhouse.ledger import DecisionBucket
 from qbrixstore.clickhouse.ledger import DecisionCount
 from qbrixstore.clickhouse.ledger import SealedStats
+from qbrixstore.event import MilestoneEvent
 from qbrixstore.postgres.models import Base
 from qbrixstore.postgres.models import Tenant
 from qbrixstore.redis.client import RedisClient
@@ -56,7 +57,7 @@ class SpyPublisher:
         self.events.append(event)
 
 
-def _emitter_with_spies(feedback, selection, audit, metric) -> EventEmitter:
+def _emitter_with_spies(feedback, selection, audit, metric, milestone) -> EventEmitter:
     """build an EventEmitter whose streams are spy publishers."""
     from qbrixstore.config import RedisSettings
 
@@ -65,6 +66,7 @@ def _emitter_with_spies(feedback, selection, audit, metric) -> EventEmitter:
     em._selection = selection
     em._audit = audit
     em._metric = metric
+    em._milestone = milestone
     return em
 
 
@@ -165,6 +167,7 @@ class FakeLedger:
     def __init__(self) -> None:
         self.decisions: list[LedgerRow] = []
         self.sealed: list[SealedRow] = []
+        self.milestones: dict[str, MilestoneEvent] = {}
         self.queries: list[str] = []
         self.delay = 0.0
 
@@ -185,6 +188,23 @@ class FakeLedger:
         self.sealed.append(
             SealedRow(cycle_id, decision_id, option_index, opened_ms, value)
         )
+
+    def reach(self, event: MilestoneEvent) -> None:
+        self.milestones[event.event_id] = event
+
+    def query_milestones(
+        self, tenant_id, loop_ids=None, kinds=None, since_ms=None, limit=100
+    ):
+        self._ran("query_milestones")
+        found = [
+            event
+            for event in self.milestones.values()
+            if event.tenant_id == tenant_id
+            and (loop_ids is None or event.loop_id in loop_ids)
+            and (kinds is None or event.kind in kinds)
+            and (since_ms is None or event.at_ms >= since_ms)
+        ]
+        return sorted(found, key=lambda event: -event.at_ms)[:limit]
 
     def _ran(self, name: str) -> None:
         self.queries.append(name)
@@ -279,6 +299,7 @@ async def wired_app(
         selection_spy — SpyPublisher for selection events
         feedback_spy  — SpyPublisher for feedback events
         metric_spy    — SpyPublisher for metric events
+        milestone_spy — SpyPublisher for milestone events
         motor_mock    — AsyncMock for MotorClient
         gate_mock     — AsyncMock for GateService
         fake_redis    — FakeRedis instance (already connected to RedisClient)
@@ -295,6 +316,9 @@ async def wired_app(
     from proxysvc.transport.http.router.gate import set_proxy_service as set_gate
     from proxysvc.transport.http.router.loop import set_proxy_service as set_loop
     from proxysvc.transport.http.router.metric import set_proxy_service as set_metric
+    from proxysvc.transport.http.router.milestone import (
+        set_proxy_service as set_milestone,
+    )
     from proxysvc.transport.http.router.oauth import set_proxy_service as set_oauth
     from proxysvc.transport.http.router.outcome import (
         set_proxy_service as set_outcome,
@@ -339,7 +363,10 @@ async def wired_app(
     selection_spy = SpyPublisher()
     audit_spy = SpyPublisher()
     metric_spy = SpyPublisher()
-    events = _emitter_with_spies(feedback_spy, selection_spy, audit_spy, metric_spy)
+    milestone_spy = SpyPublisher()
+    events = _emitter_with_spies(
+        feedback_spy, selection_spy, audit_spy, metric_spy, milestone_spy
+    )
     svc._events = events
 
     # gate service — backed by fakeredis so set_config/get_config/delete_config
@@ -364,6 +391,7 @@ async def wired_app(
     set_metric(svc)
     set_loop(svc)
     set_change(svc)
+    set_milestone(svc)
     set_select(svc)
     set_outcome(svc)
     set_connection(svc)
@@ -379,6 +407,7 @@ async def wired_app(
         selection_spy=selection_spy,
         feedback_spy=feedback_spy,
         metric_spy=metric_spy,
+        milestone_spy=milestone_spy,
         motor_mock=svc._motor_client,  # noqa
         gate_svc=gate_svc,
         fake_redis=fake_redis_client,
@@ -396,6 +425,7 @@ async def wired_app(
     set_metric(None)  # type: ignore[arg-type]
     set_loop(None)  # type: ignore[arg-type]
     set_change(None)  # type: ignore[arg-type]
+    set_milestone(None)  # type: ignore[arg-type]
     set_select(None)  # type: ignore[arg-type]
     set_outcome(None)  # type: ignore[arg-type]
     set_connection(None)  # type: ignore[arg-type]

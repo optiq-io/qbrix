@@ -96,12 +96,15 @@ low-latency while parameter updates are eventually consistent.
   cycle's `sealed_up_to` moves in that transaction, so a repeated pass never
   learns twice. Rows are judged by `ledger_ms`, the stream entry's time, which
   trace stamps. Its `start()` never waits for ClickHouse, and the ledger's lag
-  is in the Redis key `qbrix:ledger:progress`.
+  is in the Redis key `qbrix:ledger:progress`. Every 5 minutes of ledger time it
+  also checks each cycle's milestones (`milestone.py`): its first window sealing,
+  and a new leader after an hour's hold. A failed check never holds back learning.
 
 **trace** (`svc/trace`): gRPC 50053
 - Consumes every stream and writes it to ClickHouse: the three event streams
   for the insight and event endpoints, and `qbrix:event` (metric events, the
-  outcomes of next) to `metric_events`, the ledger the sealer reads.
+  outcomes of next) to `metric_events`, the ledger the sealer reads, and
+  `qbrix:milestone` to `milestones`, which has no TTL.
 - Scales horizontally: writes are append-only, and the `trace` consumer group
   delivers each entry to one replica. `TRACE_CONSUMER_NAME` must differ per replica.
 - Batches live in memory until flushed, and once every other group has acked an
@@ -246,8 +249,8 @@ connection only; which stream a publisher or consumer uses is passed explicitly.
 
 **Stream topology** (`qbrixstore/stream/topology.py`):
 - `StreamSpec` declares one stream: name, event type, consumer groups, `max_len`,
-  per-group start ids. The registry (`FEEDBACK`, `SELECTION`, `AUDIT`, `EVENT`)
-  is the complete set.
+  per-group start ids. The registry (`FEEDBACK`, `SELECTION`, `AUDIT`, `EVENT`,
+  `MILESTONE`) is the complete set.
 - `delete_on_ack` is derived, never passed. `XDEL` on ack removes the entry for
   every group, so it is only safe with exactly one group; adding a group turns it
   off for all consumers.
@@ -286,7 +289,7 @@ re-exported from `qbrixstore.stream`, to avoid an import cycle.
   recovery never hands the same entry over twice.
 
 **Events** (`qbrixstore/event/`): `FeedbackEvent`, `SelectionEvent`, `AuditEvent`,
-`MetricEvent`.
+`MetricEvent`, `MilestoneEvent`.
 The `Event` base derives encode and decode from the dataclass fields. Decoding is
 tolerant (unknown keys ignored, absent optional fields defaulted) because publishers
 and consumers deploy separately; an absent required field raises `EventDecodeError`.

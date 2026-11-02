@@ -13,6 +13,7 @@ from qbrixstore.event import AuditEvent
 from qbrixstore.event import Event
 from qbrixstore.event import FeedbackEvent
 from qbrixstore.event import MetricEvent
+from qbrixstore.event import MilestoneEvent
 from qbrixstore.event import SelectionEvent
 from qbrixstore.redis.streams import RedisStreamConsumer
 from qbrixstore.redis.streams import stream_ms
@@ -50,6 +51,7 @@ class TraceService:
                 "feedback": 0,
                 "audit": 0,
                 "metric": 0,
+                "milestones": 0,
                 "last_write": 0,
             }
         )
@@ -120,6 +122,9 @@ class TraceService:
         await self._start_worker(topology.AUDIT, redis_settings, self._handle_audit)
         await self._start_worker(
             topology.EVENT, redis_settings, self._handle_metric_event
+        )
+        await self._start_worker(
+            topology.MILESTONE, redis_settings, self._handle_milestone
         )
 
         self._running = True
@@ -209,6 +214,17 @@ class TraceService:
             "audit",
             "audit",
             lambda event: f"{event.tenant_id}:audit",
+        )
+
+    async def _handle_milestone(
+        self, batch: list[tuple[str, MilestoneEvent]]
+    ) -> Sequence[str]:
+        return await self._persist(
+            batch,
+            self._clickhouse.insert_milestones,
+            "milestones",
+            "milestone",
+            lambda event: f"{event.tenant_id}:milestone",
         )
 
     async def _handle_metric_event(

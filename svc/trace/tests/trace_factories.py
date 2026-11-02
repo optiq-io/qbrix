@@ -6,6 +6,7 @@ from typing import Sequence
 from qbrixstore.event import AuditEvent
 from qbrixstore.event import FeedbackEvent
 from qbrixstore.event import MetricEvent
+from qbrixstore.event import MilestoneEvent
 from qbrixstore.event import SelectionEvent
 
 
@@ -21,6 +22,7 @@ class FakeClickHouse:
         self.feedback: list[FeedbackEvent] = []
         self.audit: list[AuditEvent] = []
         self.metric: list[MetricEvent] = []
+        self.milestone: list[MilestoneEvent] = []
         self.ledger_ms: dict[str, list[int]] = {"selection": [], "metric": []}
         self.inserts: list[tuple[str, int]] = []
         self.fail_next = 0
@@ -55,6 +57,9 @@ class FakeClickHouse:
     ) -> None:
         self._record("metric", events)
         self.ledger_ms["metric"].extend(ledger_ms)
+
+    def insert_milestones(self, events: Sequence[MilestoneEvent]) -> None:
+        self._record("milestone", events)
 
     def health_check(self) -> bool:
         return True
@@ -104,6 +109,18 @@ def make_audit(tenant_id: str = "t1") -> AuditEvent:
         resource_id="exp",
         payload={},
         timestamp_ms=1_000,
+    )
+
+
+def make_milestone(tenant_id: str = "t1") -> MilestoneEvent:
+    return MilestoneEvent(
+        event_id="first_seal:cyc-1",
+        kind="loop.first_seal",
+        tenant_id=tenant_id,
+        loop_id="loop-1",
+        cycle_id="cyc-1",
+        payload={},
+        at_ms=1_700_000_000_000,
     )
 
 

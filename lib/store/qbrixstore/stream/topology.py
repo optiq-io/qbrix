@@ -8,6 +8,7 @@ from qbrixstore.event import AuditEvent
 from qbrixstore.event import Event
 from qbrixstore.event import FeedbackEvent
 from qbrixstore.event import MetricEvent
+from qbrixstore.event import MilestoneEvent
 from qbrixstore.event import SelectionEvent
 
 # a group that is not listed on its stream's spec cannot be joined, so the
@@ -107,4 +108,11 @@ EVENT = StreamSpec(
     max_len=100_000,
 )
 
-ALL: tuple[StreamSpec, ...] = (FEEDBACK, SELECTION, AUDIT, EVENT)
+MILESTONE = StreamSpec(
+    name="qbrix:milestone",
+    event=MilestoneEvent,
+    groups=frozenset({"trace"}),
+    max_len=10_000,
+)
+
+ALL: tuple[StreamSpec, ...] = (FEEDBACK, SELECTION, AUDIT, EVENT, MILESTONE)

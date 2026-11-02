@@ -19,10 +19,12 @@ from qbrixstore.clickhouse.ledger import LedgerOutcome
 from qbrixstore.clickhouse.ledger import OutcomeRef
 from qbrixstore.clickhouse.ledger import SealedDecision
 from qbrixstore.clickhouse.ledger import SealedStats
+from qbrixstore.clickhouse.ledger import TrailingCount
 from qbrixstore.event import AuditEvent
 from qbrixstore.event import SelectionEvent
 from qbrixstore.event import FeedbackEvent
 from qbrixstore.event import MetricEvent
+from qbrixstore.event import MilestoneEvent
 from qbrixstore.config import ClickHouseSettings
 
 LEDGER_QUERY_CHUNK = 2_000
@@ -149,6 +151,16 @@ class ClickHouseClient:
     ]
 
     SEALED_COLUMNS = [field.name for field in fields(SealedDecision)]
+
+    MILESTONE_COLUMNS = [
+        "event_id",
+        "kind",
+        "tenant_id",
+        "loop_id",
+        "cycle_id",
+        "payload",
+        "at_ms",
+    ]
 
     DECISION_FIELDS = (
         "decision_id",
@@ -362,6 +374,62 @@ class ClickHouseClient:
             column_names=self.SEALED_COLUMNS,
         )
 
+    def insert_milestones(self, events: Sequence[MilestoneEvent]) -> None:
+        if not events:
+            return
+
+        self.client.insert(
+            table="milestones",
+            data=[
+                (
+                    event.event_id,
+                    event.kind,
+                    event.tenant_id,
+                    event.loop_id,
+                    event.cycle_id,
+                    json.dumps(event.payload),
+                    event.at_ms,
+                )
+                for event in events
+            ],
+            column_names=self.MILESTONE_COLUMNS,
+        )
+
+    def query_milestones(
+        self,
+        tenant_id: str,
+        loop_ids: Sequence[str] | None = None,
+        kinds: Sequence[str] | None = None,
+        since_ms: int | None = None,
+        limit: int = 100,
+    ) -> list[MilestoneEvent]:
+        """a workspace's milestones, newest first, each once."""
+        conditions = ["tenant_id = {tenant:String}"]
+        parameters: dict = {"tenant": tenant_id, "limit": limit}
+        if loop_ids is not None:
+            conditions.append("loop_id IN {loops:Array(String)}")
+            parameters["loops"] = list(loop_ids)
+        if kinds is not None:
+            conditions.append("kind IN {kinds:Array(String)}")
+            parameters["kinds"] = list(kinds)
+        if since_ms is not None:
+            conditions.append("at_ms >= {since:Int64}")
+            parameters["since"] = since_ms
+        rows = self._rows(
+            f"""
+            SELECT event_id, kind, tenant_id, loop_id, cycle_id, payload, at_ms
+            FROM milestones FINAL
+            WHERE {" AND ".join(conditions)}
+            ORDER BY at_ms DESC, event_id
+            LIMIT {{limit:UInt32}}
+            """,
+            parameters,
+        )
+        return [
+            MilestoneEvent(**{**row, "payload": json.loads(row["payload"])})
+            for row in rows
+        ]
+
     def _rows(self, sql: str, parameters: dict) -> list[dict]:
         result = self.client.query(sql, parameters=parameters)
         return [dict(zip(result.column_names, row)) for row in result.result_rows]
@@ -389,6 +457,29 @@ class ClickHouseClient:
             {"start": start_ms, "end": end_ms},
         )
         return [LedgerDecision(**row) for row in rows]
+
+    def trailing_decisions(self, start_ms: int, end_ms: int) -> list[TrailingCount]:
+        """every cycle's decisions per option that reached the ledger in
+        [start, end), each once."""
+        rows = self._rows(
+            """
+            SELECT
+                tenant_id,
+                loop_id,
+                cycle_id,
+                arm_index AS option_index,
+                uniqExact(decision_id) AS decisions,
+                min(timestamp_ms) AS first_ms,
+                max(window_ms) AS window_ms
+            FROM selection_events
+            WHERE decision_id != ''
+              AND ledger_ms >= {start:Int64}
+              AND ledger_ms < {end:Int64}
+            GROUP BY tenant_id, loop_id, cycle_id, option_index
+            """,
+            {"start": start_ms, "end": end_ms},
+        )
+        return [TrailingCount(**row) for row in rows]
 
     def query_arrived_outcomes(self, start_ms: int, end_ms: int) -> list[OutcomeRef]:
         """the decisions named by outcomes that reached the ledger in

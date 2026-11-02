@@ -74,6 +74,20 @@ class LoopRepository:
         rows = (await self._session.execute(stmt)).all()
         return {row.id: (row.key, row.name) for row in rows}
 
+    async def cycle_option_names(
+        self, cycle_ids: Collection[str]
+    ) -> dict[str, list[str]]:
+        """each cycle's option names in option order, in one query."""
+        if not cycle_ids:
+            return {}
+        stmt = (
+            select(Cycle.id, Cycle.options)
+            .join(Loop, Cycle.loop_id == Loop.id)
+            .where(Loop.tenant_id == self._tenant_id, Cycle.id.in_(cycle_ids))
+        )
+        rows = (await self._session.execute(stmt)).all()
+        return {row.id: [option["name"] for option in row.options] for row in rows}
+
     async def resolve(self, ref: str) -> Loop | None:
         """a loop by its id, else by its key."""
         return await self.get(ref) or await self.get_by_key(ref)

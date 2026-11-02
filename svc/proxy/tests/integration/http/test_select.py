@@ -8,7 +8,9 @@ invariants verified:
   the metric terms it will be sealed by. a missing unit is refused; an
   unknown loop is not found and counted nowhere. every answer is counted by
   its reason, and a live loop's failures by outcome per cycle. loop writes
-  keep the route select reads current.
+  keep the route select reads current. a draft's first call is a milestone
+  once, naming the key it came from; a failed publish is tried again by the
+  next call, and a live loop's calls are never one.
 """
 
 from __future__ import annotations
@@ -88,6 +90,80 @@ async def _select(api, loop: str, context: dict | None = None):
 
 async def _settled(wired_app) -> None:
     await wired_app.events.drain()
+
+
+class TestFirstCall:
+    async def test_a_drafts_first_call_is_a_milestone_once(self, wired_app, api):
+        loop = await _loop(wired_app)
+
+        await _select(api, loop["key"])
+        await _select(api, loop["key"], {"unit": "user-43"})
+        await _settled(wired_app)
+
+        found = wired_app.milestone_spy.events
+        assert [event.kind for event in found] == ["loop.first_call"]
+        assert found[0].event_id == f"first_call:{loop['id']}"
+        assert found[0].loop_id == loop["id"]
+        assert found[0].cycle_id == ""
+
+    async def test_it_names_no_key_when_none_called(self, wired_app, api):
+        loop = await _loop(wired_app)
+
+        await _select(api, loop["key"])
+        await _settled(wired_app)
+
+        assert wired_app.milestone_spy.events[0].payload == {"source": None}
+
+    async def test_it_names_the_key_that_called(self, wired_app, api):
+        loop = await _loop(wired_app)
+
+        await wired_app.svc.select_loop(TENANT, loop["key"], "u", source="web-prod")
+        await _settled(wired_app)
+
+        assert wired_app.milestone_spy.events[0].payload == {"source": "web-prod"}
+
+    async def test_a_failed_publish_is_tried_again_by_the_next_call(
+        self, wired_app, api
+    ):
+        loop = await _loop(wired_app)
+        spy = wired_app.milestone_spy
+        recorded = spy.publish
+
+        async def refuse(event):
+            raise ConnectionError("redis went away")
+
+        spy.publish = refuse
+        await _select(api, loop["key"])
+        await _settled(wired_app)
+        spy.publish = recorded
+        await _select(api, loop["key"])
+        await _settled(wired_app)
+
+        assert [event.kind for event in spy.events] == ["loop.first_call"]
+
+    async def test_a_redis_failure_never_touches_the_answer(
+        self, wired_app, api, monkeypatch
+    ):
+        loop = await _loop(wired_app)
+
+        async def fail(*_args):
+            raise ConnectionError("redis went away")
+
+        monkeypatch.setattr(wired_app.svc._redis, "first_call_once", fail)
+        resp = await _select(api, loop["key"])
+        await _settled(wired_app)
+
+        assert resp.status_code == 200
+        assert wired_app.milestone_spy.events == []
+
+    async def test_a_live_loop_never_records_one(self, wired_app, api):
+        loop = await _loop(wired_app, launch=True)
+        _motor_chooses(wired_app, 0)
+
+        await _select(api, loop["key"])
+        await _settled(wired_app)
+
+        assert wired_app.milestone_spy.events == []
 
 
 class TestDraft:

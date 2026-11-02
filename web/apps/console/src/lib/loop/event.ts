@@ -3,7 +3,7 @@ import type { ChangeData, ChangeDiff, ChangeTarget } from "@qbrix/ui/next/change
 import { actorName, type Actor } from "@qbrix/ui/next/entity";
 import type { SharePin } from "@qbrix/ui/next/share-chart";
 import type { RailEntry } from "@qbrix/ui/next/time-rail";
-import type { ChangeActorMark, ChangeEntry } from "@/lib/api/types";
+import type { ChangeActorMark, ChangeEntry, LoopMilestone } from "@/lib/api/types";
 import type { HeaderEvent, Token } from "@/lib/header/token";
 
 const QBRIX: Actor = { kind: "qbrix" };
@@ -56,6 +56,25 @@ export function toHeaderEvent(entry: ChangeEntry, alert = false): HeaderEvent {
     context: alert ? reason : undefined,
     source: actorName(actorOf(entry)),
     alert: alert || undefined,
+  };
+}
+
+/** a milestone: nobody's change, so it has no actor, reason or undo */
+export function milestoneToHeaderEvent(event: LoopMilestone): HeaderEvent {
+  return {
+    id: event.id,
+    kind: event.kind,
+    at: Date.parse(event.at),
+    firstAt: event.count > 1 && event.first_at ? Date.parse(event.first_at) : undefined,
+    pieces: event.pieces.map((piece): Token =>
+      piece.kind === "text" ? { kind: "text", text: piece.text ?? "" } : { kind: piece.kind, name: piece.name ?? "" },
+    ),
+    diff: event.diff.map(({ field, before, after }) => ({
+      field,
+      before: before ?? undefined,
+      after: after ?? undefined,
+    })),
+    source: event.source,
   };
 }
 

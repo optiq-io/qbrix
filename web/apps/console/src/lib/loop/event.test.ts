@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ChangeEntry } from "@/lib/api/types";
-import { toChangeData, toHeaderEvent, toPin, toRailEntry } from "./event";
+import type { ChangeEntry, LoopMilestone } from "@/lib/api/types";
+import { milestoneToHeaderEvent, toChangeData, toHeaderEvent, toPin, toRailEntry } from "./event";
 
 const NOW = new Date(2026, 9, 30, 9, 41).getTime();
 const AT = new Date(2026, 9, 4, 14, 2);
@@ -109,5 +109,35 @@ describe("toPin", () => {
     expect(pin.title).toBe("Claude Code renamed Checkout headline.");
     expect(pin.detail).toBe("Old → Checkout headline  ·  4 Oct");
     expect(pin.at).toBe(AT.getTime());
+  });
+});
+
+describe("milestoneToHeaderEvent", () => {
+  const event: LoopMilestone = {
+    id: "leader:c:1",
+    kind: "loop.leader_changed",
+    at: AT.toISOString(),
+    first_at: null,
+    count: 1,
+    loop: { id: "l", key: "l", name: "L" },
+    cycle_id: "c",
+    source: "qbrix",
+    pieces: [
+      { kind: "option", text: null, name: "Pay in one tap" },
+      { kind: "text", text: " took the lead from ", name: null },
+      { kind: "option", text: null, name: "Ships today" },
+      { kind: "text", text: ".", name: null },
+    ],
+    diff: [{ field: "leader", before: null, after: "Pay in one tap" }],
+  };
+
+  it("reads its sentence, source and change, and is never an alert", () => {
+    const read = milestoneToHeaderEvent(event);
+    expect(read.pieces[0]).toEqual({ kind: "option", name: "Pay in one tap" });
+    expect(read.pieces[1]).toEqual({ kind: "text", text: " took the lead from " });
+    expect(read.source).toBe("qbrix");
+    expect(read.diff).toEqual([{ field: "leader", before: undefined, after: "Pay in one tap" }]);
+    expect(read.alert).toBeUndefined();
+    expect(read.at).toBe(AT.getTime());
   });
 });

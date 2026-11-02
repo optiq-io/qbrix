@@ -34,6 +34,7 @@ from proxysvc.mod.loop.read import LoopReadService
 from proxysvc.mod.loop.result import LoopResultService
 from proxysvc.mod.loop.route import LoopRouteCache
 from proxysvc.mod.loop.select import LoopSelectService
+from proxysvc.mod.milestone.service import MilestoneService
 from proxysvc.mod.loop.service import LoopService
 from proxysvc.mod.metric.service import DEFAULT_WINDOW_SECONDS
 from proxysvc.mod.metric.service import MetricService
@@ -68,6 +69,7 @@ class ProxyService:
         self._loop_select_service: LoopSelectService | None = None
         self._loop_outcome_service: LoopOutcomeService | None = None
         self._loop_result_service: LoopResultService | None = None
+        self._milestone_service: MilestoneService | None = None
         self._experiment_service: ExperimentService | None = None
         self._connection_service: ConnectionService | None = None
         self._oauth_service: OAuthService | None = None
@@ -162,6 +164,7 @@ class ProxyService:
         self._loop_result_service = LoopResultService(
             redis=self._redis, clickhouse=self._clickhouse
         )
+        self._milestone_service = MilestoneService(self._loop_result_service.read)
         self._change_service = ChangeService(
             experiments=self._experiment_service,
             gates=self._gate_service,
@@ -634,9 +637,31 @@ class ProxyService:
         )
 
     async def select_loop(
-        self, tenant_id: str, loop: str, unit: Any, properties: Any = None
+        self,
+        tenant_id: str,
+        loop: str,
+        unit: Any,
+        properties: Any = None,
+        *,
+        source: str | None = None,
     ) -> dict:
-        return await self._loop_select_service.select(tenant_id, loop, unit, properties)
+        return await self._loop_select_service.select(
+            tenant_id, loop, unit, properties, source=source
+        )
+
+    async def list_milestones(
+        self,
+        tenant_id: str,
+        *,
+        loop: str | None = None,
+        metric: str | None = None,
+        kinds: Sequence[str] = (),
+        since: datetime | None = None,
+        limit: int,
+    ) -> dict:
+        return await self._milestone_service.list_milestones(
+            tenant_id, loop=loop, metric=metric, kinds=kinds, since=since, limit=limit
+        )
 
     async def outcome(
         self,

@@ -112,3 +112,17 @@ class SealedStats:
     n: int
     total: float
     total_sq: float
+
+
+@dataclass(frozen=True)
+class TrailingCount:
+    """the decisions one option of a cycle got in a range of ledger time, with
+    the earliest of them and the window they were opened under."""
+
+    tenant_id: str
+    loop_id: str
+    cycle_id: str
+    option_index: int
+    decisions: int
+    first_ms: int
+    window_ms: int
