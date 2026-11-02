@@ -56,7 +56,7 @@ TOOLS = [
     "loop_results",
     "metrics_list",
     "changes_list",
-    "events_list",
+    "milestones_list",
     "loop_create",
     "loop_launch",
     "metric_create",
@@ -519,7 +519,7 @@ class TestChangesAndUndo:
             entry["id"] for entry in page["changes"]
         ]
 
-    async def test_events_list_reads_the_same_as_http(self, mcp, wired_app):
+    async def test_milestones_list_reads_the_same_as_http(self, mcp, wired_app):
         async with _session(mcp, wired_app) as client:
             loop = (await _draft(client))["loop"]
             wired_app.ledger.reach(
@@ -533,19 +533,19 @@ class TestChangesAndUndo:
                     at_ms=1_700_000_000_000,
                 )
             )
-            result = await _call(client, "events_list", {"loop": loop["key"]})
+            result = await _call(client, "milestones_list", {"loop": loop["key"]})
 
-        found = await wired_app.svc.list_events(TENANT, limit=20)
-        assert [e["id"] for e in result.structured_content["events"]] == [
-            e["id"] for e in found["events"]
+        found = await wired_app.svc.list_milestones(TENANT, limit=20)
+        assert [e["id"] for e in result.structured_content["milestones"]] == [
+            e["id"] for e in found["milestones"]
         ]
         assert "web-prod made the first call to Checkout headline." in (
             result.content[0].text
         )
 
-    async def test_events_list_refuses_an_unknown_loop(self, mcp, wired_app):
+    async def test_milestones_list_refuses_an_unknown_loop(self, mcp, wired_app):
         async with _session(mcp, wired_app) as client:
-            result = await _call(client, "events_list", {"loop": "nope"})
+            result = await _call(client, "milestones_list", {"loop": "nope"})
 
         assert result.is_error
 

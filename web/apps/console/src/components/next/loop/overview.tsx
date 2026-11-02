@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { ShareChart } from "@qbrix/ui/next/share-chart";
 import { Header } from "@/components/next/header/header";
-import type { ChangeEntry, Loop, LoopEvent, LoopResults, ResultsRange } from "@/lib/api/types";
+import type { ChangeEntry, Loop, LoopMilestone, LoopResults, ResultsRange } from "@/lib/api/types";
 import { facts } from "@/lib/header/fact";
 import { eyebrow, type StatusRow, type LoopStatus } from "@/lib/header/status";
 import { milestoneToHeaderEvent, toHeaderEvent, toPin } from "@/lib/loop/event";
@@ -42,7 +42,7 @@ export function LoopOverview({
   range: ResultsRange;
   onRangeChange: (range: ResultsRange) => void;
   changes: ChangeEntry[];
-  milestones: LoopEvent[];
+  milestones: LoopMilestone[];
   now: number;
   staging: boolean;
   onCancel: () => void;
@@ -76,7 +76,7 @@ export function LoopOverview({
         row={row}
         eyebrow={eyebrow(row, cycleResults ? loopCounters(cycleResults, now) : {})}
         events={events}
-        facts={facts(row, loopFacts(status, loop, { cycle: cycleResults, day: dayResults, pause, events: milestones }, now))}
+        facts={facts(row, loopFacts(status, loop, { cycle: cycleResults, day: dayResults, pause, milestones }, now))}
       />
       {loop.state === "draft" && (
         <DraftOverview loop={loop} results={cycleResults} staging={staging} onCancel={onCancel} onDone={onDone} />

@@ -155,7 +155,7 @@ export const queryKeys = {
     detail: (key: string) => ["loops", "detail", key] as const,
     results: (key: string, range: string) => ["loops", "results", key, range] as const,
     changes: (key: string) => ["loops", "changes", key] as const,
-    events: (key: string) => ["loops", "events", key] as const,
+    milestones: (key: string) => ["loops", "milestones", key] as const,
   },
 
   changes: {

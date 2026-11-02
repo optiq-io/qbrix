@@ -778,8 +778,8 @@ export interface ChangeEntry {
   ids: string[];
 }
 
-/** one row of GET /v1/events: something a loop reached that isn't anyone's change */
-export interface LoopEvent {
+/** one row of GET /v1/milestones: something a loop reached that isn't anyone's change */
+export interface LoopMilestone {
   id: string;
   kind: string;
   at: string;

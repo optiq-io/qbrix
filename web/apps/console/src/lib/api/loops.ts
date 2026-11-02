@@ -3,8 +3,8 @@ import type {
   ChangeEntry,
   CreateLoopBody,
   Loop,
-  LoopEvent,
   LoopListPage,
+  LoopMilestone,
   LoopResults,
   LoopResumed,
   ResultsRange,
@@ -66,9 +66,9 @@ export const loops = {
     return readChanges(new URLSearchParams({ loop: key, limit: String(RECENT_CHANGES) }));
   },
 
-  async events(key: string): Promise<LoopEvent[]> {
+  async milestones(key: string): Promise<LoopMilestone[]> {
     const params = new URLSearchParams({ loop: key, limit: String(RECENT_CHANGES) });
-    const { events } = await apiFetch<{ events: LoopEvent[] }>(`/v1/events?${params}`);
-    return events;
+    const { milestones } = await apiFetch<{ milestones: LoopMilestone[] }>(`/v1/milestones?${params}`);
+    return milestones;
   },
 };

@@ -649,7 +649,7 @@ class ProxyService:
             tenant_id, loop, unit, properties, source=source
         )
 
-    async def list_events(
+    async def list_milestones(
         self,
         tenant_id: str,
         *,
@@ -659,7 +659,7 @@ class ProxyService:
         since: datetime | None = None,
         limit: int,
     ) -> dict:
-        return await self._milestone_service.list_events(
+        return await self._milestone_service.list_milestones(
             tenant_id, loop=loop, metric=metric, kinds=kinds, since=since, limit=limit
         )
 

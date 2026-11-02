@@ -1,6 +1,6 @@
 import { addDays, format, isSameDay } from "date-fns";
 import type { Signal } from "@qbrix/ui/next/health";
-import type { Loop, LoopCycle, LoopEvent, LoopResults, ResultsRange } from "@/lib/api/types";
+import type { Loop, LoopCycle, LoopMilestone, LoopResults, ResultsRange } from "@/lib/api/types";
 import type { FactValue } from "@/lib/header/fact";
 import type { LoopStatus } from "@/lib/header/status";
 import { pausedFor, type Pause } from "./pause";
@@ -93,8 +93,8 @@ function sum(results: LoopResults | undefined, field: "decisions" | "waiting"): 
 }
 
 /** the option this cycle's newest leader event names, read from newest first */
-function ahead(events: LoopEvent[], cycleId: string | undefined): string | undefined {
-  const named = events.find((event) => event.kind === LEADER_CHANGED && event.cycle_id === cycleId);
+function ahead(milestones: LoopMilestone[], cycleId: string | undefined): string | undefined {
+  const named = milestones.find((m) => m.kind === LEADER_CHANGED && m.cycle_id === cycleId);
   return named?.diff[0]?.after ?? undefined;
 }
 
@@ -199,12 +199,12 @@ export function loopFacts(
     cycle,
     day,
     pause,
-    events = [],
+    milestones = [],
   }: {
     cycle: LoopResults | undefined;
     day: LoopResults | undefined;
     pause?: Pause | null;
-    events?: LoopEvent[];
+    milestones?: LoopMilestone[];
   },
   now: number,
 ): Record<string, FactValue | undefined> {
@@ -231,7 +231,7 @@ export function loopFacts(
       firstSeal: firstSeal(cycle, loop.metric.window_seconds, now),
     };
   }
-  const leader = ahead(events, cycle?.cycle?.id);
+  const leader = ahead(milestones, cycle?.cycle?.id);
   const share = day?.share?.options.find((option) => option.name === leader)?.share;
   return {
     ahead: leader,

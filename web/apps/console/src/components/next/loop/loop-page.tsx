@@ -70,8 +70,8 @@ export function LoopPage({ loopKey }: { loopKey: string }) {
   });
 
   const milestones = useQuery({
-    queryKey: queryKeys.loops.events(loopKey),
-    queryFn: () => loops.events(loopKey),
+    queryKey: queryKeys.loops.milestones(loopKey),
+    queryFn: () => loops.milestones(loopKey),
     refetchInterval: DETAIL_POLL_MS,
   });
 

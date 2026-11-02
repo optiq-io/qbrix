@@ -21,7 +21,7 @@ from proxysvc.transport.http.router.change import Difference
 from proxysvc.transport.http.router.loop import PAGE_LIMIT
 from proxysvc.transport.http.router.loop import PAGE_LIMIT_MAX
 
-router = APIRouter(prefix="/events", tags=["events"])
+router = APIRouter(prefix="/milestones", tags=["milestones"])
 
 _proxy_service: Optional[ProxyService] = None
 
@@ -37,14 +37,14 @@ def get_proxy_service() -> ProxyService:
     return _proxy_service
 
 
-class EventLoop(BaseModel):
+class MilestoneLoop(BaseModel):
     id: str
     key: str
     name: str
 
 
-class EventPiece(BaseModel):
-    """one part of an event's sentence: a text, or the name of a loop or an
+class MilestonePiece(BaseModel):
+    """one part of a milestone's sentence: a text, or the name of a loop or an
     option."""
 
     kind: Literal["text", "loop", "option"]
@@ -52,29 +52,29 @@ class EventPiece(BaseModel):
     name: Optional[str] = None
 
 
-class Event(BaseModel):
+class Milestone(BaseModel):
     id: str
     kind: str
     at: str
     first_at: Optional[str] = None
     count: int
-    loop: EventLoop
+    loop: MilestoneLoop
     cycle_id: Optional[str] = None
     source: str
-    pieces: list[EventPiece]
+    pieces: list[MilestonePiece]
     diff: list[Difference]
 
 
-class EventList(BaseModel):
-    events: list[Event]
+class MilestoneList(BaseModel):
+    milestones: list[Milestone]
 
 
 @router.get(
     "",
     status_code=status.HTTP_200_OK,
-    response_model=EventList,
+    response_model=MilestoneList,
 )
-async def list_events(
+async def list_milestones(
     loop: Optional[str] = None,
     metric: Optional[str] = None,
     kind: Optional[list[str]] = Query(default=None),
@@ -85,7 +85,7 @@ async def list_events(
 ):
     """what the workspace's loops reached, newest first."""
     try:
-        found = await get_proxy_service().list_events(
+        found = await get_proxy_service().list_milestones(
             tenant_id,
             loop=loop,
             metric=metric,
@@ -97,4 +97,4 @@ async def list_events(
         raise LoopNotFoundException(f"no loop with the key or id {loop!r}")
     except MetricNotFoundError:
         raise MetricNotFoundException(f"no metric named or with id {metric!r}")
-    return EventList(**found)
+    return MilestoneList(**found)

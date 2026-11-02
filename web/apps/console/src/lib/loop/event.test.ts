@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ChangeEntry, LoopEvent } from "@/lib/api/types";
+import type { ChangeEntry, LoopMilestone } from "@/lib/api/types";
 import { milestoneToHeaderEvent, toChangeData, toHeaderEvent, toPin, toRailEntry } from "./event";
 
 const NOW = new Date(2026, 9, 30, 9, 41).getTime();
@@ -113,7 +113,7 @@ describe("toPin", () => {
 });
 
 describe("milestoneToHeaderEvent", () => {
-  const event: LoopEvent = {
+  const event: LoopMilestone = {
     id: "leader:c:1",
     kind: "loop.leader_changed",
     at: AT.toISOString(),

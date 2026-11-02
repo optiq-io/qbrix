@@ -29,7 +29,7 @@ class MilestoneService:
     def __init__(self, read: Read):
         self._read = read
 
-    async def list_events(
+    async def list_milestones(
         self,
         tenant_id: str,
         *,
@@ -42,7 +42,7 @@ class MilestoneService:
         async with get_session() as session:
             loop_ids = await self._narrow(session, tenant_id, loop, metric)
         if loop_ids == []:
-            return {"events": []}
+            return {"milestones": []}
 
         found = await self._read(
             lambda ch: ch.query_milestones(
@@ -61,7 +61,7 @@ class MilestoneService:
                 {event.cycle_id for event in found if event.cycle_id}
             )
 
-        events = []
+        milestones = []
         for group in fold(found):
             first = group[0]
             named = names.get(first.loop_id)
@@ -73,8 +73,8 @@ class MilestoneService:
                 options.get(first.cycle_id, []),
             )
             if made is not None:
-                events.append(made)
-        return {"events": events}
+                milestones.append(made)
+        return {"milestones": milestones}
 
     @staticmethod
     async def _narrow(

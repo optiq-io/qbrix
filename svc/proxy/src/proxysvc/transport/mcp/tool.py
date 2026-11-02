@@ -32,7 +32,7 @@ from proxysvc.mod.metric.serialize import window_label
 from proxysvc.mod.safety.rule import DECISION_ERRORS
 from proxysvc.service import ProxyService
 from proxysvc.transport.http.router.change import ChangePage
-from proxysvc.transport.http.router.milestone import EventList
+from proxysvc.transport.http.router.milestone import MilestoneList
 from proxysvc.transport.mcp import error
 from proxysvc.transport.mcp.error import Refusal
 from proxysvc.transport.mcp.error import refusals
@@ -221,11 +221,11 @@ def _change_line(entry: dict) -> str:
     return " · ".join(parts)
 
 
-def _event_line(event: dict) -> str:
+def _milestone_line(milestone: dict) -> str:
     sentence = "".join(
-        piece.get("text") or piece.get("name") or "" for piece in event["pieces"]
+        piece.get("text") or piece.get("name") or "" for piece in milestone["pieces"]
     )
-    return f"{event['at']} · {sentence}"
+    return f"{milestone['at']} · {sentence}"
 
 
 def _share_line(share: list[dict]) -> str:
@@ -521,15 +521,15 @@ def register(
             lines.append(f"More changes: call again with cursor {page['next_cursor']}.")
         return _result("\n".join(lines), ChangePage(**page))
 
-    async def events_list(
+    async def milestones_list(
         loop: Annotated[
             Optional[str],
-            Field(description="Only events of this loop: its key or its id."),
+            Field(description="Only milestones of this loop: its key or its id."),
         ] = None,
         metric: Annotated[
             Optional[str],
             Field(
-                description="Only events of loops using this metric: its name or id."
+                description="Only milestones of loops using this metric: its name or id."
             ),
         ] = None,
         kind: Annotated[
@@ -541,17 +541,17 @@ def register(
         ] = None,
         since: Annotated[
             Optional[datetime],
-            Field(description="Only events at or after this time."),
+            Field(description="Only milestones at or after this time."),
         ] = None,
         limit: Annotated[int, Field(ge=1, le=LIMIT_MAX)] = LIMIT_DEFAULT,
-    ) -> Annotated[CallToolResult, EventList]:
+    ) -> Annotated[CallToolResult, MilestoneList]:
         """List what the workspace's loops reached, newest first: a draft's first call, a cycle's first window sealing, and a new option taking the lead. Leading means the largest share of decisions over the last 24 hours, held for an hour; it says how traffic is shared, not which option is better."""
         principal = current_principal()
         try:
-            _require(principal, "loop:read", "read events")
+            _require(principal, "loop:read", "read milestones")
             try:
                 with refusals():
-                    found = await service().list_events(
+                    found = await service().list_milestones(
                         principal.tenant_id,
                         loop=loop,
                         metric=metric,
@@ -565,10 +565,10 @@ def register(
                 raise await refused_metric(principal, metric) from e
         except Refusal as refusal:
             return _refused(refusal)
-        lines = [_event_line(event) for event in found["events"]] or [
-            "No events match."
+        lines = [_milestone_line(m) for m in found["milestones"]] or [
+            "No milestones match."
         ]
-        return _result("\n".join(lines), EventList(**found))
+        return _result("\n".join(lines), MilestoneList(**found))
 
     async def loop_create(
         name: Annotated[str, Field(description="What people call the loop.")],
@@ -768,7 +768,7 @@ def register(
         (loop_results, _READ),
         (metrics_list, _READ),
         (changes_list, _READ),
-        (events_list, _READ),
+        (milestones_list, _READ),
         (loop_create, _CREATE),
         (loop_launch, _DESTRUCTIVE),
         (metric_create, _CREATE),

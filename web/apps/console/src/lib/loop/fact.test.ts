@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Loop, LoopEvent, LoopResults } from "@/lib/api/types";
+import type { Loop, LoopMilestone, LoopResults } from "@/lib/api/types";
 import {
   chartCaption,
   fallbackName,
@@ -68,7 +68,7 @@ describe("loopCounters", () => {
   });
 });
 
-function leaderEvent(after: string, cycleId = "c", id = "l1"): LoopEvent {
+function leaderEvent(after: string, cycleId = "c", id = "l1"): LoopMilestone {
   return {
     id,
     kind: "loop.leader_changed",
@@ -85,8 +85,8 @@ function leaderEvent(after: string, cycleId = "c", id = "l1"): LoopEvent {
 
 describe("loopFacts, live", () => {
   it("is ahead on the newest leader event, with that option's share of the last 24 hours", () => {
-    const events = [leaderEvent("Ships today"), leaderEvent("Pay in one tap", "c", "l0")];
-    const facts = loopFacts("live", LOOP, { cycle: results(), day: results(), events }, NOW);
+    const milestones = [leaderEvent("Ships today"), leaderEvent("Pay in one tap", "c", "l0")];
+    const facts = loopFacts("live", LOOP, { cycle: results(), day: results(), milestones }, NOW);
     expect(facts.ahead).toBe("Ships today");
     expect(facts.share).toBe("42%");
     expect(facts.waiting).toBe("30");
@@ -99,15 +99,15 @@ describe("loopFacts, live", () => {
   });
 
   it("names nobody from an earlier cycle", () => {
-    const events = [leaderEvent("Ships today", "an-earlier-cycle")];
-    const facts = loopFacts("live", LOOP, { cycle: results(), day: results(), events }, NOW);
+    const milestones = [leaderEvent("Ships today", "an-earlier-cycle")];
+    const facts = loopFacts("live", LOOP, { cycle: results(), day: results(), milestones }, NOW);
     expect(facts.ahead).toBeUndefined();
   });
 
   it("keeps naming the leader when the last day has no decisions", () => {
     const share = { ...results().share!, options: results().share!.options.map((o) => ({ ...o, share: null })) };
-    const events = [leaderEvent("Ships today")];
-    const facts = loopFacts("live", LOOP, { cycle: results(), day: results({ share }), events }, NOW);
+    const milestones = [leaderEvent("Ships today")];
+    const facts = loopFacts("live", LOOP, { cycle: results(), day: results({ share }), milestones }, NOW);
     expect(facts.ahead).toBe("Ships today");
     expect(facts.share).toBeUndefined();
   });
