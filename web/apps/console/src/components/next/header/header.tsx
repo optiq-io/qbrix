@@ -25,7 +25,7 @@ export function Header({
   shortcuts = true,
   className,
 }: {
-  /** absent on the event log and Changes, which keep only the eyebrow */
+  /** absent on Changes, which keeps only the eyebrow */
   name?: string;
   /** absent on settings pages: a plain title, an eyebrow and facts */
   row?: Pick<StatusRow, "phrase" | "hint" | "pulse" | "name">;

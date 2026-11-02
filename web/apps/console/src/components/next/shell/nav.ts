@@ -1,4 +1,4 @@
-import { Activity, History, Inbox, Repeat, Target } from "lucide-react";
+import { History, Inbox, Repeat, Target } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { routes } from "@/config/routes";
 
@@ -8,7 +8,6 @@ export const nextNav: NextNavItem[] = [
   { label: "Inbox", href: routes.next.inbox, icon: Inbox, onPhone: "" },
   { label: "Loops", href: routes.next.home, icon: Repeat, onPhone: "Loops open on a larger screen" },
   { label: "Metrics", href: routes.next.metrics, icon: Target, onPhone: "Metrics open on a larger screen" },
-  { label: "Event log", href: routes.next.eventLog, icon: Activity, onPhone: "The event log opens on a larger screen" },
   { label: "Changes", href: routes.next.changes, icon: History, onPhone: "Changes open on a larger screen" },
 ];
 

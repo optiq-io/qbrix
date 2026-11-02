@@ -18,6 +18,9 @@ from proxysvc.transport.http.router.analytics import get_clickhouse_client
 
 logger = logging.getLogger(__name__)
 
+# today's console reads these. next has no equivalent, by choice for now: what
+# shows decisions and outcomes, and how it is grouped and named, gets revisited
+# before these routes retire with the release.
 router = APIRouter(
     prefix="/event",
     tags=["event"],
