@@ -623,6 +623,47 @@ export interface Loop {
   cycle: LoopCycle | null;
 }
 
+/** POST /v1/loops */
+export interface CreateLoopBody {
+  name: string;
+  key: string;
+  purpose: string;
+  metric: string;
+  options: { name: string; key: string; config: Record<string, unknown> }[];
+  /** an option's key */
+  fallback: string;
+}
+
+export type MetricType = "conversion" | "count" | "value" | "score";
+
+export interface MetricLoop {
+  id: string;
+  key: string;
+  name: string;
+  state: LoopState;
+}
+
+/** GET /v1/metrics */
+export interface Metric {
+  id: string;
+  name: string;
+  type: MetricType;
+  range: { lo: number; hi: number } | null;
+  version: string;
+  semantic: string;
+  window_seconds: number;
+  loops: MetricLoop[];
+}
+
+/** POST /v1/metrics */
+export interface CreateMetricBody {
+  name: string;
+  semantic: string;
+  type: MetricType;
+  range: { lo: number; hi: number } | null;
+  window_seconds: number;
+}
+
 export interface LoopLatestChange {
   id: string;
   kind: string;

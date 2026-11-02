@@ -20,6 +20,8 @@ export function Picker<T extends string>({
   placeholder = "Choose…",
   create,
   hint,
+  error,
+  hideLabel = false,
   canEdit = true,
   className,
 }: {
@@ -31,6 +33,10 @@ export function Picker<T extends string>({
   /** the last row, for when what they want doesn't exist yet: "Create metric" */
   create?: { label: string; onSelect: () => void };
   hint?: string;
+  /** replaces the hint while it's set */
+  error?: string;
+  /** for screen readers only, where a section head already names the picker */
+  hideLabel?: boolean;
   /** false for a person who can't make this change: the picker is absent, never disabled */
   canEdit?: boolean;
   className?: string;
@@ -41,10 +47,11 @@ export function Picker<T extends string>({
   if (!canEdit) return null;
 
   const selected = options.find((o) => o.value === value);
+  const note = error ?? hint;
 
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
-      <span id={`${id}-label`} className="n-meta font-medium text-n-text-3">
+      <span id={`${id}-label`} className={hideLabel ? "sr-only" : "n-meta font-medium text-n-text-3"}>
         {label}
       </span>
       <div ref={wrapperRef} className="relative">
@@ -54,6 +61,8 @@ export function Picker<T extends string>({
           aria-haspopup="listbox"
           aria-expanded={open}
           aria-labelledby={`${id}-label ${id}-value`}
+          aria-describedby={note ? `${id}-note` : undefined}
+          aria-invalid={error ? true : undefined}
           onClick={() => setOpen((v) => !v)}
           onKeyDown={onTriggerKeyDown}
           className={cn(CONTROL, "n-body flex items-center justify-between gap-2 text-left")}
@@ -114,7 +123,11 @@ export function Picker<T extends string>({
           </div>
         )}
       </div>
-      {hint && <p className="n-label font-normal text-n-text-3">{hint}</p>}
+      {note && (
+        <p id={`${id}-note`} className={cn("n-label font-normal", error ? "text-n-no-fg" : "text-n-text-3")}>
+          {note}
+        </p>
+      )}
     </div>
   );
 }

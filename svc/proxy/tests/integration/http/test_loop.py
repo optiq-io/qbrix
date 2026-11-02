@@ -130,6 +130,11 @@ class TestCreate:
         assert second["key"] == "checkout-headline-2"
         assert third["key"] == "checkout-headline-3"
 
+    async def test_a_generated_key_skips_the_reserved_one(self, loops):
+        loop = await _create(loops, name="New")
+
+        assert loop["key"] == "new-2"
+
     async def test_keeps_a_given_key(self, loops):
         loop = await _create(loops, key="headline")
 
@@ -200,6 +205,7 @@ class TestRefusals:
             ({"key": "Checkout"}, "a loop key is what code calls"),
             ({"key": "-checkout"}, "a loop key is what code calls"),
             ({"key": "c" * 65}, "a loop key is what code calls"),
+            ({"key": "new"}, "a loop can't have the key 'new'"),
             ({"name": "  "}, "a loop needs a name"),
             (
                 {"options": [{"name": "A", "key": "a"}, {"name": "B", "key": "a"}]},
@@ -383,6 +389,7 @@ class TestRename:
         "body, names",
         [
             ({}, "a rename needs a new name, a new key or both"),
+            ({"key": "new"}, "a loop can't have the key 'new'"),
             ({"name": " "}, "a loop needs a name"),
             ({"key": "Not A Key"}, "a loop key is what code calls"),
         ],
