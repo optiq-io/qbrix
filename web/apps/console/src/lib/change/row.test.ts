@@ -44,7 +44,7 @@ describe("toHistoryRow", () => {
 
   it("says where a change came from when no connection does", () => {
     expect(toHistoryRow(entry(), NOW).context).toBe("in the console");
-    const viaKey = entry({}, { kind: "member", name: "Ada", on_behalf_of: null, via: "API key" });
+    const viaKey = entry({}, { kind: "member", name: "Ada", on_behalf_of: null, via: "the API" });
     expect(toHistoryRow(viaKey, NOW).context).toBeUndefined();
     const client = entry({}, { kind: "connection", name: "Cursor", on_behalf_of: "Sam", via: null });
     expect(toHistoryRow(client, NOW).context).toBeUndefined();
