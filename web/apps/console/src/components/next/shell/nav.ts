@@ -32,5 +32,5 @@ export function phoneAllowed(pathname: string | null): boolean {
   const { inbox, changes } = routes.next;
   if (pathname === inbox || pathname.startsWith(`${inbox}/`)) return true;
   if (pathname.startsWith(`${changes}/`)) return true;
-  return pathname.startsWith(`${routes.next.home}/loops/`);
+  return pathname !== routes.next.newLoop && pathname.startsWith(`${routes.next.home}/loops/`);
 }

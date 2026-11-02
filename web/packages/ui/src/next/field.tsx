@@ -11,6 +11,8 @@ type FieldFrame = {
   hint?: string;
   /** replaces the hint while it's set */
   error?: string;
+  /** for screen readers only, where a section head or table column already names the field */
+  hideLabel?: boolean;
   /** false for a person who can't make this change: the field is absent, never disabled */
   canEdit?: boolean;
 };
@@ -20,6 +22,7 @@ export function Field({
   label,
   hint,
   error,
+  hideLabel = false,
   className,
   children,
 }: FieldFrame & {
@@ -32,7 +35,7 @@ export function Field({
 
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
-      <label htmlFor={id} className="n-meta font-medium text-n-text-3">
+      <label htmlFor={id} className={hideLabel ? "sr-only" : "n-meta font-medium text-n-text-3"}>
         {label}
       </label>
       {children({ id, describedBy: note ? noteId : undefined, invalid: Boolean(error) })}
@@ -51,10 +54,10 @@ export function Field({
 type InputProps = FieldFrame & Omit<React.ComponentProps<"input">, "id">;
 type AreaProps = FieldFrame & Omit<React.ComponentProps<"textarea">, "id">;
 
-export function TextField({ label, hint, error, canEdit = true, className, ...props }: InputProps) {
+export function TextField({ label, hint, error, hideLabel, canEdit = true, className, ...props }: InputProps) {
   if (!canEdit) return null;
   return (
-    <Field label={label} hint={hint} error={error} className={className}>
+    <Field label={label} hint={hint} error={error} hideLabel={hideLabel} className={className}>
       {({ id, describedBy, invalid }) => (
         <input
           id={id}
@@ -68,10 +71,10 @@ export function TextField({ label, hint, error, canEdit = true, className, ...pr
   );
 }
 
-export function TextArea({ label, hint, error, canEdit = true, className, rows = 3, ...props }: AreaProps) {
+export function TextArea({ label, hint, error, hideLabel, canEdit = true, className, rows = 3, ...props }: AreaProps) {
   if (!canEdit) return null;
   return (
-    <Field label={label} hint={hint} error={error} className={className}>
+    <Field label={label} hint={hint} error={error} hideLabel={hideLabel} className={className}>
       {({ id, describedBy, invalid }) => (
         <textarea
           id={id}

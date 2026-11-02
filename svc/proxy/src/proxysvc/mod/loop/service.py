@@ -43,6 +43,8 @@ MIN_OPTIONS = 2
 _KEY = re.compile(r"[a-z0-9][a-z0-9_.-]*")
 _NOT_KEY = re.compile(r"[^a-z0-9]+")
 _GENERATED_MAX_LENGTH = KEY_MAX_LENGTH - len("-999")
+# the console's create page lives at /next/loops/new, so a loop with this key could never open
+_RESERVED_LOOP_KEYS = frozenset({"new"})
 
 
 def _check_key(key: str, what: str) -> str:
@@ -52,6 +54,13 @@ def _check_key(key: str, what: str) -> str:
             f"and '.', starting with a letter or digit, at most {KEY_MAX_LENGTH} "
             f"characters, got {key!r}"
         )
+    return key
+
+
+def _check_loop_key(key: str) -> str:
+    _check_key(key, "a loop")
+    if key in _RESERVED_LOOP_KEYS:
+        raise LoopInvalidError(f"a loop can't have the key {key!r}: qbrix uses it")
     return key
 
 
@@ -171,7 +180,7 @@ class LoopService:
     ) -> Applied:
         name = _name(name, "a loop")
         if key is not None:
-            _check_key(key, "a loop")
+            _check_loop_key(key)
         if not metric:
             raise LoopInvalidError("a loop needs a metric: the one it improves")
         built = _options(options)
@@ -193,7 +202,7 @@ class LoopService:
             repo = LoopRepository(session, tenant_id)
             if key is None:
                 base = _key_from(name, "loop")
-                key = _unique(base, await repo.keys_from(base))
+                key = _unique(base, {*await repo.keys_from(base), *_RESERVED_LOOP_KEYS})
             elif await repo.get_by_key(key) is not None:
                 raise _taken(key)
             try:
@@ -282,7 +291,7 @@ class LoopService:
         if name is not None:
             name = _name(name, "a loop")
         if key is not None:
-            _check_key(key, "a loop")
+            _check_loop_key(key)
 
         async with get_session() as session:
             repo = LoopRepository(session, tenant_id)

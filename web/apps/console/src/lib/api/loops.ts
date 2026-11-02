@@ -1,5 +1,5 @@
 import { apiFetch } from "./client";
-import type { ChangeEntry, Loop, LoopListPage, LoopResults, LoopResumed, ResultsRange } from "./types";
+import type { ChangeEntry, CreateLoopBody, Loop, LoopListPage, LoopResults, LoopResumed, ResultsRange } from "./types";
 
 const RECENT_CHANGES = 50;
 const LIST_PAGE = 200;
@@ -32,6 +32,10 @@ export const loops = {
 
   async get(key: string): Promise<Loop> {
     return apiFetch<Loop>(path(key));
+  },
+
+  async create(body: CreateLoopBody): Promise<Loop> {
+    return apiFetch<Loop>("/v1/loops", { method: "POST", body: JSON.stringify(body) });
   },
 
   async launch(key: string): Promise<Loop> {

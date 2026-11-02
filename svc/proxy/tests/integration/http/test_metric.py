@@ -156,6 +156,32 @@ class TestRead:
         assert [m["name"] for m in other.json()["metrics"]] == ["click"]
         assert hidden.status_code == 404
 
+    async def test_a_listed_metric_names_the_loops_that_use_it(self, metrics):
+        await _create(metrics)
+        await _create(metrics, name="signup", semantic="an account created")
+        loop = await metrics.post(
+            "/api/v1/loops",
+            json={
+                "name": "Checkout headline",
+                "metric": "purchase",
+                "options": [{"name": "A"}, {"name": "B"}],
+            },
+        )
+        assert loop.status_code == 201, loop.text
+
+        resp = await metrics.get("/api/v1/metrics")
+
+        by_name = {m["name"]: m["loops"] for m in resp.json()["metrics"]}
+        assert by_name["signup"] == []
+        assert by_name["purchase"] == [
+            {
+                "id": loop.json()["id"],
+                "key": "checkout-headline",
+                "name": "Checkout headline",
+                "state": "draft",
+            }
+        ]
+
 
 class TestChange:
     async def test_create_is_one_change_with_its_actor_and_after(

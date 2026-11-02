@@ -67,8 +67,19 @@ class MetricResponse(BaseModel):
     updated_at: Optional[str] = None
 
 
+class MetricLoopResponse(BaseModel):
+    id: str
+    key: str
+    name: str
+    state: str
+
+
+class MetricInUseResponse(MetricResponse):
+    loops: list[MetricLoopResponse]
+
+
 class MetricListResponse(BaseModel):
-    metrics: list[MetricResponse]
+    metrics: list[MetricInUseResponse]
 
 
 @router.post(
@@ -110,9 +121,9 @@ async def list_metrics(
     tenant_id: str = Depends(get_current_tenant_id),
     _scoped=Depends(require_scopes(["metric:read"])),
 ):
-    """list every metric in the workspace."""
-    metrics = await get_proxy_service().list_metrics(tenant_id)
-    return MetricListResponse(metrics=[MetricResponse(**m) for m in metrics])
+    """list every metric in the workspace, with the loops that use it."""
+    metrics = await get_proxy_service().metrics_in_use(tenant_id)
+    return MetricListResponse(metrics=[MetricInUseResponse(**m) for m in metrics])
 
 
 @router.get(

@@ -5,8 +5,7 @@ import { Plus } from "lucide-react";
 import { buttonClass } from "@qbrix/ui/next/button";
 import { Empty } from "@qbrix/ui/next/empty";
 import { docsUrl, routes } from "@/config/routes";
-
-const START_LOOP = "Start a loop for the checkout headline";
+import { START_LOOP } from "@/lib/loop/new-loop";
 
 function mcpCommand(): string {
   const origin = new URL(process.env.NEXT_PUBLIC_API_URL || "/", window.location.origin).origin;

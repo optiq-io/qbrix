@@ -157,6 +157,11 @@ export const queryKeys = {
     changes: (key: string) => ["loops", "changes", key] as const,
   },
 
+  metrics: {
+    all: ["metrics"] as const,
+    list: ["metrics", "list"] as const,
+  },
+
   apiKeys: {
     all: ["api-keys"] as const,
     list: ["api-keys", "list"] as const,
