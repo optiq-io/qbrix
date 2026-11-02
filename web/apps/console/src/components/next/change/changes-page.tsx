@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { AskYourAgent } from "@qbrix/ui/next/empty";
 import { ObjectPage } from "@qbrix/ui/next/object-page";
 import { useFrozen } from "@qbrix/ui/next/offline";
 import { CouldntLoad } from "@qbrix/ui/next/page-error";
@@ -18,10 +17,10 @@ import { useAuth } from "@/lib/auth/context";
 import { changesEyebrow } from "@/lib/change/eyebrow";
 import { filterParams, hasFilters, parseFilters, type ChangeFilters } from "@/lib/change/filter";
 import { canUndo } from "@/lib/change/row";
-import { ChangePanel } from "./change-panel";
+import { AskAgent, ChangePanel } from "./change-panel";
 import { ChangesList } from "./changes-list";
 import { useChangeRows, type ChangeRow } from "./fold";
-import { ChangesLoading, PANEL_RAIL } from "./loading";
+import { ChangesLoading, LOG_BODY, PANEL_RAIL, PANEL_RAIL_BODY } from "./loading";
 import { focusRow, useChangeKeys } from "./use-keyboard";
 import { useUndo } from "./use-undo";
 
@@ -243,6 +242,8 @@ function ChangesFrame({
       canEdit={canEdit}
       viewOnly={viewer ? "Ask an admin or a member to undo a change" : undefined}
       railClassName={PANEL_RAIL}
+      railBodyClassName={PANEL_RAIL_BODY}
+      bodyClassName={LOG_BODY}
       rail={
         entry ? (
           <ChangePanel
@@ -263,11 +264,7 @@ function ChangesFrame({
         ) : addressed && direct.isError ? (
           <p className="n-body text-n-text-2">This change doesn&apos;t exist, or isn&apos;t in this workspace.</p>
         ) : (
-          <AskYourAgent
-            label="Or ask your agent"
-            prompts={["What changed in this workspace this week, and why?"]}
-            className="mt-auto"
-          />
+          <AskAgent prompt="What changed in this workspace this week, and why?" />
         )
       }
     >

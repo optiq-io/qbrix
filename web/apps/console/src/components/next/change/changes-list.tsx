@@ -60,10 +60,12 @@ export function ChangesList({
       groups={byDay(rows, (row) => row.entry, now)}
       rowKey={(row) => row.key}
       canEdit={canEdit}
+      className="gap-5"
       controls={
         <>
           <Segmented<WhoChoice>
             label="Who"
+            boxed
             value={filters.who ?? "everyone"}
             options={[
               { value: "everyone", label: "Everyone", count: count.everyone },
@@ -96,7 +98,7 @@ export function ChangesList({
           {filters.metric && (
             <FilterToggle label={filters.metric} icon={Target} pressed onChange={() => onFilters({ ...filters, metric: null })} />
           )}
-          <span className="n-label ml-auto font-normal text-n-text-3">
+          <span className="n-label ml-auto whitespace-pre font-normal text-n-text-3">
             {canEdit ? "j k to move  ·  u to undo" : "j k to move"}
           </span>
         </>

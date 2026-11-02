@@ -11,7 +11,7 @@ import { StateBadge, type State } from "./state";
 export type ChangeLayout = "inbox" | "history" | "phone";
 
 /** how far below a history row's top its first line starts, for placing it on the time rail */
-export const HISTORY_LINE_INSET = 11;
+export const HISTORY_LINE_INSET = 10;
 
 export type ChangeTarget = { kind: "loop" | "metric" | "other"; name: string; href?: string };
 
@@ -93,7 +93,7 @@ export function DiffChip({ field, before, after, className }: ChangeDiff & { cla
   return (
     <span
       className={cn(
-        "n-label inline-flex max-w-full items-center gap-1.5 rounded-n-chip border border-n-line px-1.5 py-0.5 font-n-mono font-normal",
+        "n-label inline-flex h-[18px] max-w-full items-center gap-1.5 rounded-n-chip border border-n-line px-[5px] font-n-mono font-normal",
         className,
       )}
     >
@@ -145,7 +145,7 @@ function HistoryRow({ change, actions, canEdit = true, selected, onSelect, fold,
   return (
     <article
       className={cn(
-        "relative flex gap-3 rounded-n-control border border-transparent px-3 py-2.5 transition-colors",
+        "relative flex gap-3 rounded-n-control border border-transparent px-[11px] py-[9px] transition-colors",
         onSelect && !selected && "hover:bg-n-fill-1",
         selected && "border-n-line bg-n-fill-1",
         className,
@@ -162,19 +162,19 @@ function HistoryRow({ change, actions, canEdit = true, selected, onSelect, fold,
       )}
       <ActorMark actor={change.actor} />
       <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
-        <p className="n-body">
+        <p className="n-body leading-[1.45]">
           <Sentence change={change} />
         </p>
         <Diff diff={change.diff} />
-        <p className="n-meta text-n-text-3">{meta}</p>
-        {change.reason && <p className="n-meta text-n-text-2">“{change.reason}”</p>}
+        <p className="n-meta whitespace-pre-wrap leading-4 text-n-text-3">{meta}</p>
+        {change.reason && <p className="n-meta leading-[1.45] text-n-text-2">“{change.reason}”</p>}
         {change.consequence && <p className="n-meta text-n-text-3">{change.consequence}</p>}
         {fold && (
           <button
             type="button"
             aria-expanded={fold.expanded}
             onClick={fold.onToggle}
-            className="n-meta relative z-10 flex items-center gap-1 self-start pt-0.5 text-n-text-2 hover:text-n-text-1"
+            className="n-meta relative z-10 flex items-center gap-1 self-start pt-0.5 leading-4 text-n-text-2 hover:text-n-text-1"
           >
             <ChevronRight size={12} className={cn("text-n-text-3 transition-transform", fold.expanded && "rotate-90")} />
             {fold.label}
@@ -183,7 +183,7 @@ function HistoryRow({ change, actions, canEdit = true, selected, onSelect, fold,
       </div>
       {change.tag && <Tag {...change.tag} />}
       {undo && (
-        <Button variant="secondary" size="sm" onClick={undo} className="relative z-10">
+        <Button variant="secondary" size="sm" onClick={undo} className="relative z-10 gap-1 bg-transparent px-[7px]">
           <Undo2 size={12} className="text-n-text-2" />
           Undo
         </Button>

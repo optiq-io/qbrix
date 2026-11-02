@@ -2,6 +2,8 @@ import { ObjectPage } from "@qbrix/ui/next/object-page";
 import { SkeletonBlock, SkeletonRail, SkeletonText } from "@qbrix/ui/next/skeleton";
 
 export const PANEL_RAIL = "w-[400px] bg-n-surface";
+export const PANEL_RAIL_BODY = "p-6 pl-[23px]";
+export const LOG_BODY = "px-8 py-6";
 
 const ROWS = [
   [260, 200, 300],
@@ -13,7 +15,13 @@ const ROWS = [
 
 export function ChangesLoading() {
   return (
-    <ObjectPage crumbs={[{ label: "Changes" }]} rail={<SkeletonRail groups={[4, 1, 2]} />} railClassName={PANEL_RAIL}>
+    <ObjectPage
+      crumbs={[{ label: "Changes" }]}
+      rail={<SkeletonRail groups={[4, 1, 2]} />}
+      railClassName={PANEL_RAIL}
+      railBodyClassName={PANEL_RAIL_BODY}
+      bodyClassName={LOG_BODY}
+    >
       <div aria-busy className="flex flex-col gap-5">
         <SkeletonText type="label" width={360} />
         <SkeletonBlock height={26} className="max-w-[560px]" />
