@@ -128,6 +128,7 @@ class Via(BaseModel):
 class HistoryEntry(BaseModel):
     id: str
     kind: str
+    verb: str
     at: Optional[str] = None
     status: str
     who: Who
@@ -173,6 +174,7 @@ class LoopResults(BaseModel):
     share: list[OptionShare]
     lift: Optional[float] = None
     early: bool
+    decisions_per_second: float
 
 
 class ResumeResponse(BaseModel):

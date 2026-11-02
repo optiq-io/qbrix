@@ -9,6 +9,7 @@ function entry(overrides: Partial<ChangeEntry> = {}): ChangeEntry {
   return {
     id: "c1",
     kind: "loop.rename",
+    target: { type: "loop", id: "l1", key: "l1", name: "L1" },
     at: AT.toISOString(),
     status: "applied",
     reason: "reads better",

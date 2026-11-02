@@ -10,6 +10,34 @@ from qbrixstore.redis import Learning
 from proxysvc.mod.people import People
 from proxysvc.mod.change.undo import is_undoable
 
+VERBS = {
+    "loop.create": "created",
+    "loop.launch": "launched",
+    "loop.rename": "renamed",
+    "loop.pause": "paused",
+    "loop.resume": "resumed",
+    "loop.delete": "deleted",
+    "metric.create": "created",
+    "metric.delete": "deleted",
+    "experiment.create": "created",
+    "experiment.update": "changed",
+    "experiment.reset": "reset",
+    "experiment.restore": "restored",
+    "experiment.delete": "deleted",
+    "pool.create": "created",
+    "pool.update": "changed",
+    "pool.delete": "deleted",
+    "gate.create": "created",
+    "gate.replace": "changed",
+    "gate.patch": "changed",
+    "gate.delete": "deleted",
+}
+_ANY_KIND = "changed"
+
+
+def verb_of(kind: str) -> str:
+    return VERBS.get(kind, _ANY_KIND)
+
 
 def snapshot(value: Any) -> Any:
     """a json-safe copy of a serialized object, for a change's before and after."""
@@ -52,6 +80,7 @@ def history_entry(change: Change, people: People) -> dict:
     return {
         "id": change.id,
         "kind": change.kind,
+        "verb": verb_of(change.kind),
         "at": change.created_at.isoformat() if change.created_at else None,
         "status": change.status,
         "who": who_made(change, people),

@@ -12,6 +12,7 @@ from typing import Any
 from qbrixstore.postgres.models import Change
 
 from proxysvc.mod.change.serialize import history_entry
+from proxysvc.mod.change.serialize import verb_of
 from proxysvc.mod.change.serialize import who_made
 from proxysvc.mod.change.undo import NOT_UNDOABLE
 from proxysvc.mod.change.undo import is_undoable
@@ -20,30 +21,6 @@ from proxysvc.mod.people import People
 
 FOLD_WITHIN = timedelta(minutes=10)
 COUNTS_WITHIN = timedelta(days=7)
-
-VERBS = {
-    "loop.create": "created",
-    "loop.launch": "launched",
-    "loop.rename": "renamed",
-    "loop.pause": "paused",
-    "loop.resume": "resumed",
-    "loop.delete": "deleted",
-    "metric.create": "created",
-    "metric.delete": "deleted",
-    "experiment.create": "created",
-    "experiment.update": "changed",
-    "experiment.reset": "reset",
-    "experiment.restore": "restored",
-    "experiment.delete": "deleted",
-    "pool.create": "created",
-    "pool.update": "changed",
-    "pool.delete": "deleted",
-    "gate.create": "created",
-    "gate.replace": "changed",
-    "gate.patch": "changed",
-    "gate.delete": "deleted",
-}
-_ANY_KIND = "changed"
 
 _PLAIN_FIELDS = ("name", "key", "state", "audience")
 
@@ -210,9 +187,7 @@ def _target_pieces(target: dict) -> list[dict]:
 def pieces(change: Change, target: dict, people: People, count: int = 1) -> list[dict]:
     """the sentence as typed parts: who, one verb per kind, the target. what
     changed stays in the diff, so a value never lands in the sentence."""
-    verb = (
-        f"made {count} changes to" if count > 1 else VERBS.get(change.kind, _ANY_KIND)
-    )
+    verb = f"made {count} changes to" if count > 1 else verb_of(change.kind)
     return [
         _actor_piece(change, people),
         {"kind": "text", "text": f" {verb} "},

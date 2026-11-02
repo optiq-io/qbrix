@@ -1,5 +1,5 @@
-import { NextPage } from "@/components/next/shell/page";
+import { LoopsPage } from "@/components/next/loops/loops-page";
 
-export default function LoopsPage() {
-  return <NextPage title="Loops" />;
+export default function Page() {
+  return <LoopsPage />;
 }

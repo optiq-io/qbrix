@@ -623,6 +623,32 @@ export interface Loop {
   cycle: LoopCycle | null;
 }
 
+export interface LoopLatestChange {
+  id: string;
+  kind: string;
+  verb: string;
+  at: string | null;
+  who: { kind: "member" | "connection" | "qbrix"; user_id: string | null; name: string | null };
+  via: { connection_id: string; client: string | null } | null;
+}
+
+export interface LoopListItem extends Omit<Loop, "options"> {
+  options: { id: string; key: string; name: string }[];
+  updated_at: string | null;
+  latest_change: LoopLatestChange | null;
+  results: {
+    share: { key: string; share: number | null }[];
+    lift: number | null;
+    early: boolean;
+    decisions_per_second: number;
+  } | null;
+}
+
+export interface LoopListPage {
+  loops: LoopListItem[];
+  next_cursor: string | null;
+}
+
 export type ResultsRange = "24h" | "7d" | "cycle";
 
 export interface ResultsOption {
@@ -698,6 +724,7 @@ export interface ChangeEntry {
   status: string;
   reason: string | null;
   evidence: DecisionErrorEvidence | { signal?: string } | null;
+  target: { type: string; id: string; key: string | null; name: string | null };
   pieces: ChangePiece[];
   diff: { field: string; before: string | null; after: string | null }[];
   undone_by: { id: string; who: { kind: string; name: string | null }; at: string } | null;

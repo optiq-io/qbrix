@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from proxysvc.mod.change.entry import VERBS
+from proxysvc.mod.change.serialize import VERBS
 from proxysvc.mod.change.entry import diff
 from proxysvc.mod.change.undo import NOT_UNDOABLE
 from proxysvc.mod.change.undo import UNDOABLE_KINDS

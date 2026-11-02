@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Sequence
 from dataclasses import asdict
 from dataclasses import dataclass
 from dataclasses import replace
@@ -503,16 +504,37 @@ class RedisClient:
     ) -> dict[str, int]:
         """a loop's answered select calls by reason over the last
         ``window_minutes`` minutes, the current one included."""
+        counts = await self.loops_selects(
+            tenant_id, [loop_id], window_minutes, now_minute
+        )
+        return counts[loop_id]
+
+    async def loops_selects(
+        self,
+        tenant_id: str,
+        loop_ids: Sequence[str],
+        window_minutes: int,
+        now_minute: int | None = None,
+    ) -> dict[str, dict[str, int]]:
+        """``loop_selects`` for many loops in one round trip, keyed by loop id."""
         if now_minute is None:
             now_minute = int(time.time()) // 60
         minutes = range(now_minute - window_minutes + 1, now_minute + 1)
-        slots = [(m, reason) for m in minutes for reason in LoopSelectReason]
-        keys = [self._loop_select_key(tenant_id, loop_id, m, r) for m, r in slots]
+        slots = [
+            (loop_id, m, reason)
+            for loop_id in loop_ids
+            for m in minutes
+            for reason in LoopSelectReason
+        ]
+        keys = [self._loop_select_key(tenant_id, *slot) for slot in slots]
         values = await self.client.mget(keys) if keys else []
-        counts = {reason.value: 0 for reason in LoopSelectReason}
-        for (_, reason), value in zip(slots, values):
+        counts = {
+            loop_id: {reason.value: 0 for reason in LoopSelectReason}
+            for loop_id in loop_ids
+        }
+        for (loop_id, _, reason), value in zip(slots, values):
             if value:
-                counts[reason.value] += int(value)
+                counts[loop_id][reason.value] += int(value)
         return counts
 
     @staticmethod

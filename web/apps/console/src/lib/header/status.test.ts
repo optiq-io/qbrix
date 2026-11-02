@@ -126,11 +126,19 @@ describe("status priority", () => {
   });
 
   it("orders the workspace", () => {
-    const at = (loops: number, alerts: number, asks: number) => statusRow({ kind: "workspace", loops, alerts, asks }).phrase;
+    const at = (loops: number, alerts: number, asks: number, live = loops) =>
+      statusRow({ kind: "workspace", loops, live, alerts, asks }).phrase;
     expect(at(4, 1, 1)).toBe("needs a look.");
     expect(at(4, 0, 1)).toBe("is waiting on you.");
     expect(at(4, 0, 0)).toBe("is learning.");
     expect(at(0, 0, 0)).toBe("has no loops yet.");
+    expect(at(2, 0, 0, 0)).toBe("has nothing live.");
+    expect(at(2, 1, 0, 0)).toBe("needs a look.");
+  });
+
+  it("rests the pulse while nothing is live", () => {
+    expect(statusRow({ kind: "workspace", loops: 2, live: 0, alerts: 0, asks: 0 }).pulse).toBe("idle");
+    expect(statusRow({ kind: "workspace", loops: 2, live: 1, alerts: 0, asks: 0 }).pulse).toBe("live");
   });
 
   it("orders the metrics", () => {
@@ -161,7 +169,7 @@ describe("eyebrow, facts and prompts", () => {
   });
 
   it("agrees a unit with a count of one", () => {
-    const row = statusRow({ kind: "workspace", loops: 1, alerts: 0, asks: 0 });
+    const row = statusRow({ kind: "workspace", loops: 1, live: 1, alerts: 0, asks: 0 });
     expect(read(eyebrow(row, { loops: "1", rate: "1" }))).toBe("1 loop · 1 decision a second");
   });
 

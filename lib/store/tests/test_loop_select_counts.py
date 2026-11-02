@@ -50,3 +50,22 @@ async def test_another_loop_is_counted_apart(store):
     counts = await store.loop_selects(TENANT, LOOP, window_minutes=1, now_minute=NOW)
 
     assert counts == {"live": 0, "draft": 0, "paused": 0}
+
+
+async def test_many_loops_are_counted_apart_in_one_read(store):
+    await store.record_loop_select(TENANT, LOOP, LoopSelectReason.LIVE, minute=NOW)
+    await store.record_loop_select(TENANT, "other", LoopSelectReason.DRAFT, minute=NOW)
+
+    counts = await store.loops_selects(
+        TENANT, [LOOP, "other", "quiet"], window_minutes=1, now_minute=NOW
+    )
+
+    assert counts == {
+        LOOP: {"live": 1, "draft": 0, "paused": 0},
+        "other": {"live": 0, "draft": 1, "paused": 0},
+        "quiet": {"live": 0, "draft": 0, "paused": 0},
+    }
+
+
+async def test_no_loops_reads_nothing(store):
+    assert await store.loops_selects(TENANT, [], window_minutes=1) == {}

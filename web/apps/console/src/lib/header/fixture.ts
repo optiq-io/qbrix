@@ -175,7 +175,7 @@ export const FIXTURES: HeaderFixture[] = [
   },
   {
     key: "workspace-needs-a-look",
-    subject: { kind: "workspace", loops: 4, alerts: 1, asks: 1 },
+    subject: { kind: "workspace", loops: 4, live: 3, alerts: 1, asks: 1 },
     counters: { loops: "4", rate: "1,240" },
     values: { learning: "3", warmingUp: "0", paused: "1", drafts: "0" },
     events: (now) => [
@@ -192,21 +192,21 @@ export const FIXTURES: HeaderFixture[] = [
   },
   {
     key: "workspace-waiting",
-    subject: { kind: "workspace", loops: 4, alerts: 0, asks: 1 },
+    subject: { kind: "workspace", loops: 4, live: 3, alerts: 0, asks: 1 },
     counters: { loops: "4", rate: "1,240" },
     values: { learning: "4", warmingUp: "0", paused: "0", drafts: "0" },
     events: (now) => [renamed("rename", now - 2 * HOUR)],
   },
   {
     key: "workspace-learning",
-    subject: { kind: "workspace", loops: 1, alerts: 0, asks: 0 },
+    subject: { kind: "workspace", loops: 1, live: 1, alerts: 0, asks: 0 },
     counters: { loops: "1", rate: "38" },
     values: { learning: "1", warmingUp: "0", paused: "0", drafts: "0" },
     events: (now) => [launched("launch", now - 9 * DAY), renamed("rename", now - 12 * DAY)],
   },
   {
     key: "workspace-none",
-    subject: { kind: "workspace", loops: 0, alerts: 0, asks: 0 },
+    subject: { kind: "workspace", loops: 0, live: 0, alerts: 0, asks: 0 },
     counters: { loops: "0", rate: "0" },
     values: {},
     events: () => [],

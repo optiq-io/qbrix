@@ -301,7 +301,9 @@ class TestList:
         latest = {loop["key"]: loop["latest_change"] for loop in page["loops"]}
 
         assert latest["live"]["kind"] == "loop.launch"
+        assert latest["live"]["verb"] == "launched"
         assert latest["draft"]["kind"] == "loop.create"
+        assert latest["draft"]["verb"] == "created"
         assert latest["live"]["who"]["kind"] == "member"
         assert latest["live"]["who"]["user_id"]
 

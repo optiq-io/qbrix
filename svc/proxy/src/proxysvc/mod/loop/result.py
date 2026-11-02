@@ -284,7 +284,7 @@ class LoopResultService:
             for loop, cycle in live
             if (lifted := _lift_span(cycle, _window_ms(loop), now))
         }
-        counts, stats = await asyncio.gather(
+        counts, stats, recent = await asyncio.gather(
             self._read(
                 lambda ch: ch.decision_counts(tenant_id, list(shares.values()), None)
             ),
@@ -292,6 +292,12 @@ class LoopResultService:
                 lambda ch: ch.sealed_stats(
                     tenant_id, [span for span, _ in lifts.values()]
                 )
+            ),
+            self._redis.loops_selects(
+                tenant_id,
+                [loop.id for loop, _ in live],
+                RATE_MINUTES,
+                now_minute=now // MINUTE_MS,
             ),
         )
 
@@ -313,6 +319,9 @@ class LoopResultService:
                     lift(_sealed_per_option(sealed, cycle.options)) if lifted else None
                 ),
                 "early": lifted[1] if lifted else False,
+                "decisions_per_second": _rate(
+                    recent[loop.id][LoopSelectReason.LIVE.value], cycle, now
+                ),
             }
         return summaries
 

@@ -50,6 +50,7 @@ export const routes = {
     metrics: "/next/metrics",
     eventLog: "/next/event-log",
     changes: "/next/changes",
+    newLoop: "/next/loops/new",
     loop: (key: string) => `/next/loops/${key}`,
     metric: (name: string) => `/next/metrics/${name}`,
     change: (id: string) => `/next/changes/${id}`,
