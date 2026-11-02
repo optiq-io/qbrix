@@ -78,7 +78,7 @@ function clock(at: number, now: number): string {
   return isSameDay(at, now) ? format(at, "HH:mm") : format(at, "d MMM HH:mm");
 }
 
-function duration(ms: number): string {
+export function duration(ms: number): string {
   const minutes = Math.max(0, Math.floor(ms / MINUTE));
   if (minutes < 60) return `${minutes} m`;
   const hours = Math.floor(minutes / 60);

@@ -20,6 +20,7 @@ from datetime import datetime
 from datetime import timedelta
 from datetime import timezone
 
+import pytest
 import pytest_asyncio
 
 import proxysvc.config
@@ -513,3 +514,24 @@ class TestList:
         assert page["live-0"]["early"] is True
         assert page["live-1"]["lift"] is None
         assert sorted(wired_app.ledger.queries) == ["decision_counts", "sealed_stats"]
+
+    async def test_carries_each_loops_rate_from_one_redis_read(self, wired_app, api):
+        busy = await _loop(wired_app, name="Busy")
+        await _loop(wired_app, name="Quiet")
+        now = _started_ms(busy) + HOUR_MS
+        _at(wired_app, now)
+        redis = wired_app.svc._redis
+        for _ in range(30):
+            await redis.record_loop_select(
+                TENANT, busy["id"], LoopSelectReason.LIVE, minute=now // MINUTE_MS
+            )
+        await redis.record_loop_select(
+            TENANT, busy["id"], LoopSelectReason.PAUSED, minute=now // MINUTE_MS
+        )
+
+        resp = await api.get("/api/v1/loops")
+        page = {item["key"]: item["results"] for item in resp.json()["loops"]}
+
+        elapsed = 4 * 60 + (now % MINUTE_MS) / 1000
+        assert page["busy"]["decisions_per_second"] == pytest.approx(30 / elapsed)
+        assert page["quiet"]["decisions_per_second"] == 0

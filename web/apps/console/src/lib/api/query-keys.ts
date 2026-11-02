@@ -149,6 +149,9 @@ export const queryKeys = {
   // resource: loops (qbrix next)
   loops: {
     all: ["loops"] as const,
+    list: ["loops", "list"] as const,
+    workspaceChanges: ["loops", "workspace-changes"] as const,
+    pauses: ["loops", "pauses"] as const,
     detail: (key: string) => ["loops", "detail", key] as const,
     results: (key: string, range: string) => ["loops", "results", key, range] as const,
     changes: (key: string) => ["loops", "changes", key] as const,

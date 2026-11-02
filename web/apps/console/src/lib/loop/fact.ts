@@ -75,7 +75,7 @@ function cycleAgeSec(cycle: LoopCycle | null, now: number): number {
   return cycle?.started_at ? Math.max(1, (now - Date.parse(cycle.started_at)) / 1000) : 0;
 }
 
-function rate(perSecond: number): string {
+export function rate(perSecond: number): string {
   return perSecond < 10 ? perSecond.toFixed(1).replace(/\.0$/, "") : Math.round(perSecond).toLocaleString("en");
 }
 
@@ -100,11 +100,14 @@ function ahead(day: LoopResults | undefined) {
   );
 }
 
+export function signedPercent(value: number): string {
+  return `${value < 0 ? "−" : "+"}${Math.abs(value * 100).toFixed(1)}%`;
+}
+
 function lift(results: LoopResults | undefined): FactValue | undefined {
   const value = results?.lift?.value;
   if (value === null || value === undefined) return undefined;
-  const pct = Math.abs(value * 100).toFixed(1);
-  const signed = `${value < 0 ? "−" : "+"}${pct}%`;
+  const signed = signedPercent(value);
   return results?.lift?.early ? { value: signed, caption: "early · vs an even split" } : signed;
 }
 

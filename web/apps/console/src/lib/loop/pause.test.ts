@@ -19,6 +19,7 @@ function change(overrides: Partial<ChangeEntry> = {}): ChangeEntry {
   return {
     id: "pause",
     kind: "loop.pause",
+    target: { type: "loop", id: "l1", key: "l1", name: "L1" },
     at: AT.toISOString(),
     status: "applied",
     reason: "decision errors",

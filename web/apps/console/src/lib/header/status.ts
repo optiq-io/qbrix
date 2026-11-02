@@ -25,7 +25,7 @@ export type LoopStatus = "draft" | "warming_up" | "live" | "paused" | "retired";
 
 export type StatusSubject =
   | { kind: "loop"; status: LoopStatus; alert?: boolean; asks?: boolean }
-  | { kind: "workspace"; loops: number; alerts: number; asks: number }
+  | { kind: "workspace"; loops: number; live: number; alerts: number; asks: number }
   | { kind: "metrics"; count: number; alerts: number }
   | { kind: "metric"; arriving: boolean; alert?: boolean };
 
@@ -131,7 +131,7 @@ const WORKSPACE_NONE: StatusRow = {
   hint: "A loop decides one thing in your product, like a headline or a ranking, and learns which option works from what your users do next.",
   eyebrow: WORKSPACE_EYEBROW,
   facts: [],
-  prompts: ["Start a loop for the checkout headline"],
+  prompts: ["Where in our app would a loop help?", "Wire qbrix into the checkout page"],
   pulse: "empty",
 };
 
@@ -195,7 +195,13 @@ export function statusRow(subject: StatusSubject): StatusRow {
       return prioritised(LOOP[subject.status], subject.alert, subject.asks);
     case "workspace":
       if (subject.loops === 0 && !subject.alerts && !subject.asks) return WORKSPACE_NONE;
-      return prioritised({ ...WORKSPACE_ACTIVE, phrase: "is learning." }, subject.alerts > 0, subject.asks > 0);
+      return prioritised(
+        subject.live > 0
+          ? { ...WORKSPACE_ACTIVE, phrase: "is learning." }
+          : { ...WORKSPACE_ACTIVE, phrase: "has nothing live.", pulse: "idle" },
+        subject.alerts > 0,
+        subject.asks > 0,
+      );
     case "metrics":
       if (subject.alerts > 0) return { ...METRICS_ACTIVE, phrase: "need a look." };
       return subject.count > 0 ? { ...METRICS_ACTIVE, phrase: "are arriving." } : METRICS_NONE;

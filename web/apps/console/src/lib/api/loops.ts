@@ -1,13 +1,35 @@
 import { apiFetch } from "./client";
-import type { ChangeEntry, Loop, LoopResults, LoopResumed, ResultsRange } from "./types";
+import type { ChangeEntry, Loop, LoopListPage, LoopResults, LoopResumed, ResultsRange } from "./types";
 
 const RECENT_CHANGES = 50;
+const LIST_PAGE = 200;
+const PAUSES = 200;
 
 function path(key: string) {
   return `/v1/loops/${encodeURIComponent(key)}`;
 }
 
+async function readChanges(params: URLSearchParams): Promise<ChangeEntry[]> {
+  const { changes } = await apiFetch<{ changes: ChangeEntry[] }>(`/v1/changes?${params}`);
+  return changes;
+}
+
 export const loops = {
+  async list(cursor?: string): Promise<LoopListPage> {
+    const params = new URLSearchParams({ limit: String(LIST_PAGE) });
+    if (cursor) params.set("cursor", cursor);
+    return apiFetch<LoopListPage>(`/v1/loops?${params}`);
+  },
+
+  async workspaceChanges(): Promise<ChangeEntry[]> {
+    return readChanges(new URLSearchParams({ limit: String(RECENT_CHANGES) }));
+  },
+
+  /** unfolded, because a loop's newest pause says who paused it */
+  async pauses(): Promise<ChangeEntry[]> {
+    return readChanges(new URLSearchParams({ kind: "loop.pause", fold: "false", limit: String(PAUSES) }));
+  },
+
   async get(key: string): Promise<Loop> {
     return apiFetch<Loop>(path(key));
   },
@@ -28,8 +50,6 @@ export const loops = {
   },
 
   async changes(key: string): Promise<ChangeEntry[]> {
-    const params = new URLSearchParams({ loop: key, limit: String(RECENT_CHANGES) });
-    const { changes } = await apiFetch<{ changes: ChangeEntry[] }>(`/v1/changes?${params}`);
-    return changes;
+    return readChanges(new URLSearchParams({ loop: key, limit: String(RECENT_CHANGES) }));
   },
 };
