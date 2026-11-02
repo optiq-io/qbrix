@@ -8,7 +8,7 @@ export function changeRowId(key: string) {
   return `change-row-${key}`;
 }
 
-function focusRow(key: string) {
+export function focusRow(key: string) {
   const row = document.getElementById(changeRowId(key));
   row?.querySelector<HTMLElement>("button[aria-pressed]")?.focus({ preventScroll: true });
   row?.scrollIntoView({ block: "nearest" });

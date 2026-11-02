@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { format } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, Undo2 } from "lucide-react";
@@ -14,7 +15,7 @@ import { queryKeys } from "@/lib/api/query-keys";
 import type { ChangeEntry } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/context";
 import { asSentence, type Refusal } from "@/lib/change/refusal";
-import { canUndo, panelTime, undoLabel } from "@/lib/change/row";
+import { canUndo, panelTime, undoConsequence, undoLabel } from "@/lib/change/row";
 import { actorOf, sentence } from "@/lib/loop/event";
 
 function askAbout(entry: ChangeEntry) {
@@ -114,8 +115,10 @@ function UndoSection({
   reason,
   pending,
   foldOpen,
+  confirming,
   onReason,
   onUndo,
+  onDismiss,
   onOpen,
   onExpand,
 }: {
@@ -124,11 +127,20 @@ function UndoSection({
   reason: string;
   pending: boolean;
   foldOpen: boolean;
+  confirming: { id: string } | null;
   onReason: (reason: string) => void;
   onUndo: () => void;
+  onDismiss: () => void;
   onOpen: (id: string) => void;
   onExpand: () => void;
 }) {
+  const reasonField = useRef<HTMLInputElement>(null);
+  const consequence = undoConsequence(entry);
+
+  useEffect(() => {
+    if (confirming?.id === entry.id) reasonField.current?.focus();
+  }, [confirming, entry.id]);
+
   if (entry.undone_by) {
     const { id, who } = entry.undone_by;
     return (
@@ -184,16 +196,25 @@ function UndoSection({
         </div>
       ) : (
         <>
+          {consequence && <p className="n-body text-n-text-1">{consequence}</p>}
           <p className="n-meta text-n-text-2">
             Writes the inverse as a new change, with your reason. Refused if something later moved the same thing.
           </p>
           <TextField
+            ref={reasonField}
             label="Why undo?"
             hideLabel
             placeholder="Why undo? Optional"
             value={reason}
             disabled={pending}
             onChange={(event) => onReason(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                onUndo();
+              }
+              if (event.key === "Escape") onDismiss();
+            }}
           />
           <div>
             <Button disabled={pending} onClick={onUndo}>
@@ -214,9 +235,11 @@ export function ChangePanel({
   reason,
   pending,
   foldOpen,
+  confirming,
   now,
   onReason,
   onUndo,
+  onDismiss,
   onOpen,
   onExpand,
 }: {
@@ -226,9 +249,11 @@ export function ChangePanel({
   reason: string;
   pending: boolean;
   foldOpen: boolean;
+  confirming: { id: string } | null;
   now: number;
   onReason: (reason: string) => void;
   onUndo: () => void;
+  onDismiss: () => void;
   onOpen: (id: string) => void;
   onExpand: () => void;
 }) {
@@ -255,8 +280,10 @@ export function ChangePanel({
           reason={reason}
           pending={pending}
           foldOpen={foldOpen}
+          confirming={confirming}
           onReason={onReason}
           onUndo={onUndo}
+          onDismiss={onDismiss}
           onOpen={onOpen}
           onExpand={onExpand}
         />

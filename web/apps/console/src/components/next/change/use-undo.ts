@@ -38,5 +38,6 @@ export function useUndo({ onUndone }: { onUndone?: () => void } = {}) {
     },
     pending: mutation.isPending,
     refusalFor: (id: string) => (refused?.id === id ? refused.refusal : null),
+    clearRefusal: () => setRefused(null),
   };
 }

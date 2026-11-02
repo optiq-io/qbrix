@@ -36,6 +36,24 @@ export function undoLabel(entry: ChangeEntry): string {
   return `Undo ${entry.kind.split(".").pop()}`;
 }
 
+export function undoConsequence(entry: ChangeEntry): string | null {
+  const name = entry.target.name ?? `this ${entry.target.type}`;
+  const before = entry.diff.find((difference) => difference.field === "name")?.before;
+  switch (entry.kind) {
+    case "loop.rename":
+      return before ? `Renames ${name} back to ${before}.` : `Restores the name of ${name}.`;
+    case "loop.pause":
+      return `Resumes ${name}. It goes back to serving the engine's choices.`;
+    case "loop.resume":
+      return `Pauses ${name}. Every call gets its fallback until someone resumes it.`;
+    case "loop.create":
+    case "metric.create":
+      return `Deletes ${name}.`;
+    default:
+      return null;
+  }
+}
+
 function dayLabel(at: number, now: number): string {
   if (isSameDay(at, now)) return "Today";
   if (isSameDay(at, subDays(now, 1))) return "Yesterday";

@@ -22,7 +22,7 @@ import { ChangePanel } from "./change-panel";
 import { ChangesList } from "./changes-list";
 import { useChangeRows, type ChangeRow } from "./fold";
 import { ChangesLoading, PANEL_RAIL } from "./loading";
-import { useChangeKeys } from "./use-keyboard";
+import { focusRow, useChangeKeys } from "./use-keyboard";
 import { useUndo } from "./use-undo";
 
 const POLL_MS = 30_000;
@@ -132,6 +132,7 @@ function ChangesFrame({
   const [picked, setPicked] = useState<string | null>(null);
   const [opened, setOpened] = useState<Set<string>>(() => new Set());
   const [reason, setReason] = useState("");
+  const [confirming, setConfirming] = useState<{ id: string } | null>(null);
 
   const pickedId = picked?.split("/").pop() ?? null;
   // an address inside a fold opens it, unless the person chose the fold's own row
@@ -174,10 +175,12 @@ function ChangesFrame({
   const select = (key: string) => {
     const row = rows.find((candidate) => candidate.key === key);
     if (!row) return;
+    setConfirming(null);
     setPicked(key);
     window.history.replaceState(null, "", address(filters, row.entry.id));
   };
   const openChange = (id: string) => {
+    setConfirming(null);
     setPicked(null);
     window.history.replaceState(null, "", address(filters, id));
   };
@@ -192,11 +195,13 @@ function ChangesFrame({
     if (collapsing && selectedRow?.foldKey === id) select(id);
   };
 
-  const { undo, pending, refusalFor } = useUndo({ onUndone: () => setReason("") });
+  const { undo, pending, refusalFor, clearRefusal } = useUndo({ onUndone: () => setReason("") });
 
-  const undoRow = (row: ChangeRow) => {
+  // writes nothing: an undo can pause a live loop, so it's committed from the panel
+  const confirmUndo = (row: ChangeRow) => {
     if (row.key !== selectedKey) select(row.key);
-    undo(row.entry.id, row.key === selectedKey ? reason.trim() || undefined : undefined);
+    clearRefusal();
+    setConfirming({ id: row.entry.id });
   };
 
   const keys = useMemo(() => rows.map((row) => row.key), [rows]);
@@ -205,7 +210,7 @@ function ChangesFrame({
     selected: selectedKey,
     onSelect: select,
     onUndo: () => {
-      if (canEdit && selectedRow && canUndo(selectedRow.entry)) undoRow(selectedRow);
+      if (canEdit && selectedRow && canUndo(selectedRow.entry)) confirmUndo(selectedRow);
     },
   });
 
@@ -247,9 +252,11 @@ function ChangesFrame({
             reason={reason}
             pending={pending}
             foldOpen={open.has(entry.id)}
+            confirming={confirming}
             now={now}
             onReason={setReason}
             onUndo={() => undo(entry.id, reason.trim() || undefined)}
+            onDismiss={() => selectedKey && focusRow(selectedKey)}
             onOpen={openChange}
             onExpand={() => toggleFold(entry.id)}
           />
@@ -285,7 +292,7 @@ function ChangesFrame({
             onFilters={onFilters}
             onSelect={select}
             onToggleFold={toggleFold}
-            onUndo={undoRow}
+            onUndo={confirmUndo}
           />
         )}
         {more && <div ref={sentinel} aria-hidden className="h-px" />}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChangeActorMark, ChangeEntry } from "@/lib/api/types";
-import { byDay, canUndo, panelTime, toHistoryRow, undoLabel } from "./row";
+import { byDay, canUndo, panelTime, toHistoryRow, undoConsequence, undoLabel } from "./row";
 
 const NOW = new Date(2026, 9, 29, 15, 0).getTime();
 
@@ -81,6 +81,23 @@ describe("canUndo", () => {
 describe("undoLabel", () => {
   it("names the kind's action", () => {
     expect(undoLabel(entry())).toBe("Undo rename");
+  });
+});
+
+describe("undoConsequence", () => {
+  it("says what undoing each loop and metric kind will do", () => {
+    const renamed = entry({ diff: [{ field: "name", before: "Pricing page CTA", after: "Pricing CTA" }] });
+    expect(undoConsequence(renamed)).toBe("Renames Pricing CTA back to Pricing page CTA.");
+    expect(undoConsequence(entry({ kind: "loop.pause" }))).toBe("Resumes Pricing CTA. It goes back to serving the engine's choices.");
+    expect(undoConsequence(entry({ kind: "loop.resume" }))).toBe(
+      "Pauses Pricing CTA. Every call gets its fallback until someone resumes it.",
+    );
+    expect(undoConsequence(entry({ kind: "loop.create" }))).toBe("Deletes Pricing CTA.");
+    expect(undoConsequence(entry({ kind: "metric.create" }))).toBe("Deletes Pricing CTA.");
+  });
+
+  it("claims nothing for a kind it can't describe", () => {
+    expect(undoConsequence(entry({ kind: "gate.patch" }))).toBeNull();
   });
 });
 
