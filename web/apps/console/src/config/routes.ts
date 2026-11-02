@@ -48,7 +48,6 @@ export const routes = {
     home: "/next",
     inbox: "/next/inbox",
     metrics: "/next/metrics",
-    eventLog: "/next/event-log",
     changes: "/next/changes",
     newLoop: "/next/loops/new",
     loop: (key: string) => `/next/loops/${key}`,
