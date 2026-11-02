@@ -396,7 +396,7 @@ class TestPiecesAndDiff:
         create = (await _changes(api, kind="loop.create"))["changes"][0]
 
         assert rename["api_key_id"] == "key-1"
-        assert rename["pieces"][0]["actor"]["via"] == "API key"
+        assert rename["pieces"][0]["actor"]["via"] == "the API"
         assert create["api_key_id"] is None
         assert create["pieces"][0]["actor"]["via"] is None
 

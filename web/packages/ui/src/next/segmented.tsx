@@ -8,6 +8,7 @@ export function Segmented<T extends string>({
   value,
   options,
   onChange,
+  boxed,
   className,
 }: {
   /** the group's accessible name: "Range" */
@@ -15,6 +16,8 @@ export function Segmented<T extends string>({
   value: T;
   options: { value: T; label: string; count?: number }[];
   onChange: (value: T) => void;
+  /** the page's main filter: a larger control in its own outline */
+  boxed?: boolean;
   className?: string;
 }) {
   const groupRef = useRef<HTMLDivElement>(null);
@@ -29,7 +32,7 @@ export function Segmented<T extends string>({
   };
 
   return (
-    <div ref={groupRef} role="radiogroup" aria-label={label} className={cn("inline-flex gap-0.5", className)}>
+    <div ref={groupRef} role="radiogroup" aria-label={label} className={cn("inline-flex gap-0.5", boxed && "rounded-n-control border border-n-line p-px", className)}>
       {options.map((option, at) => {
         const checked = option.value === value;
         return (
@@ -42,12 +45,13 @@ export function Segmented<T extends string>({
             onClick={() => onChange(option.value)}
             onKeyDown={(e) => onKeyDown(e, at)}
             className={cn(
-              "n-label rounded-n-chip px-1.5 py-0.5 font-normal transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-n-ink",
-              checked ? "bg-n-fill-2 text-n-text-1" : "text-n-text-3 hover:text-n-text-1",
+              "rounded-n-chip transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-n-ink",
+              boxed ? "n-meta px-2 py-[3px] font-medium leading-4" : "n-label px-1.5 py-0.5 font-normal",
+              checked ? "bg-n-fill-2 text-n-text-1" : boxed ? "text-n-text-2 hover:text-n-text-1" : "text-n-text-3 hover:text-n-text-1",
             )}
           >
             {option.label}
-            {option.count !== undefined && <span className="ml-1.5 tabular-nums text-n-text-3">{option.count}</span>}
+            {option.count !== undefined && <span className={cn("ml-1.5 tabular-nums text-n-text-3", boxed && "n-label font-normal")}>{option.count}</span>}
           </button>
         );
       })}

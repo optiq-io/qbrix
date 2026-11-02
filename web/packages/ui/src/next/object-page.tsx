@@ -17,6 +17,9 @@ export function ObjectPage({
   tabs,
   activeTab,
   rail,
+  railClassName,
+  railBodyClassName,
+  bodyClassName,
   staged,
   canEdit = true,
   className,
@@ -31,6 +34,9 @@ export function ObjectPage({
   tabs?: ObjectTab[];
   activeTab?: string;
   rail: React.ReactNode;
+  railClassName?: string;
+  railBodyClassName?: string;
+  bodyClassName?: string;
   /** the staged bar: above the tabs, because it collects edits from all of them */
   staged?: React.ReactNode;
   /** false for a person who can't change this object: actions are absent, never disabled */
@@ -92,9 +98,9 @@ export function ObjectPage({
       )}
 
       <div className="flex flex-1">
-        <div className="min-w-0 flex-1 px-6 py-8">{children}</div>
-        <aside className="w-[300px] shrink-0 border-l border-n-line-2 bg-n-bg">
-          <div className="sticky top-0 flex h-full max-h-screen flex-col gap-6 overflow-y-auto px-6 py-8">{rail}</div>
+        <div className={cn("min-w-0 flex-1 px-6 py-8", bodyClassName)}>{children}</div>
+        <aside className={cn("w-[300px] shrink-0 border-l border-n-line-2 bg-n-bg", railClassName)}>
+          <div className={cn("sticky top-0 flex h-full max-h-screen flex-col gap-6 overflow-y-auto px-6 py-8", railBodyClassName)}>{rail}</div>
         </aside>
       </div>
     </div>

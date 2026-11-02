@@ -172,7 +172,7 @@ def _actor_piece(change: Change, people: People) -> dict:
     else:
         actor = {"kind": "member", "name": people.name(change.actor_user_id)}
         if change.api_key_id:
-            actor["via"] = "API key"
+            actor["via"] = "the API"
     return {"kind": "actor", "actor": actor}
 
 

@@ -18,7 +18,7 @@ export type Pause = {
 
 export type PauseRow = { label: string; value: string };
 
-function isDecisionErrors(evidence: ChangeEntry["evidence"]): evidence is DecisionErrorEvidence {
+export function isDecisionErrors(evidence: ChangeEntry["evidence"]): evidence is DecisionErrorEvidence {
   return evidence?.signal === DECISION_ERRORS;
 }
 

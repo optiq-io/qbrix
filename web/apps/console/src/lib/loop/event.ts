@@ -18,7 +18,7 @@ function toActor(mark: ChangeActorMark | null): Actor {
   return QBRIX;
 }
 
-function actorOf(entry: ChangeEntry): Actor {
+export function actorOf(entry: ChangeEntry): Actor {
   return toActor(entry.pieces.find((piece) => piece.kind === "actor")?.actor ?? null);
 }
 
@@ -95,7 +95,7 @@ export function toRailEntry(entry: ChangeEntry, cycleStart: number, now: number)
   };
 }
 
-function sentence(entry: ChangeEntry): string {
+export function sentence(entry: ChangeEntry): string {
   return entry.pieces
     .map((piece) => (piece.kind === "actor" ? actorName(toActor(piece.actor)) : (piece.text ?? piece.name ?? "")))
     .join("");

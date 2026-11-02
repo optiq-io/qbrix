@@ -761,14 +761,34 @@ export interface LoopResumed {
 export interface ChangeEntry {
   id: string;
   kind: string;
+  verb: string;
   at: string | null;
   status: string;
   reason: string | null;
   evidence: DecisionErrorEvidence | { signal?: string } | null;
+  request_id: string | null;
   target: { type: string; id: string; key: string | null; name: string | null };
   pieces: ChangePiece[];
   diff: { field: string; before: string | null; after: string | null }[];
+  undoable: boolean;
+  not_undoable_reason: string | null;
   undone_by: { id: string; who: { kind: string; name: string | null }; at: string } | null;
   count: number;
   first_at: string | null;
+  ids: string[];
+}
+
+/** GET /v1/changes. limit counts changes, so a page can hold fewer rows */
+export interface ChangePage {
+  changes: ChangeEntry[];
+  next_cursor: string | null;
+}
+
+/** GET /v1/changes/counts: the last seven days, under the list's filters */
+export interface ChangeCounts {
+  since: string;
+  total: number;
+  undone: number;
+  who: { member: number; connection: number; qbrix: number };
+  clients: { name: string; count: number }[];
 }
