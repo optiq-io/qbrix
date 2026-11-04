@@ -1,5 +1,5 @@
-import { NextPage } from "@/components/next/shell/page";
+import { MetricsPage } from "@/components/next/metric/metrics-page";
 
-export default function MetricsPage() {
-  return <NextPage title="Metrics" />;
+export default function Page() {
+  return <MetricsPage />;
 }

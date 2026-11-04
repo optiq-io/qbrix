@@ -58,9 +58,9 @@ export function PinnedList({ pins, pathname }: { pins: Pin[]; pathname: string |
       {pins.length > 0 && (
         <ul className="flex flex-col gap-0.5">
           {pins.map((pin) => {
-            const href = pin.kind === "loop" ? routes.next.loop(pin.key) : routes.next.metric(pin.key);
+            const href = pin.kind === "loop" ? routes.next.loop(pin.key) : routes.next.metrics;
             const state = pin.state ? STATE[pin.state] : undefined;
-            const active = isNextNavActive(pathname, href);
+            const active = pin.kind === "loop" && isNextNavActive(pathname, href);
             return (
               <li key={`${pin.kind}:${pin.ref}`}>
                 <Link
