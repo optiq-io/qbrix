@@ -58,7 +58,7 @@ function span(seconds: number): string {
   return plural(Math.floor(seconds / DAY), "day");
 }
 
-function ago(at: string | null, now: number): string | undefined {
+export function ago(at: string | null, now: number): string | undefined {
   return at ? `${span((now - Date.parse(at)) / 1000)} ago` : undefined;
 }
 

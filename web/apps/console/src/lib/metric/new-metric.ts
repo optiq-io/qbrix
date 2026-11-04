@@ -1,6 +1,8 @@
 import type { CreateMetricBody, Metric, MetricType } from "@/lib/api/types";
 import { isKey } from "../loop/new-loop";
 
+export const CREATE_METRIC = "Create an order value metric, 7 days";
+
 export const METRIC_TYPES: { value: MetricType; label: string; description: string }[] = [
   { value: "conversion", label: "Conversion", description: "Did it happen: 0 or 1. The first outcome counts." },
   { value: "count", label: "Count", description: "How many times. Outcomes add up." },
