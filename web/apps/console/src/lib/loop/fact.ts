@@ -192,6 +192,21 @@ export function launchConsequence(loop: Pick<Loop, "options">): { title: string;
   };
 }
 
+export function deleteConsequence(
+  loop: Pick<Loop, "key">,
+  results: Pick<LoopResults, "calls"> | undefined,
+): { title: string; body: string } {
+  const calls = results?.calls.draft ?? 0;
+  const arriving =
+    calls > 0
+      ? ` Your code called it ${calls.toLocaleString("en")} ${calls === 1 ? "time" : "times"} in the last hour; from now on those calls get not found instead of the fallback.`
+      : "";
+  return {
+    title: "Deleting removes this draft for good.",
+    body: `It can't be undone, and ${loop.key} is free for a new loop at once.${arriving}`,
+  };
+}
+
 export function loopFacts(
   status: LoopStatus,
   loop: Loop,

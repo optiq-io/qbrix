@@ -408,6 +408,63 @@ class TestRename:
         assert resp.status_code == 404
 
 
+class TestDelete:
+    @pytest.mark.parametrize("by", ["key", "id"])
+    async def test_a_draft_is_deleted_as_one_change(self, wired_app, loops, by):
+        draft = await _create(loops)
+
+        resp = await loops.delete(
+            f"/api/v1/loops/{draft[by]}", headers={"X-Request-ID": "req-delete"}
+        )
+
+        assert resp.status_code == 204, resp.text
+        assert await wired_app.svc.get_loop(TENANT, draft["id"]) is None
+        delete, _ = await _changes(wired_app, draft["id"])
+        assert delete["kind"] == "loop.delete"
+        assert delete["actor"]["kind"] == "member"
+        assert delete["request_id"] == "req-delete"
+        assert _unstamped(delete["before"]) == _unstamped(draft)
+        assert delete["undoable"] is False
+
+    async def test_its_link_is_not_found_and_its_key_is_free(self, loops):
+        draft = await _create(loops)
+        await loops.delete(f"/api/v1/loops/{draft['key']}")
+
+        assert (await loops.get(f"/api/v1/loops/{draft['key']}")).status_code == 404
+        assert (await _create(loops))["key"] == draft["key"]
+
+    async def test_a_launched_loop_is_refused_and_untouched(self, wired_app, loops):
+        loop = await _launch(loops, (await _create(loops))["key"])
+
+        resp = await loops.delete(f"/api/v1/loops/{loop['key']}")
+
+        assert resp.status_code == 409
+        assert resp.json()["code"] == "LOOP_NOT_DRAFT"
+        assert (await wired_app.svc.get_loop(TENANT, loop["id"]))["state"] == "live"
+        assert len(await _changes(wired_app, loop["id"])) == 2
+
+    async def test_an_unknown_loop_is_not_found(self, loops):
+        assert (await loops.delete("/api/v1/loops/nothing")).status_code == 404
+
+    async def test_another_workspaces_draft_is_not_found(self, wired_app, loops):
+        draft = await _create(loops)
+
+        with as_tenant(wired_app.app, tenant_id="tenant-other"):
+            resp = await loops.delete(f"/api/v1/loops/{draft['key']}")
+
+        assert resp.status_code == 404
+        assert await wired_app.svc.get_loop(TENANT, draft["id"]) is not None
+
+    async def test_a_viewer_is_refused(self, wired_app, loops):
+        draft = await _create(loops)
+
+        with as_tenant(wired_app.app, tenant_id=TENANT, role="viewer"):
+            resp = await loops.delete(f"/api/v1/loops/{draft['key']}")
+
+        assert resp.status_code == 403
+        assert await wired_app.svc.get_loop(TENANT, draft["id"]) is not None
+
+
 class TestChange:
     async def test_create_is_one_change_with_its_actor_and_after(
         self, wired_app, loops

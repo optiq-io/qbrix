@@ -51,6 +51,10 @@ export const loops = {
     return apiFetch<Loop>(`${path(key)}/launch`, { method: "POST" });
   },
 
+  async delete(key: string): Promise<void> {
+    await apiFetch<void>(path(key), { method: "DELETE" });
+  },
+
   async resume(key: string, reason?: string): Promise<LoopResumed> {
     return apiFetch<LoopResumed>(`${path(key)}/resume`, {
       method: "POST",

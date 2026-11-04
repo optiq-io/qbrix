@@ -443,6 +443,26 @@ async def launch_loop(
     return LoopResponse(**launched.value)
 
 
+@router.delete(
+    "/{loop}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_loop(
+    loop: str,
+    tenant_id: str = Depends(get_current_tenant_id),
+    actor: Actor = Depends(get_actor),
+    _scoped=Depends(require_scopes(["loop:write"])),
+):
+    """delete a draft; a loop that has launched is retired, never deleted."""
+    try:
+        deleted = await get_proxy_service().delete_loop(tenant_id, loop, actor=actor)
+    except LoopStateError as e:
+        raise LoopNotDraftException(str(e))
+    if not deleted:
+        raise _not_found(loop)
+    logger.info(f"loop deleted: {loop} by user {actor.user_id}")
+
+
 @router.patch(
     "/{loop}",
     status_code=status.HTTP_200_OK,

@@ -572,6 +572,9 @@ class ProxyService:
             tenant_id, ref, actor=actor, reason=reason
         )
 
+    async def delete_loop(self, tenant_id: str, ref: str, *, actor: Actor) -> bool:
+        return await self._loop_service.delete_loop(tenant_id, ref, actor=actor)
+
     async def rename_loop(
         self,
         tenant_id: str,
