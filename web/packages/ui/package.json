@@ -10,6 +10,7 @@
     "./components/*": "./src/components/*.tsx",
     "./next/share": "./src/next/share.ts",
     "./next/copy": "./src/next/copy.ts",
+    "./next/popover": "./src/next/popover.ts",
     "./next/*": "./src/next/*.tsx",
     "./styles/globals.css": "./src/styles/globals.css",
     "./lib/*": "./src/lib/*.ts",

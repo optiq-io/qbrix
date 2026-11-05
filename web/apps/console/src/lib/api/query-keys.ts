@@ -54,6 +54,7 @@ export const queryKeys = {
     motorHealth: ["runtime", "health", "motor"] as const,
     cortexHealth: ["runtime", "health", "cortex"] as const,
     streamSize: ["runtime", "stream", "size"] as const,
+    status: ["runtime", "status"] as const,
   },
 
   // resource: insights (EE)
@@ -138,6 +139,7 @@ export const queryKeys = {
   // resource: connections (qbrix next)
   connections: {
     all: ["connections"] as const,
+    list: ["connections", "list"] as const,
     request: (id: string) => ["connections", "request", id] as const,
   },
 

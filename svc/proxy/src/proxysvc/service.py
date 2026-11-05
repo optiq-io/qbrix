@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Collection
 from collections.abc import Sequence
 from datetime import datetime
@@ -41,6 +42,9 @@ from proxysvc.mod.metric.service import MetricService
 from proxysvc.mod.oauth.cimd import CIMDFetcher
 from proxysvc.mod.oauth.service import OAuthService
 from proxysvc.mod.pool.service import PoolService
+from proxysvc.mod.status import Services
+from proxysvc.mod.status import WorkspaceStatus
+from proxysvc.mod.status import workspace_status
 
 logger = get_logger(__name__)
 
@@ -726,3 +730,10 @@ class ProxyService:
             return await self._cortex_client.health()
         except Exception:  # noqa
             return False
+
+    async def status(self) -> WorkspaceStatus:
+        storage, deciding, learning = await asyncio.gather(
+            self.health(), self.motor_health(), self.cortex_health()
+        )
+        progress = await self._redis.ledger_progress() if storage else None
+        return workspace_status(Services(storage, deciding, learning), progress)

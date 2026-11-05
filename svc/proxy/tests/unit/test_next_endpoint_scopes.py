@@ -29,6 +29,7 @@ pytestmark = pytest.mark.unit
         ("GET", "/api/v1/changes/abc", "loop:read"),
         ("GET", "/api/v1/changes/counts", "loop:read"),
         ("POST", "/api/v1/changes/abc/undo", "loop:write"),
+        ("GET", "/api/v1/runtime/status", "runtime:read"),
     ],
 )
 def test_resolves_to_its_scope(method, path, scope):

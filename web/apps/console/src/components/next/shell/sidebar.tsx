@@ -2,19 +2,20 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronsUpDown, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { cn } from "@qbrix/ui/lib/utils";
-import { useAuth } from "@/lib/auth/context";
-import { useWorkspaceName } from "@/components/shell/workspace-row";
+import { openPalette } from "./command";
 import { isNextNavActive, nextNav } from "./nav";
 import { PinnedSection } from "./pinned";
+import { WorkspaceMenu } from "./workspace-menu";
+import { YourMenu } from "./your-menu";
 
 export function Sidebar() {
   const pathname = usePathname();
 
   return (
     <aside className="fixed inset-y-0 left-0 hidden w-[232px] flex-col gap-0.5 border-r border-n-line-2 bg-n-bg px-2 py-3 lg:flex">
-      <WorkspaceRow />
+      <WorkspaceMenu />
 
       <span className="h-3 shrink-0" />
       <SearchField />
@@ -44,22 +45,8 @@ export function Sidebar() {
       <PinnedSection />
 
       <span className="flex-1" />
-      <YouRow />
+      <YourMenu />
     </aside>
-  );
-}
-
-function WorkspaceRow() {
-  const name = useWorkspaceName();
-
-  return (
-    <div className="flex items-center gap-2 px-2 py-1">
-      <span className="flex size-[22px] shrink-0 items-center justify-center rounded-n-control bg-n-ink text-[12px] font-semibold text-n-on-ink">
-        {name?.charAt(0).toLowerCase()}
-      </span>
-      <span className="min-w-0 flex-1 truncate n-body font-semibold text-n-text-1">{name}</span>
-      <ChevronsUpDown size={15} className="shrink-0 text-n-text-3" />
-    </div>
   );
 }
 
@@ -67,26 +54,12 @@ function SearchField() {
   return (
     <button
       type="button"
+      onClick={openPalette}
       className="flex items-center gap-2 rounded-n-control border border-n-line px-2 py-1.5 text-left text-n-text-3"
     >
       <Search size={14} className="shrink-0" />
       <span className="flex-1 n-body">Search or do</span>
       <span className="n-label font-normal">⌘K</span>
     </button>
-  );
-}
-
-function YouRow() {
-  const { user } = useAuth();
-  const name = user?.name || user?.email.split("@")[0] || "";
-
-  return (
-    <div className="flex items-center gap-2 px-2 py-1">
-      <span className="flex size-[22px] shrink-0 items-center justify-center rounded-full bg-n-fill-2 text-[11px] font-semibold text-n-text-2">
-        {name.charAt(0).toUpperCase()}
-      </span>
-      <span className="min-w-0 flex-1 truncate n-body text-n-text-2">{name}</span>
-      <span data-slot="connections" />
-    </div>
   );
 }

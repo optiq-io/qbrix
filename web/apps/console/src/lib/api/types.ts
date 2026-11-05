@@ -580,6 +580,23 @@ export interface ConnectionDecision {
   redirect_to: string;
 }
 
+/** GET /v1/connections: a client that acts for a person */
+export interface Connection {
+  id: string;
+  client: { name: string; uri: string | null; identity: string };
+  user: { id: string; name: string };
+  created_at: string;
+  last_used_at: string | null;
+}
+
+/** GET /v1/runtime/status: the install's version, its services, and how far
+    learning trails the ledger */
+export interface WorkspaceStatus {
+  version: string;
+  services: { storage: boolean; deciding: boolean; learning: boolean };
+  learning: { lag_ms: number | null; checked_at: string | null; behind: boolean };
+}
+
 export type PinKind = "loop" | "metric";
 
 /** GET /v1/pins: a loop or metric a person keeps in their sidebar */
