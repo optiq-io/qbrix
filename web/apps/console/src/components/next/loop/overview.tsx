@@ -12,6 +12,7 @@ import type { Pause } from "@/lib/loop/pause";
 import { DraftOverview } from "./draft-overview";
 import { historyRowId, RecentHistory } from "./history";
 import { PausedOverview } from "./paused-overview";
+import type { StagedAction } from "./staged-action";
 
 const RECENT = 5;
 
@@ -44,7 +45,7 @@ export function LoopOverview({
   changes: ChangeEntry[];
   milestones: LoopMilestone[];
   now: number;
-  staging: boolean;
+  staging: StagedAction | null;
   onCancel: () => void;
   onDone: () => void;
 }) {
@@ -101,7 +102,7 @@ export function LoopOverview({
           pause={pause}
           results={cycleResults}
           now={now}
-          staging={staging}
+          staging={staging === "resume"}
           onCancel={onCancel}
           onDone={onDone}
         />

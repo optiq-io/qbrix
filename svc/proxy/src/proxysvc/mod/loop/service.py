@@ -427,19 +427,20 @@ class LoopService:
     async def delete_loop(
         self,
         tenant_id: str,
-        loop_id: str,
+        ref: str,
         *,
         actor: Actor,
         undoing: Undoing | None = None,
     ) -> bool:
         async with get_session() as session:
             repo = LoopRepository(session, tenant_id)
-            loop = await repo.get(loop_id)
+            loop = await repo.resolve(ref)
             if loop is None:
                 return False
             if loop.state != "draft":
                 raise _not_draft(loop.key, loop.state, "only a draft can be deleted")
             before = loop_to_dict(loop, await _owner(session, tenant_id, loop))
+            loop_id = loop.id
             loop_key = loop.key
             await repo.delete(loop)
             await ChangeRepository(session, tenant_id).record(

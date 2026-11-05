@@ -138,19 +138,23 @@ function LoopFrame({
   const pause = pauseOf(loop, changes);
   const row = statusRow({ kind: "loop", status, alert: pause?.byQbrix });
   const paused = loop.state === "paused";
+  const draft = loop.state === "draft";
+  const menu = draft
+    ? [pin.menuItem, { label: "Delete draft", tone: "danger" as const, canEdit, onSelect: () => open("delete") }]
+    : [pin.menuItem];
 
   return (
     <ObjectPage
       crumbs={[{ label: "Loops", href: routes.next.home }, { label: loop.name }]}
-      menu={<Menu items={[pin.menuItem]} />}
+      menu={<Menu items={menu} />}
       actions={
-        staging ? undefined : loop.state === "draft" ? (
-          <Button ref={actionRef} size="sm" onClick={open}>
+        staging ? undefined : draft ? (
+          <Button ref={actionRef} size="sm" onClick={() => open("launch")}>
             <Rocket size={13} />
             Launch
           </Button>
         ) : paused ? (
-          <Button ref={actionRef} size="sm" onClick={open}>
+          <Button ref={actionRef} size="sm" onClick={() => open("resume")}>
             <Play size={13} />
             Resume
           </Button>
@@ -175,7 +179,7 @@ function LoopFrame({
         changes={changes}
         milestones={milestones}
         now={now}
-        staging={staging && canEdit}
+        staging={canEdit ? staging : null}
         onCancel={cancel}
         onDone={finish}
       />

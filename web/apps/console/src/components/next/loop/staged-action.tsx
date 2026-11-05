@@ -3,13 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Consequence } from "@qbrix/ui/next/staged";
 
-/** an action that shows its consequence first. `state` is what the action depends on:
-    when it moves, say another person got there first, an open block closes */
+export type StagedAction = "launch" | "delete" | "resume";
+
+/** actions that show their consequence first, one open at a time. `state` is what they
+    depend on: when it moves, say another person got there first, an open block closes */
 export function useStagedAction(state: string) {
-  const [staging, setStaging] = useState(false);
+  const [staging, setStaging] = useState<StagedAction | null>(null);
   const returnFocus = useRef(false);
 
-  useEffect(() => setStaging(false), [state]);
+  useEffect(() => setStaging(null), [state]);
 
   // the action hides while its block is open, so it comes back as a new element
   const actionRef = useCallback((action: HTMLButtonElement | null) => {
@@ -21,12 +23,12 @@ export function useStagedAction(state: string) {
   return {
     staging,
     actionRef,
-    open: useCallback(() => setStaging(true), []),
+    open: useCallback((action: StagedAction) => setStaging(action), []),
     cancel: useCallback(() => {
       returnFocus.current = true;
-      setStaging(false);
+      setStaging(null);
     }, []),
-    finish: useCallback(() => setStaging(false), []),
+    finish: useCallback(() => setStaging(null), []),
   };
 }
 

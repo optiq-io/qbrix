@@ -4,6 +4,7 @@ import {
   chartCaption,
   fallbackName,
   firstSeal,
+  deleteConsequence,
   healthSignals,
   launchConsequence,
   loopCounters,
@@ -275,5 +276,26 @@ describe("a draft", () => {
     expect(body(2)).toContain("near half");
     expect(body(3)).toContain("near a third");
     expect(body(5)).toContain("near an even share");
+  });
+});
+
+describe("deleteConsequence", () => {
+  const calls = (draft: number) => ({ calls: { live: 0, draft, paused: 0 } });
+
+  it("says it can't be undone and the key is free", () => {
+    const { title, body } = deleteConsequence({ key: "checkout-headline" }, calls(0));
+    expect(title).toBe("Deleting removes this draft for good.");
+    expect(body).toBe("It can't be undone, and checkout-headline is free for a new loop at once.");
+  });
+
+  it("says calls arriving stop getting the fallback", () => {
+    expect(deleteConsequence({ key: "k" }, calls(1)).body).toContain("called it 1 time in the last hour");
+    expect(deleteConsequence({ key: "k" }, calls(1_240)).body).toContain(
+      "called it 1,240 times in the last hour; from now on those calls get not found instead of the fallback.",
+    );
+  });
+
+  it("says nothing about calls before results arrive", () => {
+    expect(deleteConsequence({ key: "k" }, undefined).body).not.toContain("called");
   });
 });
