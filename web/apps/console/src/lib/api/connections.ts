@@ -1,7 +1,12 @@
 import { apiFetch } from "./client";
-import type { ConnectionDecision, ConnectionRequest } from "./types";
+import type { Connection, ConnectionDecision, ConnectionRequest } from "./types";
 
 export const connections = {
+  /** an admin gets every connection in the workspace; anyone else their own */
+  async list(): Promise<Connection[]> {
+    return (await apiFetch<{ connections: Connection[] }>("/v1/connections")).connections;
+  },
+
   async getRequest(id: string): Promise<ConnectionRequest> {
     return apiFetch<ConnectionRequest>(`/v1/connections/requests/${encodeURIComponent(id)}`);
   },

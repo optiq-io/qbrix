@@ -14,7 +14,9 @@ export function usePopover(itemRole: "menuitem" | "option") {
   const items = useCallback(
     () =>
       Array.from(
-        contentRef.current?.querySelectorAll<HTMLElement>(`[role="${itemRole}"]`) ?? [],
+        contentRef.current?.querySelectorAll<HTMLElement>(
+          itemRole === "menuitem" ? '[role="menuitem"], [role="menuitemradio"]' : '[role="option"]',
+        ) ?? [],
       ),
     [itemRole],
   );

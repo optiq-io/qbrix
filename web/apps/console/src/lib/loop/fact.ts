@@ -51,7 +51,7 @@ function plural(count: number, unit: string): string {
 }
 
 /** the largest unit that fits: "40 seconds", "20 minutes", "3 hours", "12 days" */
-function span(seconds: number): string {
+export function span(seconds: number): string {
   if (seconds < MINUTE) return plural(Math.max(0, Math.floor(seconds)), "second");
   if (seconds < HOUR) return plural(Math.floor(seconds / MINUTE), "minute");
   if (seconds < DAY) return plural(Math.floor(seconds / HOUR), "hour");

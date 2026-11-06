@@ -14,6 +14,7 @@ from proxysvc.service import ProxyService
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/runtime", tags=["runtime"])
+status_router = APIRouter(prefix="/runtime", tags=["runtime"])
 
 
 # module-level proxy service instance, set via set_proxy_service()
@@ -44,6 +45,38 @@ class StreamHealthResponse(BaseModel):
 class ServiceHealthResponse(BaseModel):
     service: str
     status: str
+
+
+class ServicesResponse(BaseModel):
+    storage: bool
+    deciding: bool
+    learning: bool
+
+
+class LearningResponse(BaseModel):
+    lag_ms: Optional[int]
+    checked_at: Optional[str]
+    behind: bool
+
+
+class WorkspaceStatusResponse(BaseModel):
+    version: str
+    services: ServicesResponse
+    learning: LearningResponse
+
+
+@status_router.get(
+    "/status",
+    status_code=status.HTTP_200_OK,
+    response_model=WorkspaceStatusResponse,
+)
+async def get_workspace_status(
+    _user=Depends(require_scopes(["runtime:read"])),
+) -> WorkspaceStatusResponse:
+    """the install's version, whether its services answer, and how far
+    learning trails the ledger, in one read."""
+    current = await get_proxy_service().status()
+    return WorkspaceStatusResponse.model_validate(current, from_attributes=True)
 
 
 @router.get(

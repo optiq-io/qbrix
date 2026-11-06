@@ -53,6 +53,9 @@ export const routes = {
     loop: (key: string) => `/next/loops/${key}`,
     metric: (name: string) => `/next/metrics/${name}`,
     change: (id: string) => `/next/changes/${id}`,
+    settings: "/next/settings",
+    yourSettings: (section: string) => `/next/settings/you/${section}`,
+    workspaceSettings: (section: string) => `/next/settings/workspace/${section}`,
   },
 } as const;
 

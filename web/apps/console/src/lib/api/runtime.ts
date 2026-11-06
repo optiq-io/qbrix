@@ -1,7 +1,11 @@
 import { apiFetch } from "./client";
-import type { ServiceHealthResponse, StreamLengthResponse } from "./types";
+import type { ServiceHealthResponse, StreamLengthResponse, WorkspaceStatus } from "./types";
 
 export const runtime = {
+  async status(): Promise<WorkspaceStatus> {
+    return apiFetch<WorkspaceStatus>("/v1/runtime/status");
+  },
+
   async redisHealth(): Promise<ServiceHealthResponse> {
     return apiFetch<ServiceHealthResponse>("/v1/runtime/redis/health");
   },
