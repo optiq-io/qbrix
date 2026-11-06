@@ -15,7 +15,7 @@ x-postgres-env: &postgres-env
 
 services:
   gateway:
-    image: nginx:1.31-alpine@sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2
+    image: nginx:1.31-alpine@sha256:785835ea65db4bba6f021acc0f3be91b0fef76a53fe41f8588c6698d2aed0606
     ports:
       - "${QBRIX_PORT:-8000}:80"
     volumes:
@@ -26,7 +26,7 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+    image: postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-qbrix}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is not set, run bin/selfhost-init}
@@ -41,7 +41,7 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+    image: redis:7-alpine@sha256:8da19c7399dca900c6822a1cf30f9d2285585e2c4b457ff4095b0f4500054d3f
     command: redis-server --maxmemory 1gb --maxmemory-policy noeviction --appendonly yes --appendfsync everysec
     volumes:
       - redis_data:/data

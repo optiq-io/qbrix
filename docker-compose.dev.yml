@@ -2,7 +2,7 @@ name: qbrix-dev
 
 services:
   postgres:
-    image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+    image: postgres:16-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-qbrix}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-qbrix}
@@ -18,7 +18,7 @@ services:
       retries: 5
 
   redis:
-    image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+    image: redis:7-alpine@sha256:8da19c7399dca900c6822a1cf30f9d2285585e2c4b457ff4095b0f4500054d3f
     command: redis-server --maxmemory 1gb --maxmemory-policy noeviction --appendonly yes --appendfsync everysec
     ports:
       - "6379:6379"
@@ -182,7 +182,7 @@ services:
   # and read what it caught on http://localhost:8025
   mailpit:
     profiles: ["mail"]
-    image: axllent/mailpit:v1.31@sha256:94f6b70c1436defae6799d9ac7ff0eeff9540465b842026d5cdb018f1c0234ea
+    image: axllent/mailpit:v1.32@sha256:0790692be935ea4420d085694f7985b1f692ca6a8771ab0e0bd8ba75ac180498
     ports:
       - "1025:1025"
       - "8025:8025"
