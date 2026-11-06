@@ -371,7 +371,7 @@ wheels = [
 
 [[package]]
 name = "cortexsvc"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "svc/cortex" }
 dependencies = [
     { name = "click" },
@@ -1055,7 +1055,7 @@ wheels = [
 
 [[package]]
 name = "metersvc"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "ee/svc/meter" }
 dependencies = [
     { name = "cachebox" },
@@ -1110,7 +1110,7 @@ dev = [
 
 [[package]]
 name = "motorsvc"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "svc/motor" }
 dependencies = [
     { name = "cachebox" },
@@ -1334,7 +1334,7 @@ wheels = [
 
 [[package]]
 name = "proxysvc"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "svc/proxy" }
 dependencies = [
     { name = "bcrypt" },
@@ -1801,7 +1801,7 @@ wheels = [
 
 [[package]]
 name = "qbrixcore"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "lib/core" }
 dependencies = [
     { name = "click" },
@@ -1827,7 +1827,7 @@ dev = [
 
 [[package]]
 name = "qbrixio"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "cortexsvc" },
@@ -1876,7 +1876,7 @@ dev = [
 
 [[package]]
 name = "qbrixlog"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "lib/log" }
 dependencies = [
     { name = "sentry-sdk" },
@@ -1894,7 +1894,7 @@ dev = [
 
 [[package]]
 name = "qbrixproto"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "lib/proto" }
 dependencies = [
     { name = "grpcio" },
@@ -1915,7 +1915,7 @@ dev = [
 
 [[package]]
 name = "qbrixruntime"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "lib/runtime" }
 dependencies = [
     { name = "grpcio" },
@@ -1946,7 +1946,7 @@ dev = [
 
 [[package]]
 name = "qbrixstore"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "lib/store" }
 dependencies = [
     { name = "alembic" },
@@ -2219,7 +2219,7 @@ wheels = [
 
 [[package]]
 name = "tracesvc"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "svc/trace" }
 dependencies = [
     { name = "click" },
