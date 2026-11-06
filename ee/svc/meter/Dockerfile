@@ -30,8 +30,8 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
 RUN python -m pip uninstall --yes pip setuptools wheel
-# the pinned base trails debian's openssl security fix; drop once its digest carries it
-RUN apt-get update && apt-get install -y --no-install-recommends --only-upgrade libssl3 openssl && apt-get clean && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+# the pinned base trails debian's openssl and apt security fixes; drop once its digest carries them
+RUN apt-get update && apt-get install -y --no-install-recommends --only-upgrade libssl3 openssl apt libapt-pkg6.0 && apt-get clean && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
 WORKDIR /app
