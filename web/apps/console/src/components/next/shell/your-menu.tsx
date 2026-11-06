@@ -6,7 +6,8 @@ import { routes } from "@/config/routes";
 import { useAuth } from "@/lib/auth/context";
 import { connectionHealth, connectionNote, plugHealth } from "@/lib/connection/health";
 import { settingsHref, yourSettingsHome } from "@/components/next/settings/section";
-import { ThemeSwitch } from "@/components/next/settings/theme-switch";
+import { useTheme } from "@qbrix/ui/lib/theme";
+import { THEME_OPTIONS } from "@/components/next/settings/theme-switch";
 import { openShortcuts } from "./command";
 import { useMinute, useYourConnections } from "./data";
 import { EndMenu, MenuDivider, MenuRow } from "./end-menu";
@@ -67,7 +68,7 @@ export function YourMenu() {
           <div className="flex items-center gap-2.5 p-2">
             <SunMoon size={15} className="shrink-0 text-n-text-2" />
             <span className="flex-1 n-body text-n-text-1">Theme</span>
-            <ThemeSwitch />
+            <ThemeChoice />
           </div>
 
           <div className="flex flex-col gap-1.5 px-2 pt-2 pb-1">
@@ -97,6 +98,35 @@ export function YourMenu() {
         </>
       )}
     </EndMenu>
+  );
+}
+
+function ThemeChoice() {
+  const { theme, setTheme } = useTheme();
+  return (
+    <div role="group" aria-label="Theme" className="inline-flex gap-0.5 rounded-n-control border border-n-line p-px">
+      {THEME_OPTIONS.map((option) => {
+        const checked = option.value === theme;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="menuitemradio"
+            aria-checked={checked}
+            aria-label={option.label}
+            title={option.label}
+            tabIndex={-1}
+            onClick={() => setTheme(option.value)}
+            className={cn(
+              "flex h-[22px] w-[26px] items-center justify-center rounded-n-chip outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-n-ink",
+              checked ? "bg-n-fill-2 text-n-text-1" : "text-n-text-2 hover:text-n-text-1 focus:text-n-text-1",
+            )}
+          >
+            {option.icon}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
