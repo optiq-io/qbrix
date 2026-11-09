@@ -61,6 +61,7 @@ TOOLS = [
     "loop_launch",
     "loop_commit",
     "loop_reopen",
+    "loop_retire",
     "metric_create",
     "change_undo",
 ]
@@ -796,6 +797,114 @@ class TestCommitAndReopen:
         assert (loop["state"], loop["committed"]) == ("live", None)
 
 
+RETIRE = {"loop": "checkout-headline", "reason": "built into the page"}
+
+
+class TestRetire:
+
+    async def test_retire_says_what_happened_and_that_it_cant_be_undone(
+        self, mcp, wired_app
+    ):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await _call(client, "loop_commit", COMMIT)
+            result = await _call(client, "loop_retire", RETIRE)
+
+        assert not result.is_error, result
+        structured = result.structured_content
+        assert structured["status"] == "applied"
+        assert structured["change"]["kind"] == "loop.retire"
+        assert structured["change"]["undoable"] is False
+        loop = structured["loop"]
+        assert (loop["state"], loop["committed"]) == ("retired", None)
+        text = result.content[0].text
+        assert text.startswith(
+            "Retired checkout-headline: apps that still call it get its fallback"
+        )
+        assert "can't be undone" in text
+        assert structured["change"]["url"] in text
+
+    async def test_is_recorded_via_the_client_with_its_reason(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await _call(client, "loop_retire", RETIRE)
+            result = await _call(client, "changes_list", {"kind": ["loop.retire"]})
+
+        entry = result.structured_content["changes"][0]
+        assert entry["reason"] == "built into the page"
+        assert entry["via"]["client"] == "Claude Code"
+        assert "Claude Code retired Checkout headline." in result.content[0].text
+
+    async def test_a_retired_loop_stays_readable(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await _call(client, "loop_retire", RETIRE)
+            listed = await _call(client, "loops_list", {"state": ["retired"]})
+            got = await _call(client, "loop_get", {"loop": "checkout-headline"})
+            results = await _call(client, "loop_results", {"loop": "checkout-headline"})
+
+        assert [loop["key"] for loop in listed.structured_content["loops"]] == [
+            "checkout-headline"
+        ]
+        assert got.structured_content["state"] == "retired"
+        assert got.structured_content["latest_change"]["kind"] == "loop.retire"
+        assert not results.is_error, results
+
+    async def test_retiring_a_draft_says_to_delete_it(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _draft(client)
+            result = await _call(client, "loop_retire", RETIRE)
+
+        assert _error(result) == (
+            "The loop checkout-headline is draft; nothing was retired. "
+            "A draft was never served: delete it in the console instead."
+        )
+
+    async def test_retiring_twice_says_it_is_retired_already(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await _call(client, "loop_retire", RETIRE)
+            result = await _call(client, "loop_retire", {**RETIRE, "reason": "again"})
+
+        assert _error(result) == (
+            "The loop checkout-headline is retired; nothing was retired. "
+            "It is retired already."
+        )
+
+    async def test_committing_a_retired_loop_says_to_create_a_new_one(
+        self, mcp, wired_app
+    ):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await _call(client, "loop_retire", RETIRE)
+            result = await _call(client, "loop_commit", COMMIT)
+
+        assert _error(result) == (
+            "The loop checkout-headline is retired; nothing was committed. "
+            "Create a new loop with loop_create to serve the choice again."
+        )
+
+    async def test_undo_of_a_retire_is_refused_with_why(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            retired = await _call(client, "loop_retire", RETIRE)
+            result = await _call(
+                client,
+                "change_undo",
+                {
+                    "change": retired.structured_content["change"]["id"],
+                    "reason": "oops",
+                },
+            )
+
+        assert _error(result).startswith(
+            "Retiring a loop says the choice has left the product, so it can't be "
+            "undone; create a new loop to serve it again."
+        )
+        loop = await wired_app.svc.get_loop(TENANT, "checkout-headline")
+        assert loop["state"] == "retired"
+
+
 class TestViewer:
 
     async def test_a_viewer_reads_every_read_tool(self, mcp, wired_app):
@@ -823,6 +932,7 @@ class TestViewer:
                 "commit loops",
             ),
             ("loop_reopen", {"loop": "x", "reason": "go"}, "reopen loops"),
+            ("loop_retire", {"loop": "x", "reason": "go"}, "retire loops"),
             ("metric_create", METRIC, "create metrics"),
         ],
     )

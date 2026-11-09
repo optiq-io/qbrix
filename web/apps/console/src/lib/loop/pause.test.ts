@@ -42,7 +42,7 @@ function change(overrides: Partial<ChangeEntry> = {}): ChangeEntry {
 }
 
 const PAUSE: Pause = { id: "pause", at: AT.getTime(), byQbrix: true, evidence: EVIDENCE };
-const RESULTS = { calls: { live: 0, committed: 0, draft: 0, paused: 214 } } as LoopResults;
+const RESULTS = { calls: { live: 0, committed: 0, draft: 0, paused: 214, retired: 0 } } as LoopResults;
 
 describe("pauseOf", () => {
   it("reads a safety pause", () => {

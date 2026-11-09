@@ -410,6 +410,13 @@ class LoopNotCommittedException(ConflictException):
     code = "LOOP_NOT_COMMITTED"
 
 
+class LoopNotRetirableException(ConflictException):
+    """retiring needs a live or committed loop."""
+
+    detail = "the loop is not live or committed"
+    code = "LOOP_NOT_RETIRABLE"
+
+
 class ChangeNotFoundException(NotFoundException):
     """change not found in this workspace."""
 
