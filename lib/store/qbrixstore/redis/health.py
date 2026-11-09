@@ -34,6 +34,7 @@ class LoopSelectReason(str, Enum):
     """why a loop's select answered as it did."""
 
     LIVE = "live"
+    COMMITTED = "committed"
     DRAFT = "draft"
     PAUSED = "paused"
 

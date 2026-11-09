@@ -731,7 +731,7 @@ export interface LoopResults {
   } | null;
   lift: { value: number | null; early: boolean; since: string; until: string } | null;
   /** the last hour's calls by reason */
-  calls: { live: number; draft: number; paused: number };
+  calls: { live: number; committed: number; draft: number; paused: number };
   /** over the last few minutes */
   decisions_per_second: number;
   health: {

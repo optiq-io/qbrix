@@ -539,7 +539,8 @@ class Loop(Base):
     """a place in the product where qbrix decides on every request. the key is
     what code calls; it locks when the loop is launched. the current cycle is
     the highest-numbered one. live_since is when it last went live, at launch
-    or resume."""
+    or resume. committed_key is the option a committed loop serves everyone,
+    set only while it is committed."""
 
     __tablename__ = "loops"
     __table_args__ = (UniqueConstraint("tenant_id", "key", name="uq_loop_tenant_key"),)
@@ -559,6 +560,7 @@ class Loop(Base):
     engine: Mapped[str] = mapped_column(String(32), nullable=False)
     state: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
     paused_from: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    committed_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     live_since: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

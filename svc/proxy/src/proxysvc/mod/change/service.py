@@ -52,7 +52,7 @@ if TYPE_CHECKING:
 _RESTORABLE_EXPERIMENT_FIELDS = ("name", "enabled", "policy_params")
 _LEARNING_KINDS = ("experiment.reset", "experiment.restore")
 _UNVERSIONED = ("version", "updated_at")
-_RESTORABLE_LOOP_FIELDS = ("name", "key", "state")
+_RESTORABLE_LOOP_FIELDS = ("name", "key", "state", "committed")
 
 
 def _changed_fields(change: Change) -> list[str]:
@@ -73,7 +73,7 @@ def _restored_loop_fields(change: Change) -> tuple[str, ...]:
     moved = {
         name
         for name in _RESTORABLE_LOOP_FIELDS
-        if change.before[name] != change.after[name]
+        if change.before.get(name) != change.after.get(name)
     }
     if "key" in moved:
         moved.add("state")
@@ -111,7 +111,7 @@ def _restored_part(change: Change, state: dict | None) -> dict | None:
     if change.kind == "experiment.update":
         return {name: state[name] for name in _changed_fields(change)}
     if change.target_type == "loop":
-        return {name: state[name] for name in _restored_loop_fields(change)}
+        return {name: state.get(name) for name in _restored_loop_fields(change)}
     return {"name": state["name"]}
 
 
@@ -480,6 +480,22 @@ class ChangeService:
                 undoing=undoing,
             )
             return restored is not None
+
+        if change.kind == "loop.commit":
+            reopened = await self._loops.reopen_loop(
+                tenant_id, target_id, actor=actor, undoing=undoing
+            )
+            return reopened is not None
+
+        if change.kind == "loop.reopen":
+            committed = await self._loops.commit_loop(
+                tenant_id,
+                target_id,
+                option=before["committed"],
+                actor=actor,
+                undoing=undoing,
+            )
+            return committed is not None
 
         if change.kind == "loop.pause":
             resumed = await self._loops.resume_loop(

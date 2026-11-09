@@ -396,6 +396,20 @@ class LoopNotPausedException(ConflictException):
     code = "LOOP_NOT_PAUSED"
 
 
+class LoopNotLiveException(ConflictException):
+    """the change needs a live loop."""
+
+    detail = "the loop is not live"
+    code = "LOOP_NOT_LIVE"
+
+
+class LoopNotCommittedException(ConflictException):
+    """the change needs a committed loop."""
+
+    detail = "the loop is not committed"
+    code = "LOOP_NOT_COMMITTED"
+
+
 class ChangeNotFoundException(NotFoundException):
     """change not found in this workspace."""
 

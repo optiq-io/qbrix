@@ -35,7 +35,7 @@ function results(overrides: Partial<LoopResults> = {}, startedAt = NOW - 12 * DA
       series: [],
     },
     lift: { value: 0.062, early: false, since: "", until: "" },
-    calls: { live: 3600, draft: 0, paused: 0 },
+    calls: { live: 3600, committed: 0, draft: 0, paused: 0 },
     decisions_per_second: 38.4,
     health: {
       decision_errors: 0,
@@ -156,7 +156,7 @@ describe("loopFacts, warming up", () => {
 
 describe("loopFacts, paused", () => {
   const loop = { fallback: "a", options: [{ key: "a", name: "Relevance" }] } as Loop;
-  const cycle = results({ calls: { live: 0, draft: 0, paused: 1214 } });
+  const cycle = results({ calls: { live: 0, committed: 0, draft: 0, paused: 1214 } });
   const pause = { id: "p", at: NOW - 89 * MINUTE, byQbrix: true, evidence: null };
 
   it("reads what's served, for how long and how many it answered", () => {
@@ -231,7 +231,7 @@ const DRAFT = {
   metric: { name: "checkout_completed", window_seconds: 86_400 },
 } as Loop;
 const draftResults = (draft: number) =>
-  results({ cycle: null, share: null, lift: null, calls: { live: 0, draft, paused: 0 } });
+  results({ cycle: null, share: null, lift: null, calls: { live: 0, committed: 0, draft, paused: 0 } });
 
 describe("a draft", () => {
   it("reads its calls, its fallback and how much is ready", () => {
@@ -280,7 +280,7 @@ describe("a draft", () => {
 });
 
 describe("deleteConsequence", () => {
-  const calls = (draft: number) => ({ calls: { live: 0, draft, paused: 0 } });
+  const calls = (draft: number) => ({ calls: { live: 0, committed: 0, draft, paused: 0 } });
 
   it("says it can't be undone and the key is free", () => {
     const { title, body } = deleteConsequence({ key: "checkout-headline" }, calls(0));

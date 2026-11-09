@@ -132,7 +132,7 @@ class TestDraft:
         assert results["cycle"] is None
         assert results["share"] is None
         assert results["lift"] is None
-        assert results["calls"] == {"live": 0, "draft": 3, "paused": 0}
+        assert results["calls"] == {"live": 0, "committed": 0, "draft": 3, "paused": 0}
         assert wired_app.ledger.queries == []
 
 

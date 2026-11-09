@@ -21,6 +21,7 @@ from pydantic import Field
 from proxysvc.config import ProxySettings
 from proxysvc.core.error import ConnectionRateLimitedError
 from proxysvc.core.error import CycleNotFoundError
+from proxysvc.core.error import LoopInvalidError
 from proxysvc.core.error import LoopNotFoundError
 from proxysvc.core.error import LoopStateError
 from proxysvc.core.error import MetricNotFoundError
@@ -144,7 +145,10 @@ def _concise(loop: dict, detail: Detail) -> dict:
 
 
 def _loop_line(loop: dict) -> str:
-    line = f"{loop['key']} · {loop['name']} · {loop['state']} · metric {loop['metric']['name']}"
+    state = loop["state"]
+    if loop.get("committed"):
+        state += f" to {loop['committed']}"
+    line = f"{loop['key']} · {loop['name']} · {state} · metric {loop['metric']['name']}"
     if loop.get("cycle"):
         line += f" · cycle {loop['cycle']['number']}"
     return line
@@ -291,7 +295,7 @@ def register(
 
     async def loops_list(
         state: Annotated[
-            Optional[list[Literal["draft", "live", "paused"]]],
+            Optional[list[Literal["draft", "live", "committed", "paused"]]],
             Field(description="Only loops in these states; all loops when left out."),
         ] = None,
         cursor: Annotated[
@@ -340,7 +344,7 @@ def register(
     async def loop_get(
         loop: LoopRef, detail: DetailArg = "concise"
     ) -> Annotated[CallToolResult, LoopView]:
-        """Read one loop: its purpose, options, metric, owner, fallback, state and current cycle, its latest change, who paused it, when and why if it is paused, and how to wire it: the select and outcome calls for this loop in Python and JavaScript."""
+        """Read one loop: its purpose, options, metric, owner, fallback, state (and the option it is committed to, if committed) and current cycle, its latest change, who paused it, when and why if it is paused, and how to wire it: the select and outcome calls for this loop in Python and JavaScript."""
         principal = current_principal()
         try:
             _require(principal, "loop:read", "read loops")
@@ -664,6 +668,74 @@ def register(
 
         return await once("loop_launch", {"loop": loop, "reason": reason}, call)
 
+    async def loop_commit(
+        loop: LoopRef,
+        option: Annotated[
+            str, Field(description="The key of the option everyone gets from now on.")
+        ],
+        reason: Reason,
+    ) -> Annotated[CallToolResult, LoopChanged]:
+        """Commit a live loop to one option: everyone gets it and exploration stops. It still decides, so that option's outcomes keep teaching it, and the others keep what they learned. Reopen with loop_reopen to learn again."""
+
+        async def call(principal: ConnectionPrincipal) -> CallToolResult:
+            _require(principal, "loop:write", "commit loops")
+            try:
+                committed = await service().commit_loop(
+                    principal.tenant_id,
+                    loop,
+                    option=option,
+                    actor=principal.actor,
+                    reason=reason,
+                )
+            except LoopInvalidError as e:
+                raise error.unknown_option(str(e)) from e
+            except LoopStateError as e:
+                found = await service().get_loop(principal.tenant_id, loop)
+                raise error.not_live(
+                    found["key"], found["state"], found["committed"]
+                ) from e
+            if committed is None:
+                raise await refused_loop(principal, loop)
+            value = committed.value
+            change = changed(committed, "loop", value["key"])
+            return _result(
+                f"Committed {value['key']} to {option}: everyone gets it, and its "
+                f"outcomes keep teaching it. Reopen with loop_reopen to learn again. "
+                f"Change {change['id']}, can be undone: {change['url']}",
+                LoopChanged(status="applied", change=change, loop=value),
+            )
+
+        return await once(
+            "loop_commit", {"loop": loop, "option": option, "reason": reason}, call
+        )
+
+    async def loop_reopen(
+        loop: LoopRef, reason: Reason
+    ) -> Annotated[CallToolResult, LoopChanged]:
+        """Reopen a committed loop: it is live again in the same cycle, with everything it learned, and qbrix chooses between its options again."""
+
+        async def call(principal: ConnectionPrincipal) -> CallToolResult:
+            _require(principal, "loop:write", "reopen loops")
+            try:
+                reopened = await service().reopen_loop(
+                    principal.tenant_id, loop, actor=principal.actor, reason=reason
+                )
+            except LoopStateError as e:
+                found = await service().get_loop(principal.tenant_id, loop)
+                raise error.not_committed(found["key"], found["state"]) from e
+            if reopened is None:
+                raise await refused_loop(principal, loop)
+            value = reopened.value
+            change = changed(reopened, "loop", value["key"])
+            return _result(
+                f"Reopened {value['key']}: cycle {value['cycle']['number']} is live "
+                f"again and qbrix chooses between its options. "
+                f"Change {change['id']}, can be undone: {change['url']}",
+                LoopChanged(status="applied", change=change, loop=value),
+            )
+
+        return await once("loop_reopen", {"loop": loop, "reason": reason}, call)
+
     async def metric_create(
         name: Annotated[
             str,
@@ -771,6 +843,8 @@ def register(
         (milestones_list, _READ),
         (loop_create, _CREATE),
         (loop_launch, _DESTRUCTIVE),
+        (loop_commit, _DESTRUCTIVE),
+        (loop_reopen, _DESTRUCTIVE),
         (metric_create, _CREATE),
         (change_undo, _DESTRUCTIVE),
     ):

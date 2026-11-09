@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from datetime import datetime
 from datetime import timezone
 from typing import Any
@@ -153,7 +154,7 @@ def _resolve(engine: str, metric: Metric) -> Resolved:
 
 class LoopService:
     """loops: created as drafts, launched into their first cycle, renamed,
-    paused and resumed.
+    committed and reopened, paused and resumed.
 
     a live cycle is written to redis as the record motor serves and cortex
     trains, under the cycle's id, so a new cycle never mixes earlier learning.
@@ -342,7 +343,7 @@ class LoopService:
     ) -> dict | None:
         """live to paused: everyone gets the fallback until someone resumes it.
         decisions already made still seal and teach."""
-        return await self._transition(
+        applied = await self._transition(
             tenant_id,
             ref,
             "loop.pause",
@@ -354,6 +355,7 @@ class LoopService:
             evidence=evidence,
             undoing=undoing,
         )
+        return applied.value if applied else None
 
     async def resume_loop(
         self,
@@ -365,7 +367,7 @@ class LoopService:
         undoing: Undoing | None = None,
     ) -> dict | None:
         """back to the state the loop was paused from, live again from now."""
-        return await self._transition(
+        applied = await self._transition(
             tenant_id,
             ref,
             "loop.resume",
@@ -376,6 +378,67 @@ class LoopService:
                 "live_since": datetime.now(timezone.utc),
             },
             refused="only a paused loop can be resumed",
+            actor=actor,
+            reason=reason,
+            evidence=None,
+            undoing=undoing,
+        )
+        return applied.value if applied else None
+
+    async def commit_loop(
+        self,
+        tenant_id: str,
+        ref: str,
+        *,
+        option: str,
+        actor: Actor,
+        reason: str | None = None,
+        undoing: Undoing | None = None,
+    ) -> Applied | None:
+        """live to committed: everyone gets one option of the current cycle,
+        still as decisions, so its outcomes keep teaching it."""
+        refused = "only a live loop can be committed"
+
+        def check(loop: Loop) -> None:
+            if loop.state != "live":
+                raise _moved(loop.key, loop.state, refused)
+            keys = [o["key"] for o in loop.cycles[-1].options]
+            if option not in keys:
+                raise LoopInvalidError(
+                    f"{option!r} is not one of the loop's options ({', '.join(keys)})"
+                )
+
+        return await self._transition(
+            tenant_id,
+            ref,
+            "loop.commit",
+            from_state="live",
+            values={"state": "committed", "committed_key": option},
+            refused=refused,
+            actor=actor,
+            reason=reason,
+            evidence=None,
+            undoing=undoing,
+            check=check,
+        )
+
+    async def reopen_loop(
+        self,
+        tenant_id: str,
+        ref: str,
+        *,
+        actor: Actor,
+        reason: str | None = None,
+        undoing: Undoing | None = None,
+    ) -> Applied | None:
+        """committed back to live, in the same cycle with what it learned."""
+        return await self._transition(
+            tenant_id,
+            ref,
+            "loop.reopen",
+            from_state="committed",
+            values={"state": "live", "committed_key": None},
+            refused="only a committed loop can be reopened",
             actor=actor,
             reason=reason,
             evidence=None,
@@ -395,12 +458,15 @@ class LoopService:
         reason: str | None,
         evidence: dict | None,
         undoing: Undoing | None,
-    ) -> dict | None:
+        check: Callable[[Loop], None] | None = None,
+    ) -> Applied | None:
         async with get_session() as session:
             repo = LoopRepository(session, tenant_id)
             loop = await repo.resolve(ref)
             if loop is None:
                 return None
+            if check is not None:
+                check(loop)
             loop_key = loop.key
             people = await _owner(session, tenant_id, loop)
             before = loop_to_dict(loop, people)
@@ -410,7 +476,7 @@ class LoopService:
             loop = await repo.get(loop.id)
             loop_dict = loop_to_dict(loop, people)
             route = route_of(loop)
-            await ChangeRepository(session, tenant_id).record(
+            change = await ChangeRepository(session, tenant_id).record(
                 kind,
                 "loop",
                 loop.id,
@@ -422,7 +488,7 @@ class LoopService:
                 undoing=undoing,
             )
         await self._routes.put(tenant_id, route)
-        return loop_dict
+        return Applied.of(loop_dict, change)
 
     async def delete_loop(
         self,

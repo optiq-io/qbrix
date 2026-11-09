@@ -67,13 +67,18 @@ def _answer(
     }
 
 
+_DECIDING = frozenset({"live", "committed"})
+
+
 class LoopSelectService:
     """select(loop, context): the fallback for a draft or paused loop, the
-    engine's choice from the current cycle for a live one.
+    engine's choice from the current cycle for a live one, and the committed
+    option for a committed one, without asking motor.
 
-    only a live answer is a decision: it carries a request_id, enters the
-    ledger and counts as a selection. every answer is counted by its reason,
-    and a live loop's calls by outcome per cycle, off the request path.
+    only a live or committed answer is a decision: it carries a request_id,
+    enters the ledger and counts as a selection. every answer is counted by
+    its reason, and a deciding loop's calls by outcome per cycle, off the
+    request path.
     """
 
     def __init__(
@@ -107,29 +112,39 @@ class LoopSelectService:
         if route is None:
             raise LoopNotFoundError(f"no loop with the key or id {loop!r}")
 
-        if route.state != "live":
-            reason = LoopSelectReason(route.state)
+        reason = LoopSelectReason(route.state)
+        if route.state not in _DECIDING:
             self._count_reason(tenant_id, route.id, reason)
             if reason is LoopSelectReason.DRAFT:
                 self._events.dispatch(self._first_call(tenant_id, route.id, source))
             return _answer(route.fallback, None, reason)
 
         try:
-            answer = await self._decide(tenant_id, route, unit, properties)
+            answer = await self._decide(tenant_id, route, unit, properties, reason)
         except Exception as e:
             self._count_outcome(tenant_id, route.cycle.id, *_classify(e))
             raise
         self._count_outcome(tenant_id, route.cycle.id, SelectOutcome.OK)
-        self._count_reason(tenant_id, route.id, LoopSelectReason.LIVE)
+        self._count_reason(tenant_id, route.id, reason)
         return answer
 
     async def _decide(
-        self, tenant_id: str, route: LoopRoute, unit: str, properties: dict
+        self,
+        tenant_id: str,
+        route: LoopRoute,
+        unit: str,
+        properties: dict,
+        reason: LoopSelectReason,
     ) -> dict:
         await self._entitlements.on_selection(tenant_id)
         cycle_id = route.cycle.id
-        choice = await self._motor_client.select(tenant_id, cycle_id, unit, [], {})
-        index = choice["arm"]["index"]
+        if reason is LoopSelectReason.COMMITTED:
+            index = route.committed
+            policy = reason.value
+        else:
+            choice = await self._motor_client.select(tenant_id, cycle_id, unit, [], {})
+            index = choice["arm"]["index"]
+            policy = choice["policy"]
         option = route.options[index]
         now_ms = int(time.time() * 1000)
         decision = Decision(
@@ -157,11 +172,11 @@ class LoopSelectService:
                 context_vector=[],
                 context_metadata={},
                 timestamp_ms=now_ms,
-                policy=choice["policy"],
+                policy=policy,
                 loop_id=route.id,
                 cycle_id=cycle_id,
                 decision_id=decision.decision_id,
-                reason=LoopSelectReason.LIVE.value,
+                reason=reason.value,
                 unit=unit,
                 properties=properties,
                 metric_id=metric.id,
@@ -172,7 +187,7 @@ class LoopSelectService:
                 window_ms=metric.window_ms,
             )
         )
-        return _answer(option, request_id, LoopSelectReason.LIVE)
+        return _answer(option, request_id, reason)
 
     def _count_reason(
         self, tenant_id: str, loop_id: str, reason: LoopSelectReason

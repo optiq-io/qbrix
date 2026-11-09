@@ -104,6 +104,13 @@ def _lift_span(
     return CycleSpan(cycle.id, started, until), until < ended
 
 
+def _decisions(selects: dict[str, int]) -> int:
+    """the answers that were decisions, out of a loop's select counts."""
+    return (
+        selects[LoopSelectReason.LIVE.value] + selects[LoopSelectReason.COMMITTED.value]
+    )
+
+
 def _rate(decisions: int, cycle: Cycle | None, now_ms: int) -> float:
     """decisions a second over the last few minutes, the current one only as
     far as it has run, and never over more than the cycle has run."""
@@ -189,9 +196,7 @@ class LoopResultService:
             "range": period,
             **ledger,
             "calls": calls,
-            "decisions_per_second": _rate(
-                recent[LoopSelectReason.LIVE.value], cycle, now
-            ),
+            "decisions_per_second": _rate(_decisions(recent), cycle, now),
             "health": health,
         }
 
@@ -319,9 +324,7 @@ class LoopResultService:
                     lift(_sealed_per_option(sealed, cycle.options)) if lifted else None
                 ),
                 "early": lifted[1] if lifted else False,
-                "decisions_per_second": _rate(
-                    recent[loop.id][LoopSelectReason.LIVE.value], cycle, now
-                ),
+                "decisions_per_second": _rate(_decisions(recent[loop.id]), cycle, now),
             }
         return summaries
 

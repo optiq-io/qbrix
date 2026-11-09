@@ -14,6 +14,8 @@ VERBS = {
     "loop.create": "created",
     "loop.launch": "launched",
     "loop.rename": "renamed",
+    "loop.commit": "committed",
+    "loop.reopen": "reopened",
     "loop.pause": "paused",
     "loop.resume": "resumed",
     "loop.delete": "deleted",

@@ -5,7 +5,9 @@ invariants verified:
   no motor call and nothing in the ledger. a live loop answers the option
   motor chose from the current cycle with a request_id that decodes to a
   fresh decision, and records the decision with its unit, properties and
-  the metric terms it will be sealed by. a missing unit is refused; an
+  the metric terms it will be sealed by. a committed loop answers its
+  committed option for every request, as a decision on the ledger, without
+  asking motor; reopened, it asks motor again. a missing unit is refused; an
   unknown loop is not found and counted nowhere. every answer is counted by
   its reason, and a live loop's failures by outcome per cycle. loop writes
   keep the route select reads current. a draft's first call is a milestone
@@ -195,7 +197,7 @@ class TestDraft:
         await _settled(wired_app)
 
         counts = await wired_app.svc._redis.loop_selects(TENANT, loop["id"], 5)
-        assert counts == {"live": 0, "draft": 2, "paused": 0}
+        assert counts == {"live": 0, "committed": 0, "draft": 2, "paused": 0}
 
 
 class TestPaused:
@@ -349,6 +351,91 @@ class TestLive:
         )
         assert (health.error, health.not_found) == (1, 0)
         assert health.by_reason == {"config": 1}
+
+
+async def _committed(wired_app, option: str = "urgency") -> dict:
+    loop = await _loop(wired_app, launch=True)
+    return (
+        await wired_app.svc.commit_loop(TENANT, loop["key"], option=option, actor=ACTOR)
+    ).value
+
+
+class TestCommitted:
+    async def test_answers_the_committed_option_without_motor(self, wired_app, api):
+        loop = await _committed(wired_app)
+        _motor_chooses(wired_app, 0)
+
+        resp = await _select(api, loop["key"])
+
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["reason"] == "committed"
+        assert body["option"]["key"] == "urgency"
+        assert body["request_id"]
+        wired_app.motor_mock.select.assert_not_called()
+
+    async def test_every_request_gets_the_same_option(self, wired_app, api):
+        loop = await _committed(wired_app, "control")
+
+        answers = [
+            (await _select(api, loop["key"], {"unit": f"user-{n}"})).json()
+            for n in range(20)
+        ]
+
+        assert {answer["option"]["key"] for answer in answers} == {"control"}
+        assert len({answer["request_id"] for answer in answers}) == 20
+
+    async def test_the_request_id_decodes_to_the_committed_option(self, wired_app, api):
+        loop = await _committed(wired_app)
+
+        resp = await _select(api, loop["key"])
+        decision = DecisionToken.decode(
+            wired_app.svc._settings.token_secret_bytes,
+            resp.json()["request_id"],
+            TENANT,
+        )
+
+        assert decision.cycle_id == loop["cycle"]["id"]
+        assert decision.option_index == 1
+        assert decision.metric_version == "1.0"
+
+    async def test_records_the_decision_on_the_ledger(self, wired_app, api):
+        loop = await _committed(wired_app)
+        wired_app.selection_spy.events.clear()
+
+        resp = await _select(api, loop["key"])
+        await _settled(wired_app)
+
+        (event,) = wired_app.selection_spy.events
+        assert event.reason == "committed"
+        assert event.policy == "committed"
+        assert event.request_id == resp.json()["request_id"]
+        assert event.cycle_id == loop["cycle"]["id"]
+        assert (event.arm_name, event.arm_index) == ("urgency", 1)
+        assert event.metric_id == loop["metric"]["id"]
+        assert event.window_ms == 2 * 24 * 60 * 60 * 1000
+
+    async def test_is_counted_as_committed_and_by_outcome(self, wired_app, api):
+        loop = await _committed(wired_app)
+
+        await _select(api, loop["key"])
+        await _settled(wired_app)
+
+        redis = wired_app.svc._redis
+        counts = await redis.loop_selects(TENANT, loop["id"], 5)
+        assert (counts["committed"], counts["live"]) == (1, 0)
+        assert (await redis.select_health(TENANT, loop["cycle"]["id"], 5)).ok == 1
+
+    async def test_reopening_asks_motor_again(self, wired_app, api):
+        loop = await _committed(wired_app)
+        await wired_app.svc.reopen_loop(TENANT, loop["key"], actor=ACTOR)
+        _motor_chooses(wired_app, 0)
+
+        resp = await _select(api, loop["key"])
+
+        assert resp.json()["reason"] == "live"
+        assert resp.json()["option"]["key"] == "control"
+        wired_app.motor_mock.select.assert_called_once()
 
 
 class TestRefusals:

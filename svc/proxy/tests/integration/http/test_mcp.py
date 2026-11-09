@@ -59,6 +59,8 @@ TOOLS = [
     "milestones_list",
     "loop_create",
     "loop_launch",
+    "loop_commit",
+    "loop_reopen",
     "metric_create",
     "change_undo",
 ]
@@ -656,6 +658,144 @@ class TestChangesAndUndo:
         )
 
 
+async def _live(client: Client) -> None:
+    await _draft(client)
+    result = await _call(
+        client, "loop_launch", {"loop": "checkout-headline", "reason": "go"}
+    )
+    assert not result.is_error, result
+
+
+COMMIT = {"loop": "checkout-headline", "option": "urgency", "reason": "it sells"}
+REOPEN = {"loop": "checkout-headline", "reason": "new season"}
+
+
+class TestCommitAndReopen:
+
+    async def test_commit_says_what_happened_and_links_the_change(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            result = await _call(client, "loop_commit", COMMIT)
+
+        assert not result.is_error, result
+        structured = result.structured_content
+        assert structured["status"] == "applied"
+        assert structured["change"]["kind"] == "loop.commit"
+        assert structured["change"]["undoable"] is True
+        assert structured["loop"]["state"] == "committed"
+        assert structured["loop"]["committed"] == "urgency"
+        text = result.content[0].text
+        assert text.startswith("Committed checkout-headline to urgency")
+        assert "can be undone" in text
+        assert structured["change"]["url"] in text
+
+    async def test_commit_is_recorded_via_the_client_with_its_reason(
+        self, mcp, wired_app
+    ):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            committed = await _call(client, "loop_commit", COMMIT)
+            result = await _call(client, "changes_list", {"kind": ["loop.commit"]})
+
+        entry = result.structured_content["changes"][0]
+        assert entry["id"] == committed.structured_content["change"]["id"]
+        assert entry["reason"] == "it sells"
+        assert entry["via"]["client"] == "Claude Code"
+        line = result.content[0].text
+        assert "Claude Code committed Checkout headline." in line
+        assert "committed + urgency" in line
+
+    async def test_reopen_returns_to_live_in_the_same_cycle(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await _call(client, "loop_commit", COMMIT)
+            result = await _call(client, "loop_reopen", REOPEN)
+
+        assert not result.is_error, result
+        loop = result.structured_content["loop"]
+        assert (loop["state"], loop["committed"]) == ("live", None)
+        assert loop["cycle"]["number"] == 1
+        assert result.structured_content["change"]["kind"] == "loop.reopen"
+        assert result.content[0].text.startswith(
+            "Reopened checkout-headline: cycle 1 is live again"
+        )
+
+    async def test_loops_list_and_loop_get_name_the_committed_option(
+        self, mcp, wired_app
+    ):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await _call(client, "loop_commit", COMMIT)
+            listed = await _call(client, "loops_list", {"state": ["committed"]})
+            got = await _call(client, "loop_get", {"loop": "checkout-headline"})
+
+        assert [loop["key"] for loop in listed.structured_content["loops"]] == [
+            "checkout-headline"
+        ]
+        assert "committed to urgency" in listed.content[0].text
+        assert "committed to urgency" in got.content[0].text
+
+    async def test_committing_a_draft_says_to_launch_it(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _draft(client)
+            result = await _call(client, "loop_commit", COMMIT)
+
+        assert _error(result) == (
+            "The loop checkout-headline is draft; nothing was committed. "
+            "Launch it with loop_launch first."
+        )
+
+    async def test_committing_a_committed_loop_says_to_reopen_it(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await _call(client, "loop_commit", COMMIT)
+            result = await _call(client, "loop_commit", {**COMMIT, "option": "control"})
+
+        assert _error(result) == (
+            "The loop checkout-headline is committed; nothing was committed. "
+            "It serves urgency already; reopen it with loop_reopen first to "
+            "commit to another option."
+        )
+
+    async def test_an_unknown_option_names_the_options(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            result = await _call(client, "loop_commit", {**COMMIT, "option": "nope"})
+
+        assert _error(result) == (
+            "'nope' is not one of the loop's options (control, urgency). "
+            "Call again with one of them; nothing was committed."
+        )
+
+    async def test_reopening_a_live_loop_is_refused(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            result = await _call(client, "loop_reopen", REOPEN)
+
+        assert _error(result) == (
+            "The loop checkout-headline is live; only a committed loop can be "
+            "reopened. Nothing was changed."
+        )
+
+    async def test_undo_of_a_commit_reopens(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            committed = await _call(client, "loop_commit", COMMIT)
+            result = await _call(
+                client,
+                "change_undo",
+                {
+                    "change": committed.structured_content["change"]["id"],
+                    "reason": "too early",
+                },
+            )
+
+        assert not result.is_error, result
+        assert result.structured_content["change"]["kind"] == "loop.reopen"
+        loop = await wired_app.svc.get_loop(TENANT, "checkout-headline")
+        assert (loop["state"], loop["committed"]) == ("live", None)
+
+
 class TestViewer:
 
     async def test_a_viewer_reads_every_read_tool(self, mcp, wired_app):
@@ -677,6 +817,12 @@ class TestViewer:
         [
             ("loop_create", LOOP, "create loops"),
             ("loop_launch", {"loop": "x", "reason": "go"}, "launch loops"),
+            (
+                "loop_commit",
+                {"loop": "x", "option": "control", "reason": "go"},
+                "commit loops",
+            ),
+            ("loop_reopen", {"loop": "x", "reason": "go"}, "reopen loops"),
             ("metric_create", METRIC, "create metrics"),
         ],
     )
