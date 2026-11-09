@@ -31,8 +31,10 @@ from proxysvc.transport.http.exception import CycleNotFoundException
 from proxysvc.transport.http.exception import InvalidCursorException
 from proxysvc.transport.http.exception import InvalidLoopException
 from proxysvc.transport.http.exception import LoopKeyTakenException
+from proxysvc.transport.http.exception import LoopNotCommittedException
 from proxysvc.transport.http.exception import LoopNotDraftException
 from proxysvc.transport.http.exception import LoopNotFoundException
+from proxysvc.transport.http.exception import LoopNotLiveException
 from proxysvc.transport.http.exception import LoopNotPausedException
 
 logger = logging.getLogger(__name__)
@@ -75,6 +77,15 @@ class LoopRenameRequest(BaseModel):
 
 
 class LoopResumeRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+class LoopCommitRequest(BaseModel):
+    option: str = Field(description="The key of the option everyone gets.")
+    reason: Optional[str] = None
+
+
+class LoopReopenRequest(BaseModel):
     reason: Optional[str] = None
 
 
@@ -148,6 +159,7 @@ class LoopSummary(BaseModel):
     engine: str
     state: str
     paused_from: Optional[str] = None
+    committed: Optional[str] = None
     live_since: Optional[str] = None
     owner: Person
     fallback: str
@@ -242,6 +254,7 @@ class Lift(BaseModel):
 
 class Calls(BaseModel):
     live: int
+    committed: int
     draft: int
     paused: int
 
@@ -271,7 +284,7 @@ class ResultsResponse(BaseModel):
     health: Health
 
 
-LoopState = Literal["draft", "live", "paused"]
+LoopState = Literal["draft", "live", "committed", "paused"]
 ResultsPeriod = Literal["24h", "7d", "cycle"]
 PAGE_LIMIT = 50
 PAGE_LIMIT_MAX = 200
@@ -489,6 +502,59 @@ async def rename_loop(
     if renamed is None:
         raise _not_found(loop)
     return LoopResponse(**renamed)
+
+
+@router.post(
+    "/{loop}/commit",
+    status_code=status.HTTP_200_OK,
+    response_model=LoopResponse,
+)
+async def commit_loop(
+    loop: str,
+    body: LoopCommitRequest,
+    tenant_id: str = Depends(get_current_tenant_id),
+    actor: Actor = Depends(get_person),
+    _scoped=Depends(require_scopes(["loop:write"])),
+):
+    """commit a live loop to one option for everyone. it still decides, so
+    that option keeps learning; reopen returns it to live."""
+    try:
+        committed = await get_proxy_service().commit_loop(
+            tenant_id, loop, option=body.option, actor=actor, reason=body.reason
+        )
+    except LoopInvalidError as e:
+        raise InvalidLoopException(str(e))
+    except LoopStateError as e:
+        raise LoopNotLiveException(str(e))
+    if committed is None:
+        raise _not_found(loop)
+    logger.info(f"loop committed: {committed.value['id']} by user {actor.user_id}")
+    return LoopResponse(**committed.value)
+
+
+@router.post(
+    "/{loop}/reopen",
+    status_code=status.HTTP_200_OK,
+    response_model=LoopResponse,
+)
+async def reopen_loop(
+    loop: str,
+    body: Optional[LoopReopenRequest] = None,
+    tenant_id: str = Depends(get_current_tenant_id),
+    actor: Actor = Depends(get_person),
+    _scoped=Depends(require_scopes(["loop:write"])),
+):
+    """reopen a committed loop: live again in the same cycle."""
+    try:
+        reopened = await get_proxy_service().reopen_loop(
+            tenant_id, loop, actor=actor, reason=body.reason if body else None
+        )
+    except LoopStateError as e:
+        raise LoopNotCommittedException(str(e))
+    if reopened is None:
+        raise _not_found(loop)
+    logger.info(f"loop reopened: {reopened.value['id']} by user {actor.user_id}")
+    return LoopResponse(**reopened.value)
 
 
 @router.post(

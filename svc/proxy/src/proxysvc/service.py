@@ -592,6 +592,26 @@ class ProxyService:
             tenant_id, ref, name=name, key=key, actor=actor
         )
 
+    async def commit_loop(
+        self,
+        tenant_id: str,
+        ref: str,
+        *,
+        option: str,
+        actor: Actor,
+        reason: str | None = None,
+    ) -> Applied | None:
+        return await self._loop_service.commit_loop(
+            tenant_id, ref, option=option, actor=actor, reason=reason
+        )
+
+    async def reopen_loop(
+        self, tenant_id: str, ref: str, *, actor: Actor, reason: str | None = None
+    ) -> Applied | None:
+        return await self._loop_service.reopen_loop(
+            tenant_id, ref, actor=actor, reason=reason
+        )
+
     async def resume_loop(
         self, tenant_id: str, ref: str, *, actor: Actor, reason: str | None = None
     ) -> dict | None:

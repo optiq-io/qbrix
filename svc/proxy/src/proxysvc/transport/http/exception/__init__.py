@@ -48,6 +48,8 @@ from proxysvc.transport.http.exception.base import CycleNotFoundException
 from proxysvc.transport.http.exception.base import InvalidLoopException
 from proxysvc.transport.http.exception.base import LoopKeyTakenException
 from proxysvc.transport.http.exception.base import LoopNotDraftException
+from proxysvc.transport.http.exception.base import LoopNotCommittedException
+from proxysvc.transport.http.exception.base import LoopNotLiveException
 from proxysvc.transport.http.exception.base import LoopNotPausedException
 from proxysvc.transport.http.exception.base import InvalidDecisionContextException
 from proxysvc.transport.http.exception.base import InvalidOutcomeException
@@ -108,6 +110,8 @@ __all__ = [
     "InvalidLoopException",
     "LoopKeyTakenException",
     "LoopNotDraftException",
+    "LoopNotCommittedException",
+    "LoopNotLiveException",
     "LoopNotPausedException",
     "InvalidDecisionContextException",
     "InvalidOutcomeException",

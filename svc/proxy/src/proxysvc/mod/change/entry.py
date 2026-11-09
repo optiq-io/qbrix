@@ -22,7 +22,7 @@ from proxysvc.mod.people import People
 FOLD_WITHIN = timedelta(minutes=10)
 COUNTS_WITHIN = timedelta(days=7)
 
-_PLAIN_FIELDS = ("name", "key", "state", "audience")
+_PLAIN_FIELDS = ("name", "key", "state", "committed", "audience")
 
 
 @dataclass(frozen=True, slots=True)

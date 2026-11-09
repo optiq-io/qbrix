@@ -55,9 +55,43 @@ def not_draft(key: str, state: str) -> Refusal:
         return Refusal(
             f"The loop {key} is live already; launching applies only to drafts."
         )
+    if state == "committed":
+        return Refusal(
+            f"The loop {key} is committed; launching applies only to drafts. "
+            f"Reopen it with loop_reopen to learn again."
+        )
     return Refusal(
         f"The loop {key} is {state}; launching applies only to drafts. "
         f"Resume it in the console to serve it again."
+    )
+
+
+def not_live(key: str, state: str, committed: str | None) -> Refusal:
+    """why a loop can't be committed, and what makes it committable."""
+    if state == "draft":
+        fix = "Launch it with loop_launch first."
+    elif state == "committed":
+        fix = (
+            f"It serves {committed} already; reopen it with loop_reopen first "
+            f"to commit to another option."
+        )
+    elif state == "paused":
+        fix = "A person resumes it in the console first."
+    else:
+        fix = "Only a live loop can be committed."
+    return Refusal(f"The loop {key} is {state}; nothing was committed. {fix}")
+
+
+def not_committed(key: str, state: str) -> Refusal:
+    return Refusal(
+        f"The loop {key} is {state}; only a committed loop can be reopened. "
+        f"Nothing was changed."
+    )
+
+
+def unknown_option(message: str) -> Refusal:
+    return Refusal(
+        f"{_sentence(message)} Call again with one of them; nothing was committed."
     )
 
 

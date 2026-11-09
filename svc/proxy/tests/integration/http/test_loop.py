@@ -12,7 +12,10 @@ invariants verified:
   a live loop pauses (qbrix pauses it, with its evidence) and a person resumes
   it to the state it was paused from; each is one change, only the call that
   moves the state records one, both undo into the other, and live_since moves
-  at launch and resume.
+  at launch and resume. a person commits a live loop to one of its cycle's
+  options and reopens it to live in the same cycle; each is one change, each
+  undoes into the other, and a rename recorded before a loop had a committed
+  option still undoes.
 """
 
 from __future__ import annotations
@@ -24,6 +27,9 @@ import pytest
 import pytest_asyncio
 
 import proxysvc.config
+from qbrixstore.postgres import session as session_module
+from qbrixstore.postgres.models import Change
+
 from proxysvc.core.actor import Actor
 from proxysvc.core.error import ChangeConflictError
 from proxysvc.core.error import ChangeNotUndoableError
@@ -841,3 +847,258 @@ class TestMetricInUse:
             await wired_app.svc.undo_change(TENANT, create["id"], actor=UNDOER)
 
         assert (await loops.get("/api/v1/metrics/purchase")).status_code == 200
+
+
+async def _commit(client, ref: str, option: str = "urgency", **body) -> dict:
+    resp = await client.post(
+        f"/api/v1/loops/{ref}/commit", json={"option": option, **body}
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+async def _committed(loops) -> dict:
+    loop = await _launch(loops, (await _create(loops))["key"])
+    return await _commit(loops, loop["key"])
+
+
+async def _route(wired_app, ref: str):
+    return await wired_app.svc._loop_select_service._routes.get(TENANT, ref)
+
+
+class TestCommit:
+    async def test_a_live_loop_commits_to_one_option(self, wired_app, loops):
+        loop = await _launch(loops, (await _create(loops))["key"])
+
+        committed = await _commit(loops, loop["key"])
+
+        assert (committed["state"], committed["committed"]) == ("committed", "urgency")
+        assert committed["cycle"] == loop["cycle"]
+        assert committed["live_since"] == loop["live_since"]
+
+    async def test_a_live_loop_is_committed_to_nothing(self, loops):
+        loop = await _launch(loops, (await _create(loops))["key"])
+
+        assert loop["committed"] is None
+
+    async def test_is_a_change_by_the_person_with_their_reason(self, wired_app, loops):
+        loop = await _launch(loops, (await _create(loops))["key"])
+
+        resp = await loops.post(
+            f"/api/v1/loops/{loop['key']}/commit",
+            json={"option": "urgency", "reason": "urgency won"},
+            headers={"X-Request-ID": "req-commit"},
+        )
+        commit, *_ = await _changes(wired_app, loop["id"])
+
+        assert commit["kind"] == "loop.commit"
+        assert commit["actor"]["kind"] == "member"
+        assert commit["reason"] == "urgency won"
+        assert commit["request_id"] == "req-commit"
+        assert commit["before"]["state"] == "live"
+        assert commit["before"]["committed"] is None
+        assert commit["after"] == resp.json()
+        assert commit["undoable"] is True
+
+    async def test_writes_the_committed_route(self, wired_app, loops):
+        loop = await _committed(loops)
+
+        route = await _route(wired_app, loop["key"])
+
+        assert route.state == "committed"
+        assert route.options[route.committed].key == "urgency"
+
+    @pytest.mark.parametrize("state", ["draft", "paused", "committed"])
+    async def test_only_a_live_loop_commits(self, wired_app, loops, state):
+        loop = await _create(loops)
+        if state != "draft":
+            loop = await _launch(loops, loop["key"])
+        if state == "paused":
+            loop = await _pause(wired_app, loop["key"])
+        if state == "committed":
+            loop = await _commit(loops, loop["key"])
+        before = len(await _changes(wired_app, loop["id"]))
+
+        resp = await loops.post(
+            f"/api/v1/loops/{loop['key']}/commit", json={"option": "control"}
+        )
+
+        assert resp.status_code == 409
+        assert resp.json()["code"] == "LOOP_NOT_LIVE"
+        assert f"is {state}" in resp.text
+        assert len(await _changes(wired_app, loop["id"])) == before
+
+    async def test_an_unknown_option_is_refused_with_the_options(
+        self, wired_app, loops
+    ):
+        loop = await _launch(loops, (await _create(loops))["key"])
+
+        resp = await loops.post(
+            f"/api/v1/loops/{loop['key']}/commit", json={"option": "nope"}
+        )
+
+        assert resp.status_code in (400, 422)
+        assert "(control, urgency)" in resp.text
+        assert (await wired_app.svc.get_loop(TENANT, loop["id"]))["state"] == "live"
+        assert len(await _changes(wired_app, loop["id"])) == 2
+
+    async def test_a_commit_that_loses_the_race_records_nothing(
+        self, wired_app, loops, monkeypatch
+    ):
+        loop = await _launch(loops, (await _create(loops))["key"])
+        resolve = LoopRepository.resolve
+
+        async def a_pause_lands(repo, ref):
+            found = await resolve(repo, ref)
+            await repo.transition(
+                found.id, from_state="live", state="paused", paused_from="live"
+            )
+            return found
+
+        with monkeypatch.context() as patch:
+            patch.setattr(LoopRepository, "resolve", a_pause_lands)
+            resp = await loops.post(
+                f"/api/v1/loops/{loop['key']}/commit", json={"option": "urgency"}
+            )
+
+        assert resp.status_code == 409
+        assert "is paused" in resp.text
+        kinds = [c["kind"] for c in await _changes(wired_app, loop["id"])]
+        assert "loop.commit" not in kinds
+
+    async def test_an_unknown_loop_is_not_found(self, loops):
+        resp = await loops.post("/api/v1/loops/nothing/commit", json={"option": "a"})
+
+        assert resp.status_code == 404
+
+    async def test_a_viewer_is_refused(self, wired_app, loops):
+        loop = await _launch(loops, (await _create(loops))["key"])
+
+        with as_tenant(wired_app.app, tenant_id=TENANT, role="viewer"):
+            resp = await loops.post(
+                f"/api/v1/loops/{loop['key']}/commit", json={"option": "urgency"}
+            )
+
+        assert resp.status_code == 403
+        assert (await wired_app.svc.get_loop(TENANT, loop["id"]))["state"] == "live"
+
+    async def test_an_api_key_is_refused(self, wired_app, loops):
+        loop = await _launch(loops, (await _create(loops))["key"])
+        overrides = wired_app.app.dependency_overrides
+        overrides[get_actor] = lambda: Actor.member("user-x", api_key_id="key-1")
+        try:
+            resp = await loops.post(
+                f"/api/v1/loops/{loop['key']}/commit", json={"option": "urgency"}
+            )
+        finally:
+            del overrides[get_actor]
+
+        assert resp.status_code == 403
+        assert "api key" in resp.text
+        assert (await wired_app.svc.get_loop(TENANT, loop["id"]))["state"] == "live"
+
+
+class TestReopen:
+    async def test_returns_to_live_in_the_same_cycle(self, wired_app, loops):
+        loop = await _committed(loops)
+
+        resp = await loops.post(f"/api/v1/loops/{loop['key']}/reopen")
+
+        assert resp.status_code == 200, resp.text
+        reopened = resp.json()
+        assert (reopened["state"], reopened["committed"]) == ("live", None)
+        assert reopened["cycle"] == loop["cycle"]
+        assert reopened["live_since"] == loop["live_since"]
+
+    async def test_is_a_change_by_the_person_with_their_reason(self, wired_app, loops):
+        loop = await _committed(loops)
+
+        resp = await loops.post(
+            f"/api/v1/loops/{loop['key']}/reopen", json={"reason": "new season"}
+        )
+        reopen, *_ = await _changes(wired_app, loop["id"])
+
+        assert reopen["kind"] == "loop.reopen"
+        assert reopen["reason"] == "new season"
+        assert reopen["before"]["committed"] == "urgency"
+        assert reopen["after"] == resp.json()
+
+    async def test_writes_the_live_route(self, wired_app, loops):
+        loop = await _committed(loops)
+        await loops.post(f"/api/v1/loops/{loop['key']}/reopen")
+
+        route = await _route(wired_app, loop["key"])
+
+        assert (route.state, route.committed) == ("live", None)
+
+    @pytest.mark.parametrize("launch", [False, True])
+    async def test_a_loop_that_isnt_committed_is_refused(
+        self, wired_app, loops, launch
+    ):
+        loop = await _create(loops)
+        if launch:
+            loop = await _launch(loops, loop["key"])
+
+        resp = await loops.post(f"/api/v1/loops/{loop['key']}/reopen")
+
+        assert resp.status_code == 409
+        assert resp.json()["code"] == "LOOP_NOT_COMMITTED"
+        assert f"is {loop['state']}" in resp.text
+
+    async def test_an_unknown_loop_is_not_found(self, loops):
+        resp = await loops.post("/api/v1/loops/nothing/reopen")
+
+        assert resp.status_code == 404
+
+
+class TestUndoCommitReopen:
+    async def test_undo_of_commit_reopens(self, wired_app, loops):
+        loop = await _committed(loops)
+        commit, *_ = await _changes(wired_app, loop["id"])
+
+        undo = await wired_app.svc.undo_change(TENANT, commit["id"], actor=UNDOER)
+        after = await wired_app.svc.get_loop(TENANT, loop["id"])
+
+        assert undo["kind"] == "loop.reopen"
+        assert undo["undoes_id"] == commit["id"]
+        assert (after["state"], after["committed"]) == ("live", None)
+
+    async def test_undo_of_reopen_commits_to_the_same_option(self, wired_app, loops):
+        loop = await _committed(loops)
+        await loops.post(f"/api/v1/loops/{loop['key']}/reopen")
+        reopen, *_ = await _changes(wired_app, loop["id"])
+
+        undo = await wired_app.svc.undo_change(TENANT, reopen["id"], actor=UNDOER)
+        after = await wired_app.svc.get_loop(TENANT, loop["id"])
+
+        assert undo["kind"] == "loop.commit"
+        assert undo["actor"]["user_id"] == UNDOER.user_id
+        assert (after["state"], after["committed"]) == ("committed", "urgency")
+        route = await _route(wired_app, loop["key"])
+        assert route.options[route.committed].key == "urgency"
+
+    async def test_undo_of_a_commit_after_a_reopen_is_refused(self, wired_app, loops):
+        loop = await _committed(loops)
+        commit, *_ = await _changes(wired_app, loop["id"])
+        await loops.post(f"/api/v1/loops/{loop['key']}/reopen")
+
+        with pytest.raises(ChangeConflictError, match="loop.reopen"):
+            await wired_app.svc.undo_change(TENANT, commit["id"], actor=UNDOER)
+
+    async def test_a_rename_recorded_before_committed_existed_still_undoes(
+        self, wired_app, loops
+    ):
+        loop = await _launch(loops, (await _create(loops))["key"])
+        await loops.patch(f"/api/v1/loops/{loop['key']}", json={"name": "Headline"})
+        rename, *_ = await _changes(wired_app, loop["id"])
+        async with session_module.get_session() as session:
+            change = await session.get(Change, rename["id"])
+            change.before = {k: v for k, v in change.before.items() if k != "committed"}
+            change.after = {k: v for k, v in change.after.items() if k != "committed"}
+
+        undo = await wired_app.svc.undo_change(TENANT, rename["id"], actor=UNDOER)
+
+        assert undo["kind"] == "loop.rename"
+        assert (await wired_app.svc.get_loop(TENANT, loop["id"]))["name"] == HEADLINE[
+            "name"
+        ]

@@ -38,7 +38,8 @@ class LoopRoute(BaseModel):
     """what select needs to answer for a loop, without reading postgres.
 
     the options are the current cycle's, in the order its arms are served,
-    or the loop's own while it is a draft.
+    or the loop's own while it is a draft. committed is the index of the
+    option a committed loop serves.
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -50,6 +51,7 @@ class LoopRoute(BaseModel):
     options: list[RouteOption]
     fallback: RouteOption
     metric: RouteMetric
+    committed: int | None = None
 
 
 def route_of(loop: Loop) -> LoopRoute:
@@ -57,6 +59,7 @@ def route_of(loop: Loop) -> LoopRoute:
     options = (
         cycle.options if cycle else [option_to_dict(option) for option in loop.options]
     )
+    keys = [option["key"] for option in options]
     version = loop.metric.versions[-1]
     return LoopRoute(
         id=loop.id,
@@ -64,6 +67,9 @@ def route_of(loop: Loop) -> LoopRoute:
         state=loop.state,
         cycle=RouteCycle(id=cycle.id, number=cycle.number) if cycle else None,
         options=options,
+        committed=(
+            keys.index(loop.committed_key) if loop.committed_key is not None else None
+        ),
         fallback=next(o for o in options if o["key"] == loop.fallback_key),
         metric=RouteMetric(
             id=loop.metric.id,
