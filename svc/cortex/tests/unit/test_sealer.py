@@ -240,6 +240,19 @@ class TestAPass:
 
         assert (await params(store))["alpha"][0] == 2.0
 
+    async def test_a_retired_loop_learns_what_closes_and_waits_on_what_is_open(
+        self, sealer, ledger, store, cycle
+    ):
+        closed = ledger.decide("a", 0, ago(600), "conversion")
+        ledger.answer(closed, 1, closed.opened_ms + 1_000)
+        ledger.decide("b", 1, ago(10), "count")
+
+        await seal_all(sealer)
+
+        assert set(k[2] for k in ledger.sealed) == {"a"}
+        assert (await params(store))["alpha"] == [2.0, 1.0, 1.0]
+        assert await store.get_experiment(TENANT, CYCLE) == cycle
+
     async def test_a_score_without_an_outcome_seals_and_teaches_nothing(
         self, sealer, ledger, store, cycle
     ):

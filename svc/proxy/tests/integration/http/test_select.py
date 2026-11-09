@@ -7,7 +7,10 @@ invariants verified:
   fresh decision, and records the decision with its unit, properties and
   the metric terms it will be sealed by. a committed loop answers its
   committed option for every request, as a decision on the ledger, without
-  asking motor; reopened, it asks motor again. a missing unit is refused; an
+  asking motor; reopened, it asks motor again. a retired loop answers its
+  fallback as reason retired, without a decision, and still counts the call;
+  its cycle record stays for the decisions still sealing. a missing unit is
+  refused; an
   unknown loop is not found and counted nowhere. every answer is counted by
   its reason, and a live loop's failures by outcome per cycle. loop writes
   keep the route select reads current. a draft's first call is a milestone
@@ -197,7 +200,13 @@ class TestDraft:
         await _settled(wired_app)
 
         counts = await wired_app.svc._redis.loop_selects(TENANT, loop["id"], 5)
-        assert counts == {"live": 0, "committed": 0, "draft": 2, "paused": 0}
+        assert counts == {
+            "live": 0,
+            "committed": 0,
+            "draft": 2,
+            "paused": 0,
+            "retired": 0,
+        }
 
 
 class TestPaused:
@@ -436,6 +445,60 @@ class TestCommitted:
         assert resp.json()["reason"] == "live"
         assert resp.json()["option"]["key"] == "control"
         wired_app.motor_mock.select.assert_called_once()
+
+
+async def _retired(wired_app, committed: bool = False) -> dict:
+    loop = await (_committed(wired_app) if committed else _loop(wired_app, launch=True))
+    return (await wired_app.svc.retire_loop(TENANT, loop["key"], actor=ACTOR)).value
+
+
+class TestRetired:
+    @pytest.mark.parametrize("committed", [False, True])
+    async def test_answers_the_fallback_without_a_decision(
+        self, wired_app, api, committed
+    ):
+        loop = await _retired(wired_app, committed)
+        wired_app.motor_mock.select.reset_mock()
+        wired_app.selection_spy.events.clear()
+
+        resp = await _select(api, loop["key"])
+        await _settled(wired_app)
+
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["reason"] == "retired"
+        assert body["request_id"] is None
+        assert body["option"]["key"] == "control"
+        wired_app.motor_mock.select.assert_not_called()
+        assert wired_app.selection_spy.events == []
+
+    async def test_is_counted_as_retired(self, wired_app, api):
+        loop = await _retired(wired_app)
+
+        await _select(api, loop["key"])
+        await _settled(wired_app)
+
+        counts = await wired_app.svc._redis.loop_selects(TENANT, loop["id"], 5)
+        assert (counts["retired"], counts["live"]) == (1, 0)
+
+    async def test_its_id_still_answers(self, wired_app, api):
+        loop = await _retired(wired_app)
+
+        resp = await _select(api, loop["id"])
+
+        assert resp.json()["reason"] == "retired"
+
+    async def test_keeps_the_cycle_record_its_open_decisions_seal_by(
+        self, wired_app, api
+    ):
+        loop = await _loop(wired_app, launch=True)
+        redis = wired_app.svc._redis
+        record = await redis.get_experiment(TENANT, loop["cycle"]["id"])
+
+        await wired_app.svc.retire_loop(TENANT, loop["key"], actor=ACTOR)
+
+        assert record is not None
+        assert await redis.get_experiment(TENANT, loop["cycle"]["id"]) == record
 
 
 class TestRefusals:

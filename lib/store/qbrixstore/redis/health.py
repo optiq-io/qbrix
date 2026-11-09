@@ -37,6 +37,7 @@ class LoopSelectReason(str, Enum):
     COMMITTED = "committed"
     DRAFT = "draft"
     PAUSED = "paused"
+    RETIRED = "retired"
 
 
 @dataclass(frozen=True)

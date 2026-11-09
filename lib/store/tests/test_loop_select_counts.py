@@ -44,7 +44,7 @@ async def test_counts_by_reason_inside_the_window(store):
 
     counts = await store.loop_selects(TENANT, LOOP, window_minutes=3, now_minute=NOW)
 
-    assert counts == {"live": 3, "committed": 1, "draft": 0, "paused": 1}
+    assert counts == {"live": 3, "committed": 1, "draft": 0, "paused": 1, "retired": 0}
 
 
 async def test_another_loop_is_counted_apart(store):
@@ -52,7 +52,7 @@ async def test_another_loop_is_counted_apart(store):
 
     counts = await store.loop_selects(TENANT, LOOP, window_minutes=1, now_minute=NOW)
 
-    assert counts == {"live": 0, "committed": 0, "draft": 0, "paused": 0}
+    assert counts == {"live": 0, "committed": 0, "draft": 0, "paused": 0, "retired": 0}
 
 
 async def test_many_loops_are_counted_apart_in_one_read(store):
@@ -64,9 +64,9 @@ async def test_many_loops_are_counted_apart_in_one_read(store):
     )
 
     assert counts == {
-        LOOP: {"live": 1, "committed": 0, "draft": 0, "paused": 0},
-        "other": {"live": 0, "committed": 0, "draft": 1, "paused": 0},
-        "quiet": {"live": 0, "committed": 0, "draft": 0, "paused": 0},
+        LOOP: {"live": 1, "committed": 0, "draft": 0, "paused": 0, "retired": 0},
+        "other": {"live": 0, "committed": 0, "draft": 1, "paused": 0, "retired": 0},
+        "quiet": {"live": 0, "committed": 0, "draft": 0, "paused": 0, "retired": 0},
     }
 
 

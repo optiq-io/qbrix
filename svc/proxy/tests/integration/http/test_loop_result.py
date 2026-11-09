@@ -132,8 +132,35 @@ class TestDraft:
         assert results["cycle"] is None
         assert results["share"] is None
         assert results["lift"] is None
-        assert results["calls"] == {"live": 0, "committed": 0, "draft": 3, "paused": 0}
+        assert results["calls"] == {
+            "live": 0,
+            "committed": 0,
+            "draft": 3,
+            "paused": 0,
+            "retired": 0,
+        }
         assert wired_app.ledger.queries == []
+
+
+class TestRetired:
+    async def test_reads_its_ended_cycle_and_the_calls_it_still_gets(
+        self, wired_app, api
+    ):
+        loop = await _loop(wired_app)
+        await wired_app.svc.retire_loop(TENANT, loop["key"], actor=ACTOR)
+        for _ in range(2):
+            resp = await api.post(
+                "/api/v1/select",
+                json={"loop": "checkout-headline", "context": {"unit": "u-1"}},
+            )
+            assert resp.json()["reason"] == "retired"
+
+        results = await _results(api)
+
+        assert results["cycle"]["number"] == 1
+        assert results["cycle"]["ended_at"] is not None
+        assert results["calls"]["retired"] == 2
+        assert results["decisions_per_second"] == 0
 
 
 class TestShare:

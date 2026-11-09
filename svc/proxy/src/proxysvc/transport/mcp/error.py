@@ -50,6 +50,9 @@ def unknown_metric(ref: str, names: Iterable[str]) -> Refusal:
     return Refusal(f"No metric named or with id {ref}.{hint}")
 
 
+_SERVE_AGAIN = "Create a new loop with loop_create to serve the choice again."
+
+
 def not_draft(key: str, state: str) -> Refusal:
     if state == "live":
         return Refusal(
@@ -59,6 +62,11 @@ def not_draft(key: str, state: str) -> Refusal:
         return Refusal(
             f"The loop {key} is committed; launching applies only to drafts. "
             f"Reopen it with loop_reopen to learn again."
+        )
+    if state == "retired":
+        return Refusal(
+            f"The loop {key} is retired; launching applies only to drafts. "
+            f"{_SERVE_AGAIN}"
         )
     return Refusal(
         f"The loop {key} is {state}; launching applies only to drafts. "
@@ -77,6 +85,8 @@ def not_live(key: str, state: str, committed: str | None) -> Refusal:
         )
     elif state == "paused":
         fix = "A person resumes it in the console first."
+    elif state == "retired":
+        fix = _SERVE_AGAIN
     else:
         fix = "Only a live loop can be committed."
     return Refusal(f"The loop {key} is {state}; nothing was committed. {fix}")
@@ -87,6 +97,19 @@ def not_committed(key: str, state: str) -> Refusal:
         f"The loop {key} is {state}; only a committed loop can be reopened. "
         f"Nothing was changed."
     )
+
+
+def not_retirable(key: str, state: str) -> Refusal:
+    """why a loop can't be retired, and what to do instead."""
+    if state == "draft":
+        fix = "A draft was never served: delete it in the console instead."
+    elif state == "paused":
+        fix = "A person resumes it in the console first."
+    elif state == "retired":
+        fix = "It is retired already."
+    else:
+        fix = "Only a live or committed loop can be retired."
+    return Refusal(f"The loop {key} is {state}; nothing was retired. {fix}")
 
 
 def unknown_option(message: str) -> Refusal:

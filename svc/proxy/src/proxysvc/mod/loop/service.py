@@ -94,6 +94,13 @@ def _not_draft(loop_key: str, state: str, refused: str) -> LoopStateError:
     return LoopStateError(f"{refused}: the loop {loop_key!r} is {state}, not a draft")
 
 
+_RETIRE_FIXES = {
+    "draft": "delete the draft instead",
+    "paused": "resume it first",
+    "retired": "it is retired already",
+}
+
+
 def _moved(loop_key: str, state: str, refused: str) -> LoopStateError:
     return LoopStateError(f"{refused}: the loop {loop_key!r} is {state}")
 
@@ -154,7 +161,7 @@ def _resolve(engine: str, metric: Metric) -> Resolved:
 
 class LoopService:
     """loops: created as drafts, launched into their first cycle, renamed,
-    committed and reopened, paused and resumed.
+    committed and reopened, paused and resumed, and retired.
 
     a live cycle is written to redis as the record motor serves and cortex
     trains, under the cycle's id, so a new cycle never mixes earlier learning.
@@ -347,7 +354,7 @@ class LoopService:
             tenant_id,
             ref,
             "loop.pause",
-            from_state="live",
+            from_states=("live",),
             values={"state": "paused", "paused_from": "live"},
             refused="only a live loop can be paused",
             actor=actor,
@@ -371,7 +378,7 @@ class LoopService:
             tenant_id,
             ref,
             "loop.resume",
-            from_state="paused",
+            from_states=("paused",),
             values={
                 "state": Loop.paused_from,
                 "paused_from": None,
@@ -401,7 +408,7 @@ class LoopService:
 
         def check(loop: Loop) -> None:
             if loop.state != "live":
-                raise _moved(loop.key, loop.state, refused)
+                return
             keys = [o["key"] for o in loop.cycles[-1].options]
             if option not in keys:
                 raise LoopInvalidError(
@@ -412,7 +419,7 @@ class LoopService:
             tenant_id,
             ref,
             "loop.commit",
-            from_state="live",
+            from_states=("live",),
             values={"state": "committed", "committed_key": option},
             refused=refused,
             actor=actor,
@@ -436,7 +443,7 @@ class LoopService:
             tenant_id,
             ref,
             "loop.reopen",
-            from_state="committed",
+            from_states=("committed",),
             values={"state": "live", "committed_key": None},
             refused="only a committed loop can be reopened",
             actor=actor,
@@ -445,13 +452,48 @@ class LoopService:
             undoing=undoing,
         )
 
+    async def retire_loop(
+        self,
+        tenant_id: str,
+        ref: str,
+        *,
+        actor: Actor,
+        reason: str | None = None,
+    ) -> Applied | None:
+        """live or committed to retired: the choice has left the product. apps
+        that still call it get the fallback; its cycle ends, and the decisions
+        it already made keep sealing and teaching until their windows close."""
+        refused = "only a live or committed loop can be retired"
+
+        def check(loop: Loop) -> None:
+            fix = _RETIRE_FIXES.get(loop.state)
+            if fix is not None:
+                raise LoopStateError(
+                    f"{refused}: the loop {loop.key!r} is {loop.state}; {fix}"
+                )
+
+        return await self._transition(
+            tenant_id,
+            ref,
+            "loop.retire",
+            from_states=("live", "committed"),
+            values={"state": "retired", "committed_key": None, "paused_from": None},
+            refused=refused,
+            actor=actor,
+            reason=reason,
+            evidence=None,
+            undoing=None,
+            check=check,
+            end_cycle=True,
+        )
+
     async def _transition(
         self,
         tenant_id: str,
         ref: str,
         kind: str,
         *,
-        from_state: str,
+        from_states: tuple[str, ...],
         values: dict[str, Any],
         refused: str,
         actor: Actor,
@@ -459,6 +501,7 @@ class LoopService:
         evidence: dict | None,
         undoing: Undoing | None,
         check: Callable[[Loop], None] | None = None,
+        end_cycle: bool = False,
     ) -> Applied | None:
         async with get_session() as session:
             repo = LoopRepository(session, tenant_id)
@@ -468,11 +511,16 @@ class LoopService:
             if check is not None:
                 check(loop)
             loop_key = loop.key
+            if loop.state not in from_states:
+                raise _moved(loop_key, loop.state, refused)
             people = await _owner(session, tenant_id, loop)
             before = loop_to_dict(loop, people)
-            if not await repo.transition(loop.id, from_state=from_state, **values):
+            if not await repo.transition(loop.id, from_state=loop.state, **values):
                 loop = await repo.get(loop.id)
                 raise _moved(loop_key, loop.state, refused)
+            if end_cycle:
+                loop.cycles[-1].ended_at = datetime.now(timezone.utc)
+                await session.flush()
             loop = await repo.get(loop.id)
             loop_dict = loop_to_dict(loop, people)
             route = route_of(loop)

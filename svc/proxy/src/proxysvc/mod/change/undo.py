@@ -31,6 +31,8 @@ NOT_UNDOABLE = {
     "metric.delete": "deleting a metric cannot be undone",
     "loop.launch": "launching a loop starts its first cycle, so it cannot be undone",
     "loop.delete": "deleting a loop cannot be undone",
+    "loop.retire": "retiring a loop says the choice has left the product, so it "
+    "can't be undone; create a new loop to serve it again",
 }
 
 

@@ -18,6 +18,7 @@ VERBS = {
     "loop.reopen": "reopened",
     "loop.pause": "paused",
     "loop.resume": "resumed",
+    "loop.retire": "retired",
     "loop.delete": "deleted",
     "metric.create": "created",
     "metric.delete": "deleted",

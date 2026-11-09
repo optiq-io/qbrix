@@ -189,6 +189,7 @@ class TestNextSwitch:
             "/api/v1/loops/{loop}/launch",
             "/api/v1/loops/{loop}/commit",
             "/api/v1/loops/{loop}/reopen",
+            "/api/v1/loops/{loop}/retire",
             "/api/v1/loops/{loop}/resume",
             "/api/v1/loops/{loop}/cycles",
             "/api/v1/loops/{loop}/history",

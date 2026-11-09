@@ -15,7 +15,10 @@ invariants verified:
   at launch and resume. a person commits a live loop to one of its cycle's
   options and reopens it to live in the same cycle; each is one change, each
   undoes into the other, and a rename recorded before a loop had a committed
-  option still undoes.
+  option still undoes. a person retires a live or committed loop: its cycle
+  ends, its route serves the fallback, its key stays taken and its reads stay
+  open; a draft, paused or retired loop is refused with what to do instead,
+  and retiring can't be undone.
 """
 
 from __future__ import annotations
@@ -1102,3 +1105,205 @@ class TestUndoCommitReopen:
         assert (await wired_app.svc.get_loop(TENANT, loop["id"]))["name"] == HEADLINE[
             "name"
         ]
+
+
+async def _retire(client, ref: str, **body) -> dict:
+    resp = await client.post(f"/api/v1/loops/{ref}/retire", json=body or None)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+async def _retired(loops) -> dict:
+    loop = await _launch(loops, (await _create(loops))["key"])
+    return await _retire(loops, loop["key"])
+
+
+class TestRetire:
+    async def test_a_live_loop_retires_and_its_cycle_ends(self, loops):
+        loop = await _launch(loops, (await _create(loops))["key"])
+
+        retired = await _retire(loops, loop["key"])
+
+        assert retired["state"] == "retired"
+        assert retired["key"] == loop["key"]
+        assert retired["cycle"]["number"] == loop["cycle"]["number"]
+        assert loop["cycle"]["ended_at"] is None
+        assert retired["cycle"]["ended_at"] is not None
+
+    async def test_a_committed_loop_retires_and_drops_its_option(self, loops):
+        loop = await _committed(loops)
+
+        retired = await _retire(loops, loop["key"])
+
+        assert (retired["state"], retired["committed"]) == ("retired", None)
+
+    async def test_is_a_change_by_the_person_that_cant_be_undone(
+        self, wired_app, loops
+    ):
+        loop = await _launch(loops, (await _create(loops))["key"])
+
+        resp = await loops.post(
+            f"/api/v1/loops/{loop['key']}/retire",
+            json={"reason": "built into the page"},
+            headers={"X-Request-ID": "req-retire"},
+        )
+        retire, *_ = await _changes(wired_app, loop["id"])
+
+        assert retire["kind"] == "loop.retire"
+        assert retire["actor"]["kind"] == "member"
+        assert retire["reason"] == "built into the page"
+        assert retire["request_id"] == "req-retire"
+        assert retire["before"]["state"] == "live"
+        assert retire["after"] == resp.json()
+        assert retire["undoable"] is False
+
+    async def test_needs_no_body(self, wired_app, loops):
+        loop = await _retired(loops)
+
+        retire, *_ = await _changes(wired_app, loop["id"])
+
+        assert retire["reason"] is None
+
+    async def test_writes_the_retired_route(self, wired_app, loops):
+        loop = await _committed(loops)
+        await _retire(loops, loop["key"])
+
+        route = await _route(wired_app, loop["key"])
+
+        assert (route.state, route.committed) == ("retired", None)
+
+    @pytest.mark.parametrize(
+        "state, fix",
+        [
+            ("draft", "delete the draft instead"),
+            ("paused", "resume it first"),
+            ("retired", "it is retired already"),
+        ],
+    )
+    async def test_only_a_live_or_committed_loop_retires(
+        self, wired_app, loops, state, fix
+    ):
+        loop = await _create(loops)
+        if state != "draft":
+            loop = await _launch(loops, loop["key"])
+        if state == "paused":
+            loop = await _pause(wired_app, loop["key"])
+        if state == "retired":
+            loop = await _retire(loops, loop["key"])
+        before = len(await _changes(wired_app, loop["id"]))
+
+        resp = await loops.post(f"/api/v1/loops/{loop['key']}/retire")
+
+        assert resp.status_code == 409
+        assert resp.json()["code"] == "LOOP_NOT_RETIRABLE"
+        assert f"is {state}; {fix}" in resp.text
+        assert len(await _changes(wired_app, loop["id"])) == before
+
+    async def test_a_retire_that_loses_the_race_records_nothing(
+        self, wired_app, loops, monkeypatch
+    ):
+        loop = await _launch(loops, (await _create(loops))["key"])
+        resolve = LoopRepository.resolve
+
+        async def a_pause_lands(repo, ref):
+            found = await resolve(repo, ref)
+            await repo.transition(
+                found.id, from_state="live", state="paused", paused_from="live"
+            )
+            return found
+
+        with monkeypatch.context() as patch:
+            patch.setattr(LoopRepository, "resolve", a_pause_lands)
+            resp = await loops.post(f"/api/v1/loops/{loop['key']}/retire")
+
+        assert resp.status_code == 409
+        assert "is paused" in resp.text
+        after = await wired_app.svc.get_loop(TENANT, loop["id"])
+        assert after["cycle"]["ended_at"] is None
+        kinds = [c["kind"] for c in await _changes(wired_app, loop["id"])]
+        assert "loop.retire" not in kinds
+
+    async def test_an_unknown_loop_is_not_found(self, loops):
+        resp = await loops.post("/api/v1/loops/nothing/retire")
+
+        assert resp.status_code == 404
+
+    async def test_a_viewer_is_refused(self, wired_app, loops):
+        loop = await _launch(loops, (await _create(loops))["key"])
+
+        with as_tenant(wired_app.app, tenant_id=TENANT, role="viewer"):
+            resp = await loops.post(f"/api/v1/loops/{loop['key']}/retire")
+
+        assert resp.status_code == 403
+        assert (await wired_app.svc.get_loop(TENANT, loop["id"]))["state"] == "live"
+
+    async def test_an_api_key_is_refused(self, wired_app, loops):
+        loop = await _launch(loops, (await _create(loops))["key"])
+        overrides = wired_app.app.dependency_overrides
+        overrides[get_actor] = lambda: Actor.member("user-x", api_key_id="key-1")
+        try:
+            resp = await loops.post(f"/api/v1/loops/{loop['key']}/retire")
+        finally:
+            del overrides[get_actor]
+
+        assert resp.status_code == 403
+        assert "api key" in resp.text
+        assert (await wired_app.svc.get_loop(TENANT, loop["id"]))["state"] == "live"
+
+
+class TestRetiredReads:
+    async def test_its_loop_cycles_and_history_stay_readable(self, loops):
+        loop = await _retired(loops)
+
+        got = await loops.get(f"/api/v1/loops/{loop['key']}")
+        cycles = await loops.get(f"/api/v1/loops/{loop['key']}/cycles")
+        history = await loops.get(f"/api/v1/loops/{loop['key']}/history")
+
+        assert [r.status_code for r in (got, cycles, history)] == [200] * 3
+        assert got.json()["state"] == "retired"
+        assert cycles.json()["cycles"][0]["ended_at"] is not None
+        assert history.json()["changes"][0]["kind"] == "loop.retire"
+
+    async def test_the_list_filters_by_retired(self, loops):
+        loop = await _retired(loops)
+        await _create(loops, name="Pricing CTA")
+
+        resp = await loops.get("/api/v1/loops", params={"state": "retired"})
+
+        assert resp.status_code == 200, resp.text
+        assert [row["key"] for row in resp.json()["loops"]] == [loop["key"]]
+
+    async def test_its_key_stays_taken(self, loops):
+        loop = await _retired(loops)
+
+        resp = await loops.post("/api/v1/loops", json={**HEADLINE, "key": loop["key"]})
+
+        assert resp.status_code == 409
+
+
+class TestUndoRetire:
+    async def test_retire_cannot_be_undone(self, wired_app, loops):
+        loop = await _retired(loops)
+        retire, *_ = await _changes(wired_app, loop["id"])
+
+        with pytest.raises(ChangeNotUndoableError, match="create a new loop"):
+            await wired_app.svc.undo_change(TENANT, retire["id"], actor=UNDOER)
+
+        assert (await wired_app.svc.get_loop(TENANT, loop["id"]))["state"] == "retired"
+
+    async def test_undo_over_http_says_why(self, wired_app, loops):
+        loop = await _retired(loops)
+        retire, *_ = await _changes(wired_app, loop["id"])
+
+        resp = await loops.post(f"/api/v1/changes/{retire['id']}/undo")
+
+        assert resp.status_code == 409
+        assert "the choice has left the product" in resp.text
+
+    async def test_undo_of_a_commit_before_retire_is_refused(self, wired_app, loops):
+        loop = await _committed(loops)
+        commit, *_ = await _changes(wired_app, loop["id"])
+        await _retire(loops, loop["key"])
+
+        with pytest.raises(ChangeConflictError, match="loop.retire"):
+            await wired_app.svc.undo_change(TENANT, commit["id"], actor=UNDOER)

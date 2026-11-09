@@ -295,7 +295,7 @@ def register(
 
     async def loops_list(
         state: Annotated[
-            Optional[list[Literal["draft", "live", "committed", "paused"]]],
+            Optional[list[Literal["draft", "live", "committed", "paused", "retired"]]],
             Field(description="Only loops in these states; all loops when left out."),
         ] = None,
         cursor: Annotated[
@@ -736,6 +736,33 @@ def register(
 
         return await once("loop_reopen", {"loop": loop, "reason": reason}, call)
 
+    async def loop_retire(
+        loop: LoopRef, reason: Reason
+    ) -> Annotated[CallToolResult, LoopChanged]:
+        """Retire a live or committed loop once its choice has left the product: the chosen option is built in and the select call is going away. Apps that still call it get its fallback, its open decisions keep teaching until their windows close, and its history stays readable. This can't be undone; serving the choice again takes a new loop."""
+
+        async def call(principal: ConnectionPrincipal) -> CallToolResult:
+            _require(principal, "loop:write", "retire loops")
+            try:
+                retired = await service().retire_loop(
+                    principal.tenant_id, loop, actor=principal.actor, reason=reason
+                )
+            except LoopStateError as e:
+                found = await service().get_loop(principal.tenant_id, loop)
+                raise error.not_retirable(found["key"], found["state"]) from e
+            if retired is None:
+                raise await refused_loop(principal, loop)
+            value = retired.value
+            change = changed(retired, "loop", value["key"])
+            return _result(
+                f"Retired {value['key']}: apps that still call it get its fallback, "
+                f"and its open decisions keep teaching until their windows close. "
+                f"Change {change['id']}, can't be undone: {change['url']}",
+                LoopChanged(status="applied", change=change, loop=value),
+            )
+
+        return await once("loop_retire", {"loop": loop, "reason": reason}, call)
+
     async def metric_create(
         name: Annotated[
             str,
@@ -845,6 +872,7 @@ def register(
         (loop_launch, _DESTRUCTIVE),
         (loop_commit, _DESTRUCTIVE),
         (loop_reopen, _DESTRUCTIVE),
+        (loop_retire, _DESTRUCTIVE),
         (metric_create, _CREATE),
         (change_undo, _DESTRUCTIVE),
     ):

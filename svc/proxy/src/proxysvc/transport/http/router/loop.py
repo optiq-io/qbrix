@@ -36,6 +36,7 @@ from proxysvc.transport.http.exception import LoopNotDraftException
 from proxysvc.transport.http.exception import LoopNotFoundException
 from proxysvc.transport.http.exception import LoopNotLiveException
 from proxysvc.transport.http.exception import LoopNotPausedException
+from proxysvc.transport.http.exception import LoopNotRetirableException
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,10 @@ class LoopCommitRequest(BaseModel):
 
 
 class LoopReopenRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+class LoopRetireRequest(BaseModel):
     reason: Optional[str] = None
 
 
@@ -257,6 +262,7 @@ class Calls(BaseModel):
     committed: int
     draft: int
     paused: int
+    retired: int
 
 
 class Outcomes(BaseModel):
@@ -284,7 +290,7 @@ class ResultsResponse(BaseModel):
     health: Health
 
 
-LoopState = Literal["draft", "live", "committed", "paused"]
+LoopState = Literal["draft", "live", "committed", "paused", "retired"]
 ResultsPeriod = Literal["24h", "7d", "cycle"]
 PAGE_LIMIT = 50
 PAGE_LIMIT_MAX = 200
@@ -555,6 +561,32 @@ async def reopen_loop(
         raise _not_found(loop)
     logger.info(f"loop reopened: {reopened.value['id']} by user {actor.user_id}")
     return LoopResponse(**reopened.value)
+
+
+@router.post(
+    "/{loop}/retire",
+    status_code=status.HTTP_200_OK,
+    response_model=LoopResponse,
+)
+async def retire_loop(
+    loop: str,
+    body: Optional[LoopRetireRequest] = None,
+    tenant_id: str = Depends(get_current_tenant_id),
+    actor: Actor = Depends(get_person),
+    _scoped=Depends(require_scopes(["loop:write"])),
+):
+    """retire a live or committed loop when its choice has left the product.
+    apps that still call it get its fallback; it can't be undone."""
+    try:
+        retired = await get_proxy_service().retire_loop(
+            tenant_id, loop, actor=actor, reason=body.reason if body else None
+        )
+    except LoopStateError as e:
+        raise LoopNotRetirableException(str(e))
+    if retired is None:
+        raise _not_found(loop)
+    logger.info(f"loop retired: {retired.value['id']} by user {actor.user_id}")
+    return LoopResponse(**retired.value)
 
 
 @router.post(
