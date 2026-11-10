@@ -9,15 +9,16 @@ invariants verified:
   record under the cycle's id. the name changes at any time, the key only
   while draft. create, launch and rename are one change each; create and
   rename undo through the change log, and a metric a loop uses is kept.
-  a live loop pauses (qbrix pauses it, with its evidence) and a person resumes
-  it to the state it was paused from; each is one change, only the call that
+  a live or committed loop pauses (qbrix with its evidence, or a person with
+  none, keeping a committed loop's option) and a person resumes it to the
+  state it was paused from; each is one change, only the call that
   moves the state records one, both undo into the other, and live_since moves
   at launch and resume. a person commits a live loop to one of its cycle's
   options and reopens it to live in the same cycle; each is one change, each
   undoes into the other, and a rename recorded before a loop had a committed
-  option still undoes. a person retires a live or committed loop: its cycle
-  ends, its route serves the fallback, its key stays taken and its reads stay
-  open; a draft, paused or retired loop is refused with what to do instead,
+  option still undoes. a person retires a live, committed or paused loop: its
+  cycle ends, its route serves the fallback, its key stays taken and its reads
+  stay open; a draft or retired loop is refused with what to do instead,
   and retiring can't be undone.
 """
 
@@ -605,9 +606,9 @@ class TestUndo:
 
 
 async def _pause(wired_app, ref: str, actor: Actor = QBRIX, **kwargs) -> dict:
-    return await wired_app.svc._loop_service.pause_loop(
-        TENANT, ref, actor=actor, **kwargs
-    )
+    return (
+        await wired_app.svc._loop_service.pause_loop(TENANT, ref, actor=actor, **kwargs)
+    ).value
 
 
 async def _paused(wired_app, loops) -> dict:
@@ -1130,6 +1131,20 @@ class TestRetire:
         assert loop["cycle"]["ended_at"] is None
         assert retired["cycle"]["ended_at"] is not None
 
+    @pytest.mark.parametrize("committed", [False, True])
+    async def test_a_paused_loop_retires_without_resuming(
+        self, wired_app, loops, committed
+    ):
+        loop = await (_committed(loops) if committed else _launched(loops))
+        await _pause_by_hand(loops, loop["key"])
+
+        retired = await _retire(loops, loop["key"])
+
+        assert (retired["state"], retired["paused_from"]) == ("retired", None)
+        assert retired["committed"] is None
+        kinds = [c["kind"] for c in await _changes(wired_app, loop["id"])]
+        assert kinds[:2] == ["loop.retire", "loop.pause"]
+
     async def test_a_committed_loop_retires_and_drops_its_option(self, loops):
         loop = await _committed(loops)
 
@@ -1176,18 +1191,15 @@ class TestRetire:
         "state, fix",
         [
             ("draft", "delete the draft instead"),
-            ("paused", "resume it first"),
             ("retired", "it is retired already"),
         ],
     )
-    async def test_only_a_live_or_committed_loop_retires(
+    async def test_a_draft_or_retired_loop_is_refused(
         self, wired_app, loops, state, fix
     ):
         loop = await _create(loops)
         if state != "draft":
             loop = await _launch(loops, loop["key"])
-        if state == "paused":
-            loop = await _pause(wired_app, loop["key"])
         if state == "retired":
             loop = await _retire(loops, loop["key"])
         before = len(await _changes(wired_app, loop["id"]))
@@ -1307,3 +1319,148 @@ class TestUndoRetire:
 
         with pytest.raises(ChangeConflictError, match="loop.retire"):
             await wired_app.svc.undo_change(TENANT, commit["id"], actor=UNDOER)
+
+
+async def _launched(loops) -> dict:
+    return await _launch(loops, (await _create(loops))["key"])
+
+
+async def _pause_by_hand(client, ref: str, **body) -> dict:
+    resp = await client.post(f"/api/v1/loops/{ref}/pause", json=body or None)
+    assert resp.status_code == 200, resp.text
+    return resp.json()["loop"]
+
+
+class TestPauseByHand:
+    async def test_a_live_loop_pauses_from_live(self, wired_app, loops):
+        loop = await _launched(loops)
+
+        resp = await loops.post(f"/api/v1/loops/{loop['key']}/pause")
+
+        assert resp.status_code == 200, resp.text
+        paused = resp.json()["loop"]
+        assert (paused["state"], paused["paused_from"]) == ("paused", "live")
+        expected = math.ceil(proxysvc.config.settings.experiment_cache_ttl)
+        assert resp.json()["serving_within_seconds"] == expected
+        assert (await _route(wired_app, loop["key"])).state == "paused"
+
+    async def test_a_committed_loop_pauses_and_keeps_its_option(self, wired_app, loops):
+        loop = await _committed(loops)
+
+        paused = await _pause_by_hand(loops, loop["key"])
+
+        assert (paused["state"], paused["paused_from"]) == ("paused", "committed")
+        assert paused["committed"] == "urgency"
+        route = await _route(wired_app, loop["key"])
+        assert route.state == "paused"
+        assert route.options[route.committed].key == "urgency"
+
+    async def test_is_a_change_by_the_person_without_evidence(self, wired_app, loops):
+        loop = await _launched(loops)
+
+        resp = await loops.post(
+            f"/api/v1/loops/{loop['key']}/pause",
+            json={"reason": "checkout bug"},
+            headers={"X-Request-ID": "req-pause"},
+        )
+        pause, *_ = await _changes(wired_app, loop["id"])
+
+        assert pause["kind"] == "loop.pause"
+        assert pause["actor"]["kind"] == "member"
+        assert pause["reason"] == "checkout bug"
+        assert pause["request_id"] == "req-pause"
+        assert pause["evidence"] is None
+        assert pause["after"] == resp.json()["loop"]
+        assert pause["undoable"] is True
+
+    @pytest.mark.parametrize(
+        "state, fix",
+        [
+            ("draft", "a draft serves its fallback until it is launched"),
+            ("paused", "it is paused already"),
+            ("retired", "a retired loop serves its fallback already"),
+        ],
+    )
+    async def test_only_a_live_or_committed_loop_pauses(
+        self, wired_app, loops, state, fix
+    ):
+        loop = await _create(loops)
+        if state != "draft":
+            loop = await _launch(loops, loop["key"])
+        if state == "paused":
+            loop = await _pause_by_hand(loops, loop["key"])
+        if state == "retired":
+            loop = await _retire(loops, loop["key"])
+        before = len(await _changes(wired_app, loop["id"]))
+
+        resp = await loops.post(f"/api/v1/loops/{loop['key']}/pause")
+
+        assert resp.status_code == 409
+        assert resp.json()["code"] == "LOOP_NOT_PAUSABLE"
+        assert f"is {state}; {fix}" in resp.text
+        assert len(await _changes(wired_app, loop["id"])) == before
+
+    async def test_an_unknown_loop_is_not_found(self, loops):
+        resp = await loops.post("/api/v1/loops/nothing/pause")
+
+        assert resp.status_code == 404
+
+    async def test_a_viewer_is_refused(self, wired_app, loops):
+        loop = await _launched(loops)
+
+        with as_tenant(wired_app.app, tenant_id=TENANT, role="viewer"):
+            resp = await loops.post(f"/api/v1/loops/{loop['key']}/pause")
+
+        assert resp.status_code == 403
+        assert (await wired_app.svc.get_loop(TENANT, loop["id"]))["state"] == "live"
+
+    async def test_an_api_key_is_refused(self, wired_app, loops):
+        loop = await _launched(loops)
+        overrides = wired_app.app.dependency_overrides
+        overrides[get_actor] = lambda: Actor.member("user-x", api_key_id="key-1")
+        try:
+            resp = await loops.post(f"/api/v1/loops/{loop['key']}/pause")
+        finally:
+            del overrides[get_actor]
+
+        assert resp.status_code == 403
+        assert (await wired_app.svc.get_loop(TENANT, loop["id"]))["state"] == "live"
+
+
+class TestResumeCommitted:
+    async def test_returns_to_committed_with_its_option(self, wired_app, loops):
+        loop = await _committed(loops)
+        await _pause_by_hand(loops, loop["key"])
+
+        resp = await loops.post(f"/api/v1/loops/{loop['key']}/resume")
+
+        resumed = resp.json()["loop"]
+        assert (resumed["state"], resumed["paused_from"]) == ("committed", None)
+        assert resumed["committed"] == "urgency"
+        route = await _route(wired_app, loop["key"])
+        assert route.state == "committed"
+        assert route.options[route.committed].key == "urgency"
+
+    async def test_undo_of_its_pause_resumes_to_committed(self, wired_app, loops):
+        loop = await _committed(loops)
+        await _pause_by_hand(loops, loop["key"])
+        pause, *_ = await _changes(wired_app, loop["id"])
+
+        undo = await wired_app.svc.undo_change(TENANT, pause["id"], actor=UNDOER)
+        after = await wired_app.svc.get_loop(TENANT, loop["id"])
+
+        assert undo["kind"] == "loop.resume"
+        assert (after["state"], after["committed"]) == ("committed", "urgency")
+
+    async def test_undo_of_its_resume_pauses_from_committed(self, wired_app, loops):
+        loop = await _committed(loops)
+        await _pause_by_hand(loops, loop["key"])
+        await loops.post(f"/api/v1/loops/{loop['key']}/resume")
+        resume, *_ = await _changes(wired_app, loop["id"])
+
+        undo = await wired_app.svc.undo_change(TENANT, resume["id"], actor=UNDOER)
+        after = await wired_app.svc.get_loop(TENANT, loop["id"])
+
+        assert undo["kind"] == "loop.pause"
+        assert (after["state"], after["paused_from"]) == ("paused", "committed")
+        assert after["committed"] == "urgency"

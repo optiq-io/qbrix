@@ -70,7 +70,7 @@ def not_draft(key: str, state: str) -> Refusal:
         )
     return Refusal(
         f"The loop {key} is {state}; launching applies only to drafts. "
-        f"Resume it in the console to serve it again."
+        f"Resume it with loop_resume to serve it again."
     )
 
 
@@ -84,7 +84,7 @@ def not_live(key: str, state: str, committed: str | None) -> Refusal:
             f"to commit to another option."
         )
     elif state == "paused":
-        fix = "A person resumes it in the console first."
+        fix = "Resume it with loop_resume first."
     elif state == "retired":
         fix = _SERVE_AGAIN
     else:
@@ -103,13 +103,37 @@ def not_retirable(key: str, state: str) -> Refusal:
     """why a loop can't be retired, and what to do instead."""
     if state == "draft":
         fix = "A draft was never served: delete it in the console instead."
-    elif state == "paused":
-        fix = "A person resumes it in the console first."
     elif state == "retired":
         fix = "It is retired already."
     else:
-        fix = "Only a live or committed loop can be retired."
+        fix = "Only a live, committed or paused loop can be retired."
     return Refusal(f"The loop {key} is {state}; nothing was retired. {fix}")
+
+
+def not_pausable(key: str, state: str) -> Refusal:
+    """why a loop can't be paused, and what to do instead."""
+    if state == "draft":
+        fix = "A draft serves its fallback until it is launched with loop_launch."
+    elif state == "paused":
+        fix = "It is paused already; resume it with loop_resume."
+    elif state == "retired":
+        fix = "A retired loop serves its fallback already."
+    else:
+        fix = "Only a live or committed loop can be paused."
+    return Refusal(f"The loop {key} is {state}; nothing was paused. {fix}")
+
+
+def not_paused(key: str, state: str) -> Refusal:
+    if state == "retired":
+        fix = _SERVE_AGAIN
+    elif state == "draft":
+        fix = "Launch it with loop_launch instead."
+    else:
+        fix = "It is serving already."
+    return Refusal(
+        f"The loop {key} is {state}; only a paused loop can be resumed. "
+        f"Nothing was changed. {fix}"
+    )
 
 
 def unknown_option(message: str) -> Refusal:

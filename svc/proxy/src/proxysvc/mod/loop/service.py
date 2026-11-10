@@ -94,11 +94,28 @@ def _not_draft(loop_key: str, state: str, refused: str) -> LoopStateError:
     return LoopStateError(f"{refused}: the loop {loop_key!r} is {state}, not a draft")
 
 
+_PAUSE_FIXES = {
+    "draft": "a draft serves its fallback until it is launched",
+    "paused": "it is paused already",
+    "retired": "a retired loop serves its fallback already",
+}
 _RETIRE_FIXES = {
     "draft": "delete the draft instead",
-    "paused": "resume it first",
     "retired": "it is retired already",
 }
+
+
+def _refusing(refused: str, fixes: dict[str, str]) -> Callable[[Loop], None]:
+    """a check that refuses the states in fixes, each with what to do instead."""
+
+    def check(loop: Loop) -> None:
+        fix = fixes.get(loop.state)
+        if fix is not None:
+            raise LoopStateError(
+                f"{refused}: the loop {loop.key!r} is {loop.state}; {fix}"
+            )
+
+    return check
 
 
 def _moved(loop_key: str, state: str, refused: str) -> LoopStateError:
@@ -347,22 +364,24 @@ class LoopService:
         reason: str | None = None,
         evidence: dict | None = None,
         undoing: Undoing | None = None,
-    ) -> dict | None:
-        """live to paused: everyone gets the fallback until someone resumes it.
-        decisions already made still seal and teach."""
-        applied = await self._transition(
+    ) -> Applied | None:
+        """live or committed to paused: everyone gets the fallback until
+        someone resumes it. a committed loop keeps its option for the resume,
+        and decisions already made still seal and teach."""
+        refused = "only a live or committed loop can be paused"
+        return await self._transition(
             tenant_id,
             ref,
             "loop.pause",
-            from_states=("live",),
-            values={"state": "paused", "paused_from": "live"},
-            refused="only a live loop can be paused",
+            from_states=("live", "committed"),
+            values={"state": "paused", "paused_from": Loop.state},
+            refused=refused,
             actor=actor,
             reason=reason,
             evidence=evidence,
             undoing=undoing,
+            check=_refusing(refused, _PAUSE_FIXES),
         )
-        return applied.value if applied else None
 
     async def resume_loop(
         self,
@@ -372,9 +391,9 @@ class LoopService:
         actor: Actor,
         reason: str | None = None,
         undoing: Undoing | None = None,
-    ) -> dict | None:
-        """back to the state the loop was paused from, live again from now."""
-        applied = await self._transition(
+    ) -> Applied | None:
+        """back to the state the loop was paused from, deciding again from now."""
+        return await self._transition(
             tenant_id,
             ref,
             "loop.resume",
@@ -390,7 +409,6 @@ class LoopService:
             evidence=None,
             undoing=undoing,
         )
-        return applied.value if applied else None
 
     async def commit_loop(
         self,
@@ -460,30 +478,23 @@ class LoopService:
         actor: Actor,
         reason: str | None = None,
     ) -> Applied | None:
-        """live or committed to retired: the choice has left the product. apps
-        that still call it get the fallback; its cycle ends, and the decisions
-        it already made keep sealing and teaching until their windows close."""
-        refused = "only a live or committed loop can be retired"
-
-        def check(loop: Loop) -> None:
-            fix = _RETIRE_FIXES.get(loop.state)
-            if fix is not None:
-                raise LoopStateError(
-                    f"{refused}: the loop {loop.key!r} is {loop.state}; {fix}"
-                )
-
+        """live, committed or paused to retired: the choice has left the
+        product. apps that still call it get the fallback; its cycle ends, and
+        the decisions it already made keep sealing and teaching until their
+        windows close."""
+        refused = "only a live, committed or paused loop can be retired"
         return await self._transition(
             tenant_id,
             ref,
             "loop.retire",
-            from_states=("live", "committed"),
+            from_states=("live", "committed", "paused"),
             values={"state": "retired", "committed_key": None, "paused_from": None},
             refused=refused,
             actor=actor,
             reason=reason,
             evidence=None,
             undoing=None,
-            check=check,
+            check=_refusing(refused, _RETIRE_FIXES),
             end_cycle=True,
         )
 

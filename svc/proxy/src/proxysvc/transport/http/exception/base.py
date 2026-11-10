@@ -410,10 +410,17 @@ class LoopNotCommittedException(ConflictException):
     code = "LOOP_NOT_COMMITTED"
 
 
-class LoopNotRetirableException(ConflictException):
-    """retiring needs a live or committed loop."""
+class LoopNotPausableException(ConflictException):
+    """pausing needs a live or committed loop."""
 
     detail = "the loop is not live or committed"
+    code = "LOOP_NOT_PAUSABLE"
+
+
+class LoopNotRetirableException(ConflictException):
+    """retiring needs a live, committed or paused loop."""
+
+    detail = "the loop is not live, committed or paused"
     code = "LOOP_NOT_RETIRABLE"
 
 

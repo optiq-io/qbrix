@@ -7,7 +7,8 @@ invariants verified:
   fresh decision, and records the decision with its unit, properties and
   the metric terms it will be sealed by. a committed loop answers its
   committed option for every request, as a decision on the ledger, without
-  asking motor; reopened, it asks motor again. a retired loop answers its
+  asking motor; paused, it answers the fallback, and resumed, its committed
+  option again; reopened, it asks motor again. a retired loop answers its
   fallback as reason retired, without a decision, and still counts the call;
   its cycle record stays for the decisions still sealing. a missing unit is
   refused; an
@@ -434,6 +435,25 @@ class TestCommitted:
         counts = await redis.loop_selects(TENANT, loop["id"], 5)
         assert (counts["committed"], counts["live"]) == (1, 0)
         assert (await redis.select_health(TENANT, loop["cycle"]["id"], 5)).ok == 1
+
+    async def test_paused_it_answers_the_fallback_and_resumed_its_option(
+        self, wired_app, api
+    ):
+        loop = await _committed(wired_app)
+        await wired_app.svc.pause_loop(TENANT, loop["key"], actor=ACTOR)
+
+        paused = (await _select(api, loop["key"])).json()
+        await wired_app.svc.resume_loop(TENANT, loop["key"], actor=ACTOR)
+        resumed = (await _select(api, loop["key"])).json()
+
+        assert (paused["reason"], paused["request_id"]) == ("paused", None)
+        assert paused["option"]["key"] == "control"
+        assert (resumed["reason"], resumed["option"]["key"]) == (
+            "committed",
+            "urgency",
+        )
+        assert resumed["request_id"]
+        wired_app.motor_mock.select.assert_not_called()
 
     async def test_reopening_asks_motor_again(self, wired_app, api):
         loop = await _committed(wired_app)

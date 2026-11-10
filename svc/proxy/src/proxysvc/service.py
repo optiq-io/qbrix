@@ -619,9 +619,16 @@ class ProxyService:
             tenant_id, ref, actor=actor, reason=reason
         )
 
+    async def pause_loop(
+        self, tenant_id: str, ref: str, *, actor: Actor, reason: str | None = None
+    ) -> Applied | None:
+        return await self._loop_service.pause_loop(
+            tenant_id, ref, actor=actor, reason=reason
+        )
+
     async def resume_loop(
         self, tenant_id: str, ref: str, *, actor: Actor, reason: str | None = None
-    ) -> dict | None:
+    ) -> Applied | None:
         return await self._loop_service.resume_loop(
             tenant_id, ref, actor=actor, reason=reason
         )
