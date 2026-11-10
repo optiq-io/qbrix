@@ -88,12 +88,17 @@ class FakeLedger:
         self.inserted_rows += len(sealed)
 
     def decide(
-        self, decision_id: str, option_index: int, opened_ms: int, metric_type: str
+        self,
+        decision_id: str,
+        option_index: int,
+        opened_ms: int,
+        metric_type: str,
+        cycle_id: str = CYCLE,
     ) -> LedgerDecision:
         decision = LedgerDecision(
             tenant_id=TENANT,
             loop_id="loop-1",
-            cycle_id=CYCLE,
+            cycle_id=cycle_id,
             decision_id=decision_id,
             option_index=option_index,
             unit=f"user-{decision_id}",
@@ -121,7 +126,9 @@ class FakeLedger:
                     received_ms=ledger_ms,
                     ledger_ms=ledger_ms,
                 ),
-                OutcomeRef(TENANT, CYCLE, decision.decision_id, decision.opened_ms),
+                OutcomeRef(
+                    TENANT, decision.cycle_id, decision.decision_id, decision.opened_ms
+                ),
             )
         )
 
@@ -252,6 +259,25 @@ class TestAPass:
         assert set(k[2] for k in ledger.sealed) == {"a"}
         assert (await params(store))["alpha"] == [2.0, 1.0, 1.0]
         assert await store.get_experiment(TENANT, CYCLE) == cycle
+
+    async def test_an_earlier_cycle_learns_its_own_outcomes_after_a_new_one_starts(
+        self, sealer, ledger, store, cycle
+    ):
+        await store.set_experiment(TENANT, "cyc-2", {**cycle, "id": "cyc-2"})
+        earlier = ledger.decide("a", 0, ago(600), "conversion")
+        later = ledger.decide("b", 2, ago(590), "conversion", cycle_id="cyc-2")
+        ledger.answer(later, 1, later.opened_ms + 1_000)
+        ledger.answer(earlier, 1, later.opened_ms + 2_000)
+
+        await seal_all(sealer)
+
+        assert {(k[1], k[2]) for k in ledger.sealed} == {("cyc-1", "a"), ("cyc-2", "b")}
+        assert (await params(store))["alpha"] == [2.0, 1.0, 1.0]
+        assert (await store.read_learning(TENANT, "cyc-2")).params["alpha"] == [
+            1.0,
+            1.0,
+            2.0,
+        ]
 
     async def test_a_score_without_an_outcome_seals_and_teaches_nothing(
         self, sealer, ledger, store, cycle

@@ -633,6 +633,34 @@ class ProxyService:
             tenant_id, ref, actor=actor, reason=reason
         )
 
+    async def start_cycle(
+        self,
+        tenant_id: str,
+        ref: str,
+        *,
+        options: list[dict[str, Any]] | None = None,
+        engine: str | None = None,
+        fallback: str | None = None,
+        actor: Actor,
+        reason: str | None = None,
+    ) -> Applied | None:
+        return await self._loop_service.start_cycle(
+            tenant_id,
+            ref,
+            options=options,
+            engine=engine,
+            fallback=fallback,
+            actor=actor,
+            reason=reason,
+        )
+
+    async def reset_cycle(
+        self, tenant_id: str, ref: str, *, actor: Actor, reason: str | None = None
+    ) -> Applied | None:
+        return await self._loop_service.reset_cycle(
+            tenant_id, ref, actor=actor, reason=reason
+        )
+
     async def get_loop(self, tenant_id: str, ref: str) -> dict | None:
         return await LoopReadService.get_loop(tenant_id, ref)
 

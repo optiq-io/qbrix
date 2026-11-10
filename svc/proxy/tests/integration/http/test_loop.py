@@ -19,7 +19,15 @@ invariants verified:
   option still undoes. a person retires a live, committed or paused loop: its
   cycle ends, its route serves the fallback, its key stays taken and its reads
   stay open; a draft or retired loop is refused with what to do instead,
-  and retiring can't be undone.
+  and retiring can't be undone. a person starts a new cycle of a live or
+  paused loop with new options, a new engine or both, or resets it with the
+  same ones: the current cycle ends, the next one pins its engine, version
+  and metric version, the loop's options become the cycle's (an option that
+  stays keeps its id), the fallback stays if its option does and is named
+  otherwise, the route serves the new cycle, the earlier cycle's record and
+  results stay, a paused loop stays paused, and neither can be undone. a
+  draft, committed, paused-from-committed or retired loop is refused with
+  what to do instead.
 """
 
 from __future__ import annotations
@@ -1464,3 +1472,376 @@ class TestResumeCommitted:
         assert undo["kind"] == "loop.pause"
         assert (after["state"], after["paused_from"]) == ("paused", "committed")
         assert after["committed"] == "urgency"
+
+
+THREE = [
+    {"key": "control", "name": "Control", "config": {"text": "Buy now"}},
+    {"key": "urgency", "name": "Urgency", "config": {"text": "Only today"}},
+    {"key": "social", "name": "Social proof", "config": {"text": "Loved by 10k"}},
+]
+
+
+async def _start_cycle(client, ref: str, **body) -> dict:
+    resp = await client.post(f"/api/v1/loops/{ref}/cycles", json=body)
+    assert resp.status_code == 200, resp.text
+    return resp.json()["loop"]
+
+
+async def _reset_cycle(client, ref: str, **body) -> dict:
+    resp = await client.post(f"/api/v1/loops/{ref}/cycles/reset", json=body or None)
+    assert resp.status_code == 200, resp.text
+    return resp.json()["loop"]
+
+
+async def _record(wired_app, cycle_id: str) -> dict | None:
+    raw = await wired_app.fake_redis.get(f"qbrix:tenant:{TENANT}:experiment:{cycle_id}")
+    return json.loads(raw) if raw else None
+
+
+async def _cycles(client, ref: str) -> list[dict]:
+    resp = await client.get(f"/api/v1/loops/{ref}/cycles")
+    assert resp.status_code == 200, resp.text
+    return resp.json()["cycles"]
+
+
+class TestStartCycle:
+    async def test_new_options_start_the_next_cycle(self, wired_app, loops):
+        loop = await _launched(loops)
+
+        resp = await loops.post(
+            f"/api/v1/loops/{loop['key']}/cycles", json={"options": THREE}
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["serving_within_seconds"] == math.ceil(
+            proxysvc.config.settings.experiment_cache_ttl
+        )
+        started = resp.json()["loop"]
+        assert started["state"] == "live"
+        assert started["cycle"]["number"] == 2
+        assert started["cycle"]["id"] != loop["cycle"]["id"]
+        assert [o["key"] for o in started["options"]] == [
+            "control",
+            "urgency",
+            "social",
+        ]
+        first, second = reversed(await _cycles(loops, loop["key"]))
+        assert first["ended_at"] is not None
+        assert second["ended_at"] is None
+        assert [o["key"] for o in first["options"]] == ["control", "urgency"]
+        assert [o["key"] for o in second["options"]] == [
+            "control",
+            "urgency",
+            "social",
+        ]
+
+    async def test_an_option_that_stays_keeps_its_id(self, loops):
+        loop = await _launched(loops)
+
+        started = await _start_cycle(loops, loop["key"], options=THREE)
+
+        ids = {o["key"]: o["id"] for o in loop["options"]}
+        assert {o["key"]: o["id"] for o in started["options"][:2]} == ids
+
+    async def test_serves_the_new_cycle_and_keeps_the_earlier_record(
+        self, wired_app, loops
+    ):
+        loop = await _launched(loops)
+
+        started = await _start_cycle(loops, loop["key"], options=THREE)
+
+        route = await _route(wired_app, loop["key"])
+        assert route.cycle.id == started["cycle"]["id"]
+        assert [o.key for o in route.options] == ["control", "urgency", "social"]
+        record = await _record(wired_app, started["cycle"]["id"])
+        assert [a["name"] for a in record["pool"]["arms"]] == [
+            "control",
+            "urgency",
+            "social",
+        ]
+        earlier = await _record(wired_app, loop["cycle"]["id"])
+        assert [a["name"] for a in earlier["pool"]["arms"]] == ["control", "urgency"]
+
+    async def test_a_new_engine_pins_its_spec_and_version(self, wired_app, loops):
+        loop = await _launched(loops)
+
+        started = await _start_cycle(loops, loop["key"], engine="buridan:1")
+
+        assert started["engine"] == "buridan:1"
+        assert started["cycle"]["engine"] == "buridan:1"
+        assert started["cycle"]["engine_version"] == "1.0"
+        assert started["cycle"]["metric_version"] == loop["cycle"]["metric_version"]
+        assert [o["key"] for o in started["options"]] == ["control", "urgency"]
+        record = await _record(wired_app, started["cycle"]["id"])
+        assert record["policy"] == "RandomPolicy"
+
+    async def test_the_fallback_stays_when_its_option_does(self, loops):
+        loop = await _launched(loops)
+
+        started = await _start_cycle(loops, loop["key"], options=[THREE[2], THREE[0]])
+
+        assert loop["fallback"] == "control"
+        assert started["fallback"] == "control"
+
+    async def test_a_dropped_fallback_must_be_named(self, wired_app, loops):
+        loop = await _launched(loops)
+        before = len(await _changes(wired_app, loop["id"]))
+
+        resp = await loops.post(
+            f"/api/v1/loops/{loop['key']}/cycles", json={"options": THREE[1:]}
+        )
+
+        assert resp.status_code == 400
+        assert resp.json()["code"] == "INVALID_LOOP"
+        assert "name one of them as the fallback (urgency, social)" in resp.text
+        assert len(await _changes(wired_app, loop["id"])) == before
+
+    async def test_a_named_fallback_is_kept(self, loops):
+        loop = await _launched(loops)
+
+        started = await _start_cycle(
+            loops, loop["key"], options=THREE[1:], fallback="social"
+        )
+
+        assert started["fallback"] == "social"
+
+    async def test_a_fallback_that_is_no_option_is_refused(self, loops):
+        loop = await _launched(loops)
+
+        resp = await loops.post(
+            f"/api/v1/loops/{loop['key']}/cycles",
+            json={"options": THREE, "fallback": "nothing"},
+        )
+
+        assert resp.status_code == 400
+        assert "'nothing' is not one of the loop's options" in resp.text
+
+    @pytest.mark.parametrize(
+        "body, message",
+        [
+            ({}, "needs new options, a new engine or both"),
+            ({"options": HEADLINE["options"][:1]}, "at least 2 options"),
+            ({"engine": "nope"}, "nope"),
+        ],
+    )
+    async def test_an_invalid_cycle_is_refused(self, loops, body, message):
+        loop = await _launched(loops)
+
+        resp = await loops.post(f"/api/v1/loops/{loop['key']}/cycles", json=body)
+
+        assert resp.status_code == 400
+        assert message in resp.text
+
+    async def test_the_same_options_and_engine_say_to_reset(self, loops):
+        loop = await _launched(loops)
+
+        resp = await loops.post(
+            f"/api/v1/loops/{loop['key']}/cycles",
+            json={"options": THREE[:2], "engine": loop["engine"]},
+        )
+
+        assert resp.status_code == 400
+        assert "reset the cycle" in resp.text
+
+    async def test_is_a_change_by_the_person_that_cant_be_undone(
+        self, wired_app, loops
+    ):
+        loop = await _launched(loops)
+
+        resp = await loops.post(
+            f"/api/v1/loops/{loop['key']}/cycles",
+            json={"options": THREE, "reason": "try social proof"},
+            headers={"X-Request-ID": "req-cycle"},
+        )
+        start, *_ = await _changes(wired_app, loop["id"])
+
+        assert start["kind"] == "cycle.start"
+        assert start["actor"]["kind"] == "member"
+        assert start["reason"] == "try social proof"
+        assert start["request_id"] == "req-cycle"
+        assert start["before"]["cycle"]["number"] == 1
+        assert start["after"] == resp.json()["loop"]
+        assert start["undoable"] is False
+
+    async def test_a_paused_loop_stays_paused(self, wired_app, loops):
+        loop = await _launched(loops)
+        await _pause_by_hand(loops, loop["key"])
+
+        started = await _start_cycle(loops, loop["key"], options=THREE)
+
+        assert (started["state"], started["paused_from"]) == ("paused", "live")
+        assert started["cycle"]["number"] == 2
+        route = await _route(wired_app, loop["key"])
+        assert (route.state, route.cycle.number) == ("paused", 2)
+        resumed = await loops.post(f"/api/v1/loops/{loop['key']}/resume")
+        assert resumed.json()["loop"]["state"] == "live"
+        assert resumed.json()["loop"]["cycle"]["number"] == 2
+
+    @pytest.mark.parametrize(
+        "state, fix",
+        [
+            ("draft", "is draft; launch it first"),
+            ("committed", "is committed; reopen it first"),
+            (
+                "paused-committed",
+                "is paused; it was committed before the pause, so resume and "
+                "reopen it first",
+            ),
+            ("retired", "is retired; create a new loop to serve the choice again"),
+        ],
+    )
+    async def test_other_states_are_refused(self, wired_app, loops, state, fix):
+        loop = await _create(loops)
+        if state != "draft":
+            loop = await _launch(loops, loop["key"])
+        if state in ("committed", "paused-committed"):
+            loop = await _commit(loops, loop["key"])
+        if state == "paused-committed":
+            loop = await _pause_by_hand(loops, loop["key"])
+        if state == "retired":
+            loop = await _retire(loops, loop["key"])
+        before = len(await _changes(wired_app, loop["id"]))
+
+        start = await loops.post(
+            f"/api/v1/loops/{loop['key']}/cycles", json={"options": THREE}
+        )
+        reset = await loops.post(f"/api/v1/loops/{loop['key']}/cycles/reset")
+
+        for resp in (start, reset):
+            assert resp.status_code == 409
+            assert resp.json()["code"] == "LOOP_NOT_CYCLABLE"
+            assert fix in resp.text
+        assert len(await _changes(wired_app, loop["id"])) == before
+
+    async def test_a_start_that_loses_the_race_records_nothing(
+        self, wired_app, loops, monkeypatch
+    ):
+        loop = await _launched(loops)
+        resolve = LoopRepository.resolve
+
+        async def a_commit_lands(repo, ref):
+            found = await resolve(repo, ref)
+            await repo.transition(
+                found.id, from_state="live", state="committed", committed_key="urgency"
+            )
+            return found
+
+        with monkeypatch.context() as patch:
+            patch.setattr(LoopRepository, "resolve", a_commit_lands)
+            resp = await loops.post(
+                f"/api/v1/loops/{loop['key']}/cycles", json={"options": THREE}
+            )
+
+        assert resp.status_code == 409
+        assert "is committed" in resp.text
+        assert len(await _cycles(loops, loop["key"])) == 1
+        kinds = [c["kind"] for c in await _changes(wired_app, loop["id"])]
+        assert "cycle.start" not in kinds
+
+    async def test_an_unknown_loop_is_not_found(self, loops):
+        resp = await loops.post("/api/v1/loops/nothing/cycles", json={"options": THREE})
+
+        assert resp.status_code == 404
+
+    async def test_a_viewer_is_refused(self, wired_app, loops):
+        loop = await _launched(loops)
+
+        with as_tenant(wired_app.app, tenant_id=TENANT, role="viewer"):
+            resp = await loops.post(
+                f"/api/v1/loops/{loop['key']}/cycles", json={"options": THREE}
+            )
+
+        assert resp.status_code == 403
+        assert len(await _cycles(loops, loop["key"])) == 1
+
+    async def test_an_api_key_is_refused(self, wired_app, loops):
+        loop = await _launched(loops)
+        overrides = wired_app.app.dependency_overrides
+        overrides[get_actor] = lambda: Actor.member("user-x", api_key_id="key-1")
+        try:
+            resp = await loops.post(f"/api/v1/loops/{loop['key']}/cycles/reset")
+        finally:
+            del overrides[get_actor]
+
+        assert resp.status_code == 403
+        assert "api key" in resp.text
+
+
+class TestResetCycle:
+    async def test_keeps_options_engine_and_fallback_with_fresh_learning(
+        self, wired_app, loops
+    ):
+        loop = await _launched(loops)
+
+        reset = await _reset_cycle(loops, loop["key"], reason="the page changed")
+
+        assert reset["cycle"]["number"] == 2
+        assert reset["cycle"]["id"] != loop["cycle"]["id"]
+        assert reset["options"] == loop["options"]
+        assert (reset["engine"], reset["fallback"]) == (
+            loop["engine"],
+            loop["fallback"],
+        )
+        assert reset["cycle"]["engine"] == loop["cycle"]["engine"]
+        record = await _record(wired_app, reset["cycle"]["id"])
+        earlier = await _record(wired_app, loop["cycle"]["id"])
+        assert record["pool"]["arms"] == earlier["pool"]["arms"]
+        assert reset["cycle"]["id"] != earlier["id"]
+
+    async def test_is_a_change_that_cant_be_undone(self, wired_app, loops):
+        loop = await _launched(loops)
+        await _reset_cycle(loops, loop["key"])
+        reset, *_ = await _changes(wired_app, loop["id"])
+
+        assert reset["kind"] == "cycle.reset"
+        assert reset["reason"] is None
+        with pytest.raises(ChangeNotUndoableError, match="begins fresh learning"):
+            await wired_app.svc.undo_change(TENANT, reset["id"], actor=UNDOER)
+
+    async def test_a_paused_loop_stays_paused(self, loops):
+        loop = await _launched(loops)
+        await _pause_by_hand(loops, loop["key"])
+
+        reset = await _reset_cycle(loops, loop["key"])
+
+        assert (reset["state"], reset["cycle"]["number"]) == ("paused", 2)
+
+
+class TestEarlierCycles:
+    async def test_stay_readable(self, loops):
+        loop = await _launched(loops)
+        await _start_cycle(loops, loop["key"], options=THREE)
+        await _reset_cycle(loops, loop["key"])
+
+        cycles = await _cycles(loops, loop["key"])
+        earlier = await loops.get(
+            f"/api/v1/loops/{loop['key']}/results", params={"cycle": 1}
+        )
+
+        assert [c["number"] for c in cycles] == [3, 2, 1]
+        assert [c["ended_at"] is None for c in cycles] == [True, False, False]
+        assert earlier.status_code == 200, earlier.text
+        assert earlier.json()["cycle"]["id"] == loop["cycle"]["id"]
+
+    async def test_start_cannot_be_undone_over_http(self, wired_app, loops):
+        loop = await _launched(loops)
+        await _start_cycle(loops, loop["key"], options=THREE)
+        start, *_ = await _changes(wired_app, loop["id"])
+
+        resp = await loops.post(f"/api/v1/changes/{start['id']}/undo")
+
+        assert resp.status_code == 409
+        assert "the earlier cycle stays readable" in resp.text
+
+    async def test_history_shows_the_cycle_and_the_new_option(self, loops):
+        loop = await _launched(loops)
+        await _start_cycle(loops, loop["key"], options=THREE)
+
+        resp = await loops.get("/api/v1/changes", params={"kind": "cycle.start"})
+        latest = resp.json()["changes"][0]
+
+        assert latest["pieces"][1]["text"] == " started a new cycle of "
+        assert {"field": "cycle", "before": "1", "after": "2"} in latest["diff"]
+        assert {"field": "option", "before": None, "after": "Social proof"} in latest[
+            "diff"
+        ]

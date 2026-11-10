@@ -32,6 +32,7 @@ from proxysvc.transport.http.exception import InvalidCursorException
 from proxysvc.transport.http.exception import InvalidLoopException
 from proxysvc.transport.http.exception import LoopKeyTakenException
 from proxysvc.transport.http.exception import LoopNotCommittedException
+from proxysvc.transport.http.exception import LoopNotCyclableException
 from proxysvc.transport.http.exception import LoopNotDraftException
 from proxysvc.transport.http.exception import LoopNotFoundException
 from proxysvc.transport.http.exception import LoopNotLiveException
@@ -96,6 +97,24 @@ class LoopReopenRequest(BaseModel):
 
 
 class LoopRetireRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+class CycleStartRequest(BaseModel):
+    options: Optional[list[OptionBody]] = Field(
+        default=None, description="The new cycle's options, as at create."
+    )
+    engine: Optional[str] = Field(
+        default=None, description="The new cycle's engine, such as spinoza:1."
+    )
+    fallback: Optional[str] = Field(
+        default=None,
+        description="Kept if its option stays; needed when it doesn't.",
+    )
+    reason: Optional[str] = None
+
+
+class CycleResetRequest(BaseModel):
     reason: Optional[str] = None
 
 
@@ -599,6 +618,73 @@ async def retire_loop(
         raise _not_found(loop)
     logger.info(f"loop retired: {retired.value['id']} by user {actor.user_id}")
     return LoopResponse(**retired.value)
+
+
+@router.post(
+    "/{loop}/cycles",
+    status_code=status.HTTP_200_OK,
+    response_model=ServingResponse,
+)
+async def start_cycle(
+    loop: str,
+    body: CycleStartRequest,
+    tenant_id: str = Depends(get_current_tenant_id),
+    actor: Actor = Depends(get_person),
+    _scoped=Depends(require_scopes(["loop:write"])),
+):
+    """start a new cycle with new options, a new engine or both, on a live or
+    paused loop. the earlier cycle ends and stays readable; it can't be
+    undone. serving moves on every replica within serving_within_seconds."""
+    try:
+        started = await get_proxy_service().start_cycle(
+            tenant_id,
+            loop,
+            options=(
+                [option.model_dump() for option in body.options]
+                if body.options is not None
+                else None
+            ),
+            engine=body.engine,
+            fallback=body.fallback,
+            actor=actor,
+            reason=body.reason,
+        )
+    except LoopInvalidError as e:
+        raise InvalidLoopException(str(e))
+    except LoopStateError as e:
+        raise LoopNotCyclableException(str(e))
+    if started is None:
+        raise _not_found(loop)
+    logger.info(f"cycle started: {started.value['id']} by user {actor.user_id}")
+    return _serving(started.value)
+
+
+@router.post(
+    "/{loop}/cycles/reset",
+    status_code=status.HTTP_200_OK,
+    response_model=ServingResponse,
+)
+async def reset_cycle(
+    loop: str,
+    body: Optional[CycleResetRequest] = None,
+    tenant_id: str = Depends(get_current_tenant_id),
+    actor: Actor = Depends(get_person),
+    _scoped=Depends(require_scopes(["loop:write"])),
+):
+    """start learning afresh: a new cycle with the same options, engine and
+    fallback, on a live or paused loop. it can't be undone."""
+    try:
+        reset = await get_proxy_service().reset_cycle(
+            tenant_id, loop, actor=actor, reason=body.reason if body else None
+        )
+    except LoopInvalidError as e:
+        raise InvalidLoopException(str(e))
+    except LoopStateError as e:
+        raise LoopNotCyclableException(str(e))
+    if reset is None:
+        raise _not_found(loop)
+    logger.info(f"cycle reset: {reset.value['id']} by user {actor.user_id}")
+    return _serving(reset.value)
 
 
 @router.post(

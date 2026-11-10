@@ -22,7 +22,7 @@ from proxysvc.mod.people import People
 FOLD_WITHIN = timedelta(minutes=10)
 COUNTS_WITHIN = timedelta(days=7)
 
-_PLAIN_FIELDS = ("name", "key", "state", "committed", "audience")
+_PLAIN_FIELDS = ("name", "key", "state", "committed", "audience", "engine")
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +113,11 @@ def _metric_name(snapshot: dict) -> str | None:
     return metric["name"] if metric else None
 
 
+def _cycle(snapshot: dict) -> str | None:
+    cycle = snapshot.get("cycle")
+    return str(cycle["number"]) if cycle else None
+
+
 def _window(snapshot: dict) -> str | None:
     seconds = snapshot.get("window_seconds")
     return window_label(seconds) if seconds is not None else None
@@ -130,6 +135,7 @@ def diff(before: dict | None, after: dict | None) -> list[dict]:
     pairs = [(field, before.get(field), after.get(field)) for field in _PLAIN_FIELDS]
     pairs.append(("metric", _metric_name(before), _metric_name(after)))
     pairs.append(("window", _window(before), _window(after)))
+    pairs.append(("cycle", _cycle(before), _cycle(after)))
     changed = [_difference(*pair) for pair in pairs if pair[1] != pair[2]]
 
     options_before = _option_names(before)

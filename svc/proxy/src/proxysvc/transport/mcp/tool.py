@@ -791,6 +791,104 @@ def register(
 
         return await once("loop_pause", {"loop": loop, "reason": reason}, call)
 
+    async def cycle_start(
+        loop: LoopRef,
+        reason: Reason,
+        options: Annotated[
+            Optional[list[OptionInput]],
+            Field(
+                min_length=2,
+                description="The new cycle's options, all of them; the current ones when left out.",
+            ),
+        ] = None,
+        engine: Annotated[
+            Optional[str],
+            Field(
+                description="The new cycle's engine, such as spinoza or leibniz:1; the current one when left out."
+            ),
+        ] = None,
+        fallback: Annotated[
+            Optional[str],
+            Field(
+                description="The option's key served when qbrix can't decide; kept when left out, and needed if its option is gone."
+            ),
+        ] = None,
+    ) -> Annotated[CallToolResult, LoopChanged]:
+        """Start a new cycle of a live or paused loop with new options, a new engine, or both. The new cycle learns afresh; the current one ends and its results stay readable, and its open decisions keep teaching it. A paused loop stays paused. This can't be undone."""
+        arguments = {
+            "loop": loop,
+            "reason": reason,
+            "options": (
+                [option.model_dump() for option in options]
+                if options is not None
+                else None
+            ),
+            "engine": engine,
+            "fallback": fallback,
+        }
+
+        async def call(principal: ConnectionPrincipal) -> CallToolResult:
+            _require(principal, "loop:write", "start cycles")
+            try:
+                with refusals():
+                    started = await service().start_cycle(
+                        principal.tenant_id,
+                        loop,
+                        options=arguments["options"],
+                        engine=engine,
+                        fallback=fallback,
+                        actor=principal.actor,
+                        reason=reason,
+                    )
+            except LoopStateError as e:
+                found = await service().get_loop(principal.tenant_id, loop)
+                raise error.not_cyclable(
+                    found["key"], found["state"], found["paused_from"]
+                ) from e
+            if started is None:
+                raise await refused_loop(principal, loop)
+            value = started.value
+            change = changed(started, "loop", value["key"])
+            return _result(
+                f"Started cycle {value['cycle']['number']} of {value['key']}: it "
+                f"learns afresh, and the earlier cycle stays readable. "
+                f"Change {change['id']}, can't be undone: {change['url']}",
+                LoopChanged(status="applied", change=change, loop=value),
+            )
+
+        return await once("cycle_start", arguments, call)
+
+    async def cycle_reset(
+        loop: LoopRef, reason: Reason
+    ) -> Annotated[CallToolResult, LoopChanged]:
+        """Reset the cycle of a live or paused loop: a new cycle with the same options, engine and fallback, learning afresh. The current one ends and its results stay readable, and its open decisions keep teaching it. A paused loop stays paused. This can't be undone."""
+
+        async def call(principal: ConnectionPrincipal) -> CallToolResult:
+            _require(principal, "loop:write", "reset cycles")
+            try:
+                with refusals():
+                    reset = await service().reset_cycle(
+                        principal.tenant_id, loop, actor=principal.actor, reason=reason
+                    )
+            except LoopStateError as e:
+                found = await service().get_loop(principal.tenant_id, loop)
+                raise error.not_cyclable(
+                    found["key"], found["state"], found["paused_from"]
+                ) from e
+            if reset is None:
+                raise await refused_loop(principal, loop)
+            value = reset.value
+            change = changed(reset, "loop", value["key"])
+            return _result(
+                f"Reset {value['key']}: cycle {value['cycle']['number']} learns "
+                f"afresh with the same options and engine, and the earlier cycle "
+                f"stays readable. Change {change['id']}, can't be undone: "
+                f"{change['url']}",
+                LoopChanged(status="applied", change=change, loop=value),
+            )
+
+        return await once("cycle_reset", {"loop": loop, "reason": reason}, call)
+
     async def loop_resume(
         loop: LoopRef, reason: Reason
     ) -> Annotated[CallToolResult, LoopChanged]:
@@ -934,6 +1032,8 @@ def register(
         (loop_retire, _DESTRUCTIVE),
         (loop_pause, _DESTRUCTIVE),
         (loop_resume, _DESTRUCTIVE),
+        (cycle_start, _DESTRUCTIVE),
+        (cycle_reset, _DESTRUCTIVE),
         (metric_create, _CREATE),
         (change_undo, _DESTRUCTIVE),
     ):
