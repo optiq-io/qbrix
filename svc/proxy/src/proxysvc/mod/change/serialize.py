@@ -38,6 +38,7 @@ VERBS = {
     "gate.replace": "changed",
     "gate.patch": "changed",
     "gate.delete": "deleted",
+    "connection.levels": "changed the levels of",
 }
 _ANY_KIND = "changed"
 

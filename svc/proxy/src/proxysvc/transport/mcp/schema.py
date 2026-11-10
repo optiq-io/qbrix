@@ -6,6 +6,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+from proxysvc.core.autonomy import Level
 from proxysvc.transport.http.router.change import ChangeEntry
 from proxysvc.transport.http.router.change import ChangePage
 from proxysvc.transport.http.router.loop import HistoryEntry
@@ -38,6 +39,7 @@ class Wiring(BaseModel):
 class LoopView(Loop):
     latest_change: Optional[HistoryEntry] = None
     wire: Wiring
+    autonomy: dict[str, Level]
 
 
 class LoopListItem(Loop):

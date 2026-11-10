@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from pydantic import Field
 
 from proxysvc.config import ProxySettings
+from proxysvc.core import autonomy
 from proxysvc.core.error import ConnectionRateLimitedError
 from proxysvc.core.error import CycleNotFoundError
 from proxysvc.core.error import LoopInvalidError
@@ -130,6 +131,23 @@ def _refused(refusal: Refusal) -> CallToolResult:
 def _require(principal: ConnectionPrincipal, scope: str, verb: str) -> None:
     if scope not in ROLE_SCOPES.get(principal.role, ()):
         raise error.role(verb)
+
+
+_LEVEL_PHRASES = {
+    "ask": "ask first",
+    "notify": "act and notify",
+    "own": "act on your own",
+}
+
+
+def _autonomy_line(levels: dict[str, str]) -> str:
+    """this connection's levels on a loop, as the tools they apply to."""
+    parts = []
+    for level, phrase in _LEVEL_PHRASES.items():
+        tools = [kind.replace(".", "_") for kind, at in levels.items() if at == level]
+        if tools:
+            parts.append(f"{phrase}: {', '.join(tools)}")
+    return f"Your autonomy here: {'; '.join(parts)}"
 
 
 def _who(entry: dict | None) -> str:
@@ -363,7 +381,7 @@ def register(
     async def loop_get(
         loop: LoopRef, detail: DetailArg = "concise"
     ) -> Annotated[CallToolResult, LoopView]:
-        """Read one loop: its purpose, options, metric, owner, fallback, state (and the option it is committed to, if committed) and current cycle, its latest change, who paused it, when and why if it is paused, and how to wire it: the select and outcome calls for this loop in Python and JavaScript."""
+        """Read one loop: its purpose, options, metric, owner, fallback, state (and the option it is committed to, if committed) and current cycle, its latest change, who paused it, when and why if it is paused, this connection's autonomy for each change to the loop, and how to wire it: the select and outcome calls for this loop in Python and JavaScript."""
         principal = current_principal()
         try:
             _require(principal, "loop:read", "read loops")
@@ -373,7 +391,8 @@ def register(
         except Refusal as refusal:
             return _refused(refusal)
         wire = wiring(found, settings.public_origin)
-        view = LoopView(**_concise(found, detail), wire=wire)
+        levels = {kind: principal.level(kind) for kind in autonomy.ON_LOOP}
+        view = LoopView(**_concise(found, detail), wire=wire, autonomy=levels)
         options = "\n".join(
             f"- {option['key']}: {option['name']}"
             + (f" {json.dumps(option['config'])}" if detail == "full" else "")
@@ -388,6 +407,7 @@ def register(
             + f"Purpose: {found['purpose'] or '(none)'}\n"
             f"Owner: {found['owner']['name']} · fallback {found['fallback']} · "
             f"engine {found['engine']}\n"
+            f"{_autonomy_line(levels)}\n"
             f"Options:\n{options}\n\n"
             f"Wire it in Python:\n```python\n{wire['python']}```\n\n"
             f"Or in JavaScript:\n```javascript\n{wire['javascript']}```"
@@ -1090,7 +1110,9 @@ def register(
             found = await service().get_change(principal.tenant_id, change)
             if found is None:
                 raise error.unknown_change(change)
-            _require(principal, undo_scope(found["target_type"]), "undo this change")
+            scope = undo_scope(found["target_type"])
+            if scope is not None:
+                _require(principal, scope, "undo this change")
             with error.undo_refusals():
                 undo = await service().undo_change(
                     principal.tenant_id,

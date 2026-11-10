@@ -15,6 +15,7 @@ from proxysvc.core.actor import Actor
 from proxysvc.core.error import ChangeConflictError
 from proxysvc.core.error import ChangeMovedError
 from proxysvc.core.error import ChangeNotUndoableError
+from proxysvc.core.error import ConnectionLevelsForbiddenError
 from proxysvc.core.error import ExperimentLimitError
 from proxysvc.core.error import ExperimentRunningError
 from proxysvc.core.error import InvalidCursorError
@@ -31,6 +32,7 @@ from proxysvc.transport.http.auth.dependencies import get_person
 from proxysvc.transport.http.auth.dependencies import require_scopes
 from proxysvc.transport.http.exception import ChangeNotFoundException
 from proxysvc.transport.http.exception import ChangeNotUndoableException
+from proxysvc.transport.http.exception import ConnectionLevelsForbiddenException
 from proxysvc.transport.http.exception import InsufficientScopesException
 from proxysvc.transport.http.exception import InvalidCursorException
 from proxysvc.transport.http.exception import LoopNotFoundException
@@ -242,7 +244,7 @@ async def undo_change(
     if change is None:
         raise ChangeNotFoundException(f"no change with the id {change_id!r}")
     scope = undo_scope(change["target_type"])
-    if scope not in ROLE_SCOPES.get(user.role, ()):
+    if scope is not None and scope not in ROLE_SCOPES.get(user.role, ()):
         raise InsufficientScopesException(f"required scope '{scope}' not available")
     try:
         undo = await service.undo_change(
@@ -252,6 +254,8 @@ async def undo_change(
             reason=body.reason if body else None,
             plan_tier=user.plan_tier,
         )
+    except ConnectionLevelsForbiddenError as e:
+        raise ConnectionLevelsForbiddenException(str(e))
     except ChangeMovedError as e:
         raise ChangeNotUndoableException(
             str(e), context={"later_change_id": e.later_change_id}

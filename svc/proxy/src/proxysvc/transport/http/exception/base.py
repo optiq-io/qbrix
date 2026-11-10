@@ -481,6 +481,13 @@ class ConnectionNotFoundException(NotFoundException):
     code = "CONNECTION_NOT_FOUND"
 
 
+class ConnectionLevelsForbiddenException(ForbiddenException):
+    """setting the levels of a connection that isn't the caller's own."""
+
+    detail = "only a connection's own person can set its levels"
+    code = "CONNECTION_LEVELS_FORBIDDEN"
+
+
 class PinTargetNotFoundException(NotFoundException):
     """a pin naming a loop or metric the workspace doesn't have."""
 

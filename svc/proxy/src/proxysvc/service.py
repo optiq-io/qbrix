@@ -170,12 +170,16 @@ class ProxyService:
             redis=self._redis, clickhouse=self._clickhouse
         )
         self._milestone_service = MilestoneService(self._loop_result_service.read)
+        self._connection_service = ConnectionService(
+            redis=self._redis, settings=self._settings
+        )
         self._change_service = ChangeService(
             experiments=self._experiment_service,
             gates=self._gate_service,
             pools=self._pool_service,
             metrics=self._metric_service,
             loops=self._loop_service,
+            connections=self._connection_service,
         )
         self._agent_service = AgentService(
             redis=self._redis,
@@ -185,9 +189,6 @@ class ProxyService:
             settings=self._settings,
             experiment_service=self._experiment_service,
             entitlements=self._entitlements,
-        )
-        self._connection_service = ConnectionService(
-            redis=self._redis, settings=self._settings
         )
         self._oauth_service = OAuthService(
             redis=self._redis,

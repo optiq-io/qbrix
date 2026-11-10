@@ -58,6 +58,7 @@ from proxysvc.transport.http.exception.base import InvalidDecisionContextExcepti
 from proxysvc.transport.http.exception.base import InvalidOutcomeException
 from proxysvc.transport.http.exception.base import InvalidRequestIdException
 from proxysvc.transport.http.exception.base import InvalidCursorException
+from proxysvc.transport.http.exception.base import ConnectionLevelsForbiddenException
 from proxysvc.transport.http.exception.base import ConnectionNotFoundException
 from proxysvc.transport.http.exception.base import OAuthRequestNotFoundException
 from proxysvc.transport.http.exception.base import PinTargetNotFoundException
@@ -123,6 +124,7 @@ __all__ = [
     "InvalidOutcomeException",
     "InvalidRequestIdException",
     "InvalidCursorException",
+    "ConnectionLevelsForbiddenException",
     "ConnectionNotFoundException",
     "OAuthRequestNotFoundException",
     "PinTargetNotFoundException",

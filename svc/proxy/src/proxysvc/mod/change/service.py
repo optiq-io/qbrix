@@ -29,6 +29,9 @@ from proxysvc.mod.change.serialize import snapshot
 from proxysvc.mod.change.undo import NOT_UNDOABLE
 from proxysvc.mod.change.undo import Undoing
 from proxysvc.mod.change.undo import is_undoable
+from proxysvc.mod.connection.repository import ConnectionRepository
+from proxysvc.mod.connection.serialize import levels_snapshot
+from proxysvc.mod.connection.serialize import overrides_of
 from proxysvc.mod.experiment.repository import ExperimentRepository
 from proxysvc.mod.experiment.serialize import experiment_to_dict
 from proxysvc.mod.gate.repository import FeatureGateRepository
@@ -43,6 +46,7 @@ from proxysvc.mod.pool.serialize import pool_to_dict
 from proxysvc.util import _parse_datetime
 
 if TYPE_CHECKING:
+    from proxysvc.mod.connection.service import ConnectionService
     from proxysvc.mod.experiment.service import ExperimentService
     from proxysvc.mod.gate import GateService
     from proxysvc.mod.loop.service import LoopService
@@ -108,6 +112,8 @@ def _restored_part(change: Change, state: dict | None) -> dict | None:
         return _unversioned_gate(state)
     if state is None:
         return None
+    if change.target_type == "connection":
+        return state["levels"]
     if change.kind == "experiment.update":
         return {name: state[name] for name in _changed_fields(change)}
     if change.target_type == "loop":
@@ -195,6 +201,13 @@ async def _current_state(
     if change.target_type == "metric":
         metric = await MetricRepository(session, tenant_id).get(change.target_id)
         return metric_to_dict(metric) if metric else None
+    if change.target_type == "connection":
+        connection = await ConnectionRepository(session).get(
+            tenant_id, change.target_id
+        )
+        if connection is None:
+            return None
+        return levels_snapshot(connection, overrides_of(connection))
     if change.target_type == "loop":
         loop = await LoopRepository(session, tenant_id).get(change.target_id)
         if loop is None:
@@ -221,12 +234,14 @@ class ChangeService:
         pools: PoolService,
         metrics: MetricService,
         loops: LoopService,
+        connections: ConnectionService,
     ):
         self._experiments = experiments
         self._gates = gates
         self._pools = pools
         self._metrics = metrics
         self._loops = loops
+        self._connections = connections
 
     async def list_changes(
         self, tenant_id: str, target_type: str, target_id: str, limit: int = 50
@@ -465,6 +480,15 @@ class ChangeService:
         if change.kind == "metric.create":
             return await self._metrics.delete_metric(
                 tenant_id, target_id, actor=actor, undoing=undoing
+            )
+
+        if change.kind == "connection.levels":
+            return await self._connections.restore_levels(
+                tenant_id,
+                target_id,
+                before["levels"],
+                actor=actor,
+                undoing=undoing,
             )
 
         if change.kind == "loop.create":
