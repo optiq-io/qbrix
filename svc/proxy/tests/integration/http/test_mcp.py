@@ -64,6 +64,8 @@ TOOLS = [
     "loop_retire",
     "loop_pause",
     "loop_resume",
+    "cycle_start",
+    "cycle_reset",
     "metric_create",
     "change_undo",
 ]
@@ -907,6 +909,151 @@ class TestRetire:
         assert loop["state"] == "retired"
 
 
+CYCLE = {
+    "loop": "checkout-headline",
+    "reason": "try social proof",
+    "options": [
+        {"key": "control", "name": "Control", "config": {"headline": "Buy now"}},
+        {"key": "urgency", "name": "Urgency", "config": {"headline": "Only 3 left"}},
+        {"key": "social", "name": "Social proof", "config": {"headline": "Loved"}},
+    ],
+}
+RESET = {"loop": "checkout-headline", "reason": "the page changed"}
+
+
+class TestCycles:
+
+    async def test_start_says_what_happened_and_that_it_cant_be_undone(
+        self, mcp, wired_app
+    ):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            result = await _call(client, "cycle_start", CYCLE)
+
+        assert not result.is_error, result
+        structured = result.structured_content
+        assert structured["status"] == "applied"
+        assert structured["change"]["kind"] == "cycle.start"
+        assert structured["change"]["undoable"] is False
+        loop = structured["loop"]
+        assert loop["cycle"]["number"] == 2
+        assert [o["key"] for o in loop["options"]] == ["control", "urgency", "social"]
+        text = result.content[0].text
+        assert text.startswith(
+            "Started cycle 2 of checkout-headline: it learns afresh, and the "
+            "earlier cycle stays readable."
+        )
+        assert "can't be undone" in text
+        assert structured["change"]["url"] in text
+
+    async def test_reset_keeps_the_options_and_is_recorded_via_the_client(
+        self, mcp, wired_app
+    ):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            result = await _call(client, "cycle_reset", RESET)
+            listed = await _call(client, "changes_list", {"kind": ["cycle.reset"]})
+
+        assert not result.is_error, result
+        loop = result.structured_content["loop"]
+        assert loop["cycle"]["number"] == 2
+        assert [o["key"] for o in loop["options"]] == ["control", "urgency"]
+        assert result.content[0].text.startswith(
+            "Reset checkout-headline: cycle 2 learns afresh with the same options "
+            "and engine"
+        )
+        entry = listed.structured_content["changes"][0]
+        assert entry["reason"] == "the page changed"
+        assert "Claude Code reset Checkout headline." in listed.content[0].text
+
+    async def test_the_earlier_cycle_stays_readable(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await _call(client, "cycle_start", CYCLE)
+            results = await _call(
+                client, "loop_results", {"loop": "checkout-headline", "cycle": 1}
+            )
+
+        assert not results.is_error, results
+        assert results.structured_content["cycle"]["number"] == 1
+
+    @pytest.mark.parametrize(
+        "steps, fix",
+        [
+            (
+                [],
+                "The loop checkout-headline is draft; no cycle was started. "
+                "Launch it with loop_launch first; its first cycle starts then.",
+            ),
+            (
+                [("loop_commit", COMMIT)],
+                "The loop checkout-headline is committed; no cycle was started. "
+                "A new cycle explores again: reopen it with loop_reopen first.",
+            ),
+            (
+                [
+                    ("loop_commit", COMMIT),
+                    ("loop_pause", {"loop": "checkout-headline", "reason": "bug"}),
+                ],
+                "The loop checkout-headline is paused; no cycle was started. "
+                "It was committed before the pause: resume it with loop_resume, "
+                "then reopen it with loop_reopen first.",
+            ),
+            (
+                [("loop_retire", RETIRE)],
+                "The loop checkout-headline is retired; no cycle was started. "
+                "Create a new loop with loop_create to serve the choice again.",
+            ),
+        ],
+    )
+    async def test_a_loop_that_cant_start_a_cycle_says_what_to_do(
+        self, mcp, wired_app, steps, fix
+    ):
+        async with _session(mcp, wired_app) as client:
+            if steps:
+                await _live(client)
+            else:
+                await _draft(client)
+            for tool, arguments in steps:
+                done = await _call(client, tool, arguments)
+                assert not done.is_error, done
+            start = await _call(client, "cycle_start", CYCLE)
+            reset = await _call(client, "cycle_reset", RESET)
+
+        assert _error(start) == fix
+        assert _error(reset) == fix
+
+    async def test_a_dropped_fallback_says_to_name_one(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            result = await _call(
+                client, "cycle_start", {**CYCLE, "options": CYCLE["options"][1:]}
+            )
+
+        assert _error(result) == (
+            "The fallback 'control' is not one of the new options; name one of them "
+            "as the fallback (urgency, social). Fix it and call again."
+        )
+
+    async def test_undo_of_a_start_is_refused_with_why(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            started = await _call(client, "cycle_start", CYCLE)
+            result = await _call(
+                client,
+                "change_undo",
+                {
+                    "change": started.structured_content["change"]["id"],
+                    "reason": "oops",
+                },
+            )
+
+        assert _error(result).startswith(
+            "Starting a cycle begins fresh learning, so it can't be undone; the "
+            "earlier cycle stays readable."
+        )
+
+
 PAUSE = {"loop": "checkout-headline", "reason": "checkout bug"}
 
 
@@ -1055,6 +1202,8 @@ class TestViewer:
             ("loop_retire", {"loop": "x", "reason": "go"}, "retire loops"),
             ("loop_pause", {"loop": "x", "reason": "go"}, "pause loops"),
             ("loop_resume", {"loop": "x", "reason": "go"}, "resume loops"),
+            ("cycle_start", {**CYCLE, "loop": "x"}, "start cycles"),
+            ("cycle_reset", {"loop": "x", "reason": "go"}, "reset cycles"),
             ("metric_create", METRIC, "create metrics"),
         ],
     )

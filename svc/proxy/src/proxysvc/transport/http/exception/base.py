@@ -424,6 +424,13 @@ class LoopNotRetirableException(ConflictException):
     code = "LOOP_NOT_RETIRABLE"
 
 
+class LoopNotCyclableException(ConflictException):
+    """a new cycle needs a live loop, or one paused from live."""
+
+    detail = "the loop is not live or paused"
+    code = "LOOP_NOT_CYCLABLE"
+
+
 class ChangeNotFoundException(NotFoundException):
     """change not found in this workspace."""
 

@@ -103,6 +103,11 @@ _RETIRE_FIXES = {
     "draft": "delete the draft instead",
     "retired": "it is retired already",
 }
+_CYCLE_FIXES = {
+    "draft": "launch it first",
+    "committed": "reopen it first",
+    "retired": "create a new loop to serve the choice again",
+}
 
 
 def _refusing(refused: str, fixes: dict[str, str]) -> Callable[[Loop], None]:
@@ -118,8 +123,69 @@ def _refusing(refused: str, fixes: dict[str, str]) -> Callable[[Loop], None]:
     return check
 
 
+def _cyclable(refused: str) -> Callable[[Loop], None]:
+    """a new cycle explores again, which a committed loop has stopped doing,
+    and so has one paused from committed: resuming would return to the commit."""
+    refusing = _refusing(refused, _CYCLE_FIXES)
+
+    def check(loop: Loop) -> None:
+        refusing(loop)
+        if loop.state == "paused" and loop.paused_from == "committed":
+            raise LoopStateError(
+                f"{refused}: the loop {loop.key!r} is paused; it was committed "
+                f"before the pause, so resume and reopen it first"
+            )
+
+    return check
+
+
 def _moved(loop_key: str, state: str, refused: str) -> LoopStateError:
     return LoopStateError(f"{refused}: the loop {loop_key!r} is {state}")
+
+
+def _fallback_among(fallback: str, keys: list[str]) -> str:
+    if fallback not in keys:
+        raise LoopInvalidError(
+            f"the fallback {fallback!r} is not one of the loop's options "
+            f"({', '.join(keys)})"
+        )
+    return fallback
+
+
+def _same_options(cycle: Cycle, options: list[LoopOption]) -> bool:
+    return [(o["key"], o["name"], o["config"]) for o in cycle.options] == [
+        (o.key, o.name, o.config) for o in options
+    ]
+
+
+def _replace_options(loop: Loop, options: list[LoopOption]) -> None:
+    """a key that stays keeps its row, and with it its arm id."""
+    kept = {option.key: option for option in loop.options}
+    replaced = []
+    for option in options:
+        row = kept.get(option.key)
+        if row is None:
+            replaced.append(option)
+            continue
+        row.name = option.name
+        row.config = option.config
+        row.position = option.position
+        replaced.append(row)
+    loop.options = replaced
+
+
+def _append_cycle(loop: Loop, engine: str) -> None:
+    pinned = ENGINES.pin(engine)
+    number = loop.cycles[-1].number + 1 if loop.cycles else 1
+    loop.cycles.append(
+        Cycle(
+            number=number,
+            engine=str(pinned),
+            engine_version=str(ENGINES.get(pinned).version),
+            metric_version_id=loop.metric.versions[-1].id,
+            options=[option_to_dict(option) for option in loop.options],
+        )
+    )
 
 
 def _options(options: list[dict[str, Any]]) -> list[LoopOption]:
@@ -178,7 +244,8 @@ def _resolve(engine: str, metric: Metric) -> Resolved:
 
 class LoopService:
     """loops: created as drafts, launched into their first cycle, renamed,
-    committed and reopened, paused and resumed, and retired.
+    committed and reopened, paused and resumed, moved to a new cycle, and
+    retired.
 
     a live cycle is written to redis as the record motor serves and cortex
     trains, under the cycle's id, so a new cycle never mixes earlier learning.
@@ -210,12 +277,7 @@ class LoopService:
             raise LoopInvalidError("a loop needs a metric: the one it improves")
         built = _options(options)
         keys = [option.key for option in built]
-        fallback = keys[0] if fallback is None else fallback
-        if fallback not in keys:
-            raise LoopInvalidError(
-                f"the fallback {fallback!r} is not one of the loop's options "
-                f"({', '.join(keys)})"
-            )
+        fallback = _fallback_among(keys[0] if fallback is None else fallback, keys)
         engine = _engine(engine)
 
         async with get_session() as session:
@@ -264,18 +326,9 @@ class LoopService:
             if loop.state != "draft":
                 raise _not_draft(loop_key, loop.state, "only a draft can be launched")
             resolved = _resolve(loop.engine, loop.metric)
-            pinned = ENGINES.pin(loop.engine)
             people = await _owner(session, tenant_id, loop)
             before = loop_to_dict(loop, people)
-            loop.cycles.append(
-                Cycle(
-                    number=1,
-                    engine=str(pinned),
-                    engine_version=str(ENGINES.get(pinned).version),
-                    metric_version_id=loop.metric.versions[-1].id,
-                    options=[option_to_dict(option) for option in loop.options],
-                )
-            )
+            _append_cycle(loop, loop.engine)
             loop.state = "live"
             loop.live_since = datetime.now(timezone.utc)
             try:
@@ -497,6 +550,132 @@ class LoopService:
             check=_refusing(refused, _RETIRE_FIXES),
             end_cycle=True,
         )
+
+    async def start_cycle(
+        self,
+        tenant_id: str,
+        ref: str,
+        *,
+        options: list[dict[str, Any]] | None = None,
+        engine: str | None = None,
+        fallback: str | None = None,
+        actor: Actor,
+        reason: str | None = None,
+    ) -> Applied | None:
+        """new options, a new engine, or both, in a new cycle that learns
+        afresh. the fallback stays if its option does; otherwise it is named."""
+        if options is None and engine is None:
+            raise LoopInvalidError(
+                "a new cycle needs new options, a new engine or both; to learn "
+                "afresh with the same ones, reset the cycle"
+            )
+        return await self._new_cycle(
+            tenant_id,
+            ref,
+            "cycle.start",
+            options=_options(options) if options is not None else None,
+            engine=_engine(engine) if engine is not None else None,
+            fallback=fallback,
+            actor=actor,
+            reason=reason,
+        )
+
+    async def reset_cycle(
+        self, tenant_id: str, ref: str, *, actor: Actor, reason: str | None = None
+    ) -> Applied | None:
+        """the same options, engine and fallback in a new cycle that learns
+        afresh."""
+        return await self._new_cycle(
+            tenant_id,
+            ref,
+            "cycle.reset",
+            options=None,
+            engine=None,
+            fallback=None,
+            actor=actor,
+            reason=reason,
+        )
+
+    async def _new_cycle(
+        self,
+        tenant_id: str,
+        ref: str,
+        kind: str,
+        *,
+        options: list[LoopOption] | None,
+        engine: str | None,
+        fallback: str | None,
+        actor: Actor,
+        reason: str | None,
+    ) -> Applied | None:
+        """ends the current cycle and starts the next. the state stays, so a
+        paused loop stays paused. the earlier cycle's record stays in redis:
+        its open decisions keep sealing and teaching it, never the new one."""
+        refused = "only a live or paused loop can start a new cycle"
+        async with get_session() as session:
+            repo = LoopRepository(session, tenant_id)
+            loop = await repo.resolve(ref)
+            if loop is None:
+                return None
+            _cyclable(refused)(loop)
+            loop_key = loop.key
+            state = loop.state
+            if state not in ("live", "paused"):
+                raise _moved(loop_key, state, refused)
+
+            engine = engine or loop.engine
+            keys = [o.key for o in (options if options is not None else loop.options)]
+            if fallback is not None:
+                _fallback_among(fallback, keys)
+            elif loop.fallback_key in keys:
+                fallback = loop.fallback_key
+            else:
+                raise LoopInvalidError(
+                    f"the fallback {loop.fallback_key!r} is not one of the new "
+                    f"options; name one of them as the fallback ({', '.join(keys)})"
+                )
+            if (
+                kind == "cycle.start"
+                and engine == loop.engine
+                and (options is None or _same_options(loop.cycles[-1], options))
+            ):
+                raise LoopInvalidError(
+                    "the options and engine are the cycle's own; to learn afresh "
+                    "with them, reset the cycle"
+                )
+            resolved = _resolve(engine, loop.metric)
+
+            people = await _owner(session, tenant_id, loop)
+            before = loop_to_dict(loop, people)
+            if not await repo.transition(loop.id, from_state=state, state=state):
+                loop = await repo.get(loop.id)
+                raise _moved(loop_key, loop.state, refused)
+            if options is not None:
+                _replace_options(loop, options)
+            loop.engine = engine
+            loop.fallback_key = fallback
+            loop.cycles[-1].ended_at = datetime.now(timezone.utc)
+            await session.flush()
+            _append_cycle(loop, engine)
+            try:
+                loop = await repo.reload(loop)
+            except IntegrityError as e:
+                raise _moved(loop_key, state, refused) from e
+            loop_dict = loop_to_dict(loop, people)
+            record = cycle_record(tenant_id, loop, loop.cycles[-1], resolved)
+            route = route_of(loop)
+            change = await ChangeRepository(session, tenant_id).record(
+                kind,
+                "loop",
+                loop.id,
+                actor,
+                before=before,
+                after=loop_dict,
+                reason=reason,
+            )
+        await self._redis.set_experiment(tenant_id, record["id"], record)
+        await self._routes.put(tenant_id, route)
+        return Applied.of(loop_dict, change)
 
     async def _transition(
         self,

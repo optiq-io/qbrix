@@ -123,6 +123,24 @@ def not_pausable(key: str, state: str) -> Refusal:
     return Refusal(f"The loop {key} is {state}; nothing was paused. {fix}")
 
 
+def not_cyclable(key: str, state: str, paused_from: str | None) -> Refusal:
+    """why a loop can't start or reset a cycle, and what makes it able to."""
+    if state == "draft":
+        fix = "Launch it with loop_launch first; its first cycle starts then."
+    elif state == "committed":
+        fix = "A new cycle explores again: reopen it with loop_reopen first."
+    elif state == "paused" and paused_from == "committed":
+        fix = (
+            "It was committed before the pause: resume it with loop_resume, "
+            "then reopen it with loop_reopen first."
+        )
+    elif state == "retired":
+        fix = _SERVE_AGAIN
+    else:
+        fix = "Only a live or paused loop can start a new cycle."
+    return Refusal(f"The loop {key} is {state}; no cycle was started. {fix}")
+
+
 def not_paused(key: str, state: str) -> Refusal:
     if state == "retired":
         fix = _SERVE_AGAIN

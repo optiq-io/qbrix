@@ -33,6 +33,10 @@ NOT_UNDOABLE = {
     "loop.delete": "deleting a loop cannot be undone",
     "loop.retire": "retiring a loop says the choice has left the product, so it "
     "can't be undone; create a new loop to serve it again",
+    "cycle.start": "starting a cycle begins fresh learning, so it can't be undone; "
+    "the earlier cycle stays readable",
+    "cycle.reset": "resetting a cycle begins fresh learning, so it can't be undone; "
+    "the earlier cycle stays readable",
 }
 
 

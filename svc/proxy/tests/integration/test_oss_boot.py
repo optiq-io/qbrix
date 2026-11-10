@@ -193,6 +193,7 @@ class TestNextSwitch:
             "/api/v1/loops/{loop}/pause",
             "/api/v1/loops/{loop}/resume",
             "/api/v1/loops/{loop}/cycles",
+            "/api/v1/loops/{loop}/cycles/reset",
             "/api/v1/loops/{loop}/history",
             "/api/v1/loops/{loop}/results",
             "/api/v1/select",

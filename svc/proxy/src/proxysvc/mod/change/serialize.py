@@ -20,6 +20,8 @@ VERBS = {
     "loop.resume": "resumed",
     "loop.retire": "retired",
     "loop.delete": "deleted",
+    "cycle.start": "started a new cycle of",
+    "cycle.reset": "reset",
     "metric.create": "created",
     "metric.delete": "deleted",
     "experiment.create": "created",
