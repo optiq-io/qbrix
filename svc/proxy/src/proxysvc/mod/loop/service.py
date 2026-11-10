@@ -27,6 +27,8 @@ from proxysvc.core.error import LoopInvalidError
 from proxysvc.core.error import LoopKeyTakenError
 from proxysvc.core.error import LoopStateError
 from proxysvc.mod.change.applied import Applied
+from proxysvc.mod.change.note import NOTE
+from proxysvc.mod.change.note import NOTE_MAX_LENGTH
 from proxysvc.mod.change.repository import ChangeRepository
 from proxysvc.mod.change.undo import Undoing
 from proxysvc.mod.loop.repository import LoopRepository
@@ -407,6 +409,28 @@ class LoopService:
             )
         await self._routes.put(tenant_id, route, old_key=old_key)
         return loop_dict
+
+    async def add_note(
+        self, tenant_id: str, ref: str, *, text: str, actor: Actor
+    ) -> Applied | None:
+        """a note in the loop's history, in any state. it changes nothing
+        select reads, and it stays: a correction is a new note."""
+        text = text.strip()
+        if not text:
+            raise LoopInvalidError("a note needs some text")
+        if len(text) > NOTE_MAX_LENGTH:
+            raise LoopInvalidError(
+                f"a note is at most {NOTE_MAX_LENGTH} characters, got {len(text)}"
+            )
+        async with get_session() as session:
+            loop = await LoopRepository(session, tenant_id).resolve(ref)
+            if loop is None:
+                return None
+            loop_dict = loop_to_dict(loop, await _owner(session, tenant_id, loop))
+            change = await ChangeRepository(session, tenant_id).record(
+                NOTE, "loop", loop.id, actor, after={"text": text}
+            )
+        return Applied.of(loop_dict, change)
 
     async def pause_loop(
         self,

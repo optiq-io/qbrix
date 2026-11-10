@@ -5,6 +5,8 @@ from collections.abc import Sequence
 from qbrixstore.postgres.session import get_session
 
 from proxysvc.core import cursor as pages
+from proxysvc.mod.change.note import HISTORY_SHOW
+from proxysvc.mod.change.note import HistoryShow
 from proxysvc.mod.change.repository import ChangeRepository
 from proxysvc.mod.change.serialize import history_entry
 from proxysvc.mod.loop.repository import LoopRepository
@@ -104,16 +106,24 @@ class LoopReadService:
         tenant_id: str,
         ref: str,
         *,
+        show: HistoryShow = "all",
         cursor: str | None = None,
         limit: int,
     ) -> dict | None:
+        """a loop's changes and notes, newest first; show narrows it to one."""
         before = pages.decode(cursor) if cursor else None
+        kinds, except_kinds = HISTORY_SHOW[show]
         async with get_session() as session:
             loop = await LoopRepository(session, tenant_id).resolve(ref)
             if loop is None:
                 return None
             rows = await ChangeRepository(session, tenant_id).page_for(
-                "loop", loop.id, before, limit + 1
+                "loop",
+                loop.id,
+                before,
+                limit + 1,
+                kinds=kinds,
+                except_kinds=except_kinds,
             )
             changes, next_cursor = pages.page(rows, limit)
             people = await People.load(

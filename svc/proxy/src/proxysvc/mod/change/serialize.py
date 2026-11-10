@@ -8,6 +8,7 @@ from qbrixstore.postgres.models import Change
 from qbrixstore.redis import Learning
 
 from proxysvc.mod.people import People
+from proxysvc.mod.change.note import NOTE
 from proxysvc.mod.change.undo import is_undoable
 
 VERBS = {
@@ -24,6 +25,7 @@ VERBS = {
     "cycle.reset": "reset",
     "metric.create": "created",
     "metric.delete": "deleted",
+    "note.add": "added a note to",
     "experiment.create": "created",
     "experiment.update": "changed",
     "experiment.reset": "reset",
@@ -96,6 +98,7 @@ def history_entry(change: Change, people: People) -> dict:
         ),
         "reason": change.reason,
         "evidence": change.evidence,
+        "note": change.after["text"] if change.kind == NOTE else None,
         "request_id": change.request_id,
         "undoes_id": change.undoes_id,
     }

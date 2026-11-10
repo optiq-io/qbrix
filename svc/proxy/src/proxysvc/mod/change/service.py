@@ -248,6 +248,7 @@ class ChangeService:
         *,
         who: Collection[str] = (),
         kinds: Collection[str] = (),
+        except_kinds: Collection[str] = (),
         loop: str | None = None,
         metric: str | None = None,
         undoable: bool | None = None,
@@ -266,6 +267,7 @@ class ChangeService:
                 limit + 1,
                 actor_kinds=who,
                 kinds=kinds,
+                except_kinds=except_kinds,
                 targets=targets,
                 undoable=undoable,
             )

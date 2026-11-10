@@ -18,6 +18,7 @@ from proxysvc.core.actor import Actor
 from proxysvc.core.cursor import Position
 from proxysvc.core.error import ChangeConflictError
 from proxysvc.core.error import ChangeMovedError
+from proxysvc.mod.change.note import NOTE_KINDS
 from proxysvc.mod.change.undo import UNDOABLE_KINDS
 from proxysvc.mod.change.undo import Undoing
 
@@ -38,16 +39,24 @@ def _older_than(before: Position):
     )
 
 
+def _kind_filters(kinds: Collection[str], except_kinds: Collection[str]) -> list:
+    filters = []
+    if kinds:
+        filters.append(Change.kind.in_(kinds))
+    if except_kinds:
+        filters.append(Change.kind.not_in(except_kinds))
+    return filters
+
+
 def _workspace_filters(
     *,
     kinds: Collection[str] = (),
+    except_kinds: Collection[str] = (),
     targets: Collection[tuple[str, str]] = (),
     undoable: bool | None = None,
 ) -> list:
     """every filter given narrows the changes, targets included."""
-    filters = []
-    if kinds:
-        filters.append(Change.kind.in_(kinds))
+    filters = _kind_filters(kinds, except_kinds)
     for target_type, target_id in targets:
         filters.append(Change.target_type == target_type)
         filters.append(Change.target_id == target_id)
@@ -114,7 +123,7 @@ class ChangeRepository:
     ) -> None:
         """inside the undo's transaction, so a change that lands after the
         undo was checked, or a concurrent undo, still refuses it."""
-        latest = await self.latest_for(target_type, target_id)
+        latest = await self._latest_moving(target_type, target_id)
         if latest is not None and latest.id != undoing.latest_id:
             raise moved_since(latest)
         change_id = undoing.change_id
@@ -130,12 +139,24 @@ class ChangeRepository:
         if result.rowcount != 1:
             raise ChangeConflictError(f"change {change_id} was already undone")
 
-    async def latest_for(self, target_type: str, target_id: str) -> Change | None:
-        changes = await self.list_for(target_type, target_id, limit=1)
-        return changes[0] if changes else None
+    async def _latest_moving(self, target_type: str, target_id: str) -> Change | None:
+        stmt = (
+            select(Change)
+            .where(
+                Change.tenant_id == self._tenant_id,
+                Change.target_type == target_type,
+                Change.target_id == target_id,
+                Change.kind.not_in(NOTE_KINDS),
+            )
+            .order_by(Change.created_at.desc())
+            .limit(1)
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def list_after(self, change: Change) -> list[Change]:
-        """later changes to the same target, newest first."""
+        """later changes to the same target that moved it, newest first. a
+        note moves nothing, so an undo looks past it."""
         stmt = (
             select(Change)
             .where(
@@ -143,6 +164,7 @@ class ChangeRepository:
                 Change.target_type == change.target_type,
                 Change.target_id == change.target_id,
                 Change.created_at > change.created_at,
+                Change.kind.not_in(NOTE_KINDS),
             )
             .order_by(Change.created_at.desc())
         )
@@ -185,12 +207,16 @@ class ChangeRepository:
         target_id: str,
         before: Position | None,
         limit: int,
+        *,
+        kinds: Collection[str] = (),
+        except_kinds: Collection[str] = (),
     ) -> list[Change]:
         """an object's changes newest first, from just after before."""
         stmt = select(Change).where(
             Change.tenant_id == self._tenant_id,
             Change.target_type == target_type,
             Change.target_id == target_id,
+            *_kind_filters(kinds, except_kinds),
         )
         if before is not None:
             stmt = stmt.where(_older_than(before))
@@ -205,13 +231,19 @@ class ChangeRepository:
         *,
         actor_kinds: Collection[str] = (),
         kinds: Collection[str] = (),
+        except_kinds: Collection[str] = (),
         targets: Collection[tuple[str, str]] = (),
         undoable: bool | None = None,
     ) -> list[Change]:
         """the workspace's changes newest first, from just after before."""
         stmt = select(Change).where(
             Change.tenant_id == self._tenant_id,
-            *_workspace_filters(kinds=kinds, targets=targets, undoable=undoable),
+            *_workspace_filters(
+                kinds=kinds,
+                except_kinds=except_kinds,
+                targets=targets,
+                undoable=undoable,
+            ),
         )
         if before is not None:
             stmt = stmt.where(_older_than(before))

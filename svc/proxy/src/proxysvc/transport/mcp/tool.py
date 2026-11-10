@@ -27,6 +27,9 @@ from proxysvc.core.error import LoopStateError
 from proxysvc.core.error import MetricNotFoundError
 from proxysvc.mod.auth.scope import ROLE_SCOPES
 from proxysvc.mod.change.applied import Applied
+from proxysvc.mod.change.note import HISTORY_SHOW
+from proxysvc.mod.change.note import NOTE_MAX_LENGTH
+from proxysvc.mod.change.note import HistoryShow
 from proxysvc.mod.change.undo import undo_scope
 from proxysvc.mod.connection.service import ConnectionPrincipal
 from proxysvc.mod.metric.serialize import window_label
@@ -39,15 +42,18 @@ from proxysvc.transport.mcp.error import Refusal
 from proxysvc.transport.mcp.error import refusals
 from proxysvc.transport.mcp.link import change_url
 from proxysvc.transport.mcp.link import changes_url
+from proxysvc.transport.mcp.link import history_url
 from proxysvc.transport.mcp.repeat import RepeatGuard
 from proxysvc.transport.mcp.repeat import repeat_key
 from proxysvc.transport.mcp.schema import ChangeUndone
 from proxysvc.transport.mcp.schema import Detail
+from proxysvc.transport.mcp.schema import HistoryPage
 from proxysvc.transport.mcp.schema import LoopChanged
 from proxysvc.transport.mcp.schema import LoopPage
 from proxysvc.transport.mcp.schema import LoopView
 from proxysvc.transport.mcp.schema import MetricChanged
 from proxysvc.transport.mcp.schema import MetricList
+from proxysvc.transport.mcp.schema import NoteAdded
 from proxysvc.transport.mcp.schema import ResultsView
 from proxysvc.transport.mcp.verifier import current_principal
 from proxysvc.transport.mcp.wire import wiring
@@ -163,10 +169,9 @@ def _failed(evidence: dict) -> str:
     return f"{evidence['rate']:.1%} of {evidence['calls']} calls"
 
 
-def _paused_line(loop: dict) -> str | None:
-    """who paused a paused loop, when and why, from its latest change."""
-    entry = loop.get("latest_change")
-    if loop["state"] != "paused" or not entry or entry["kind"] != "loop.pause":
+def _paused_line(state: str, entry: dict | None) -> str | None:
+    """who paused a paused loop, when and why, from the change that paused it."""
+    if state != "paused" or not entry or entry["kind"] != "loop.pause":
         return None
     at = datetime.fromisoformat(entry["at"])
     at = at.astimezone(timezone.utc) if at.tzinfo else at
@@ -209,6 +214,8 @@ def _difference_line(difference: dict) -> str:
 
 def _change_line(entry: dict) -> str:
     parts = [entry["at"], _sentence(entry)]
+    if entry["note"] is not None:
+        parts.append(f"note {json.dumps(entry['note'], ensure_ascii=False)}")
     if entry["via"]:
         parts.append(_who(entry))
     parts += [_difference_line(difference) for difference in entry["diff"]]
@@ -285,6 +292,18 @@ def register(
             structured_content=stored["structured"],
         )
 
+    async def latest_pause(tenant_id: str, loop: dict) -> dict | None:
+        """the change that paused a paused loop, though others came after it."""
+        if loop["state"] != "paused":
+            return None
+        latest = loop.get("latest_change")
+        if latest and latest["kind"] == "loop.pause":
+            return latest
+        page = await service().list_workspace_changes(
+            tenant_id, kinds=["loop.pause"], loop=loop["id"], fold=False, limit=1
+        )
+        return page["changes"][0] if page["changes"] else None
+
     def changed(applied: Applied, target: Literal["loop", "metric"], ref: str) -> dict:
         return {
             **applied.change,
@@ -360,7 +379,9 @@ def register(
             + (f" {json.dumps(option['config'])}" if detail == "full" else "")
             for option in found["options"]
         )
-        paused = _paused_line(found)
+        paused = _paused_line(
+            found["state"], await latest_pause(principal.tenant_id, found)
+        )
         text = (
             f"{_loop_line(found)}\n"
             + (f"{paused}\n" if paused else "")
@@ -524,6 +545,51 @@ def register(
         if page["next_cursor"]:
             lines.append(f"More changes: call again with cursor {page['next_cursor']}.")
         return _result("\n".join(lines), ChangePage(**page))
+
+    async def loop_history(
+        loop: LoopRef,
+        show: Annotated[
+            HistoryShow,
+            Field(
+                description="all: changes and notes. changes: changes only. "
+                "notes: notes only."
+            ),
+        ] = "all",
+        cursor: Annotated[
+            Optional[str],
+            Field(description="next_cursor from the previous page."),
+        ] = None,
+        limit: Annotated[int, Field(ge=1, le=LIMIT_MAX)] = LIMIT_DEFAULT,
+    ) -> Annotated[CallToolResult, HistoryPage]:
+        """Read a loop's history, newest first: every change and note, who made it and through which client, each changed field before and after, why, a note's text, and whether it can be undone."""
+        principal = current_principal()
+        kinds, except_kinds = HISTORY_SHOW[show]
+        try:
+            _require(principal, "loop:read", "read loops")
+            try:
+                with refusals():
+                    page = await service().list_workspace_changes(
+                        principal.tenant_id,
+                        kinds=kinds,
+                        except_kinds=except_kinds,
+                        loop=loop,
+                        fold=False,
+                        cursor=cursor,
+                        limit=limit,
+                    )
+            except LoopNotFoundError as e:
+                raise await refused_loop(principal, loop) from e
+        except Refusal as refusal:
+            return _refused(refusal)
+        found = page["changes"][0]["target"]["key"] if page["changes"] else loop
+        url = history_url(settings.console_origin, found)
+        lines = [_change_line(entry) for entry in page["changes"]] or [
+            "Nothing in this loop's history matches."
+        ]
+        if page["next_cursor"]:
+            lines.append(f"More history: call again with cursor {page['next_cursor']}.")
+        lines.append(f"In the console: {url}")
+        return _result("\n".join(lines), HistoryPage(**page, url=url))
 
     async def milestones_list(
         loop: Annotated[
@@ -981,6 +1047,39 @@ def register(
 
         return await once("metric_create", arguments, call)
 
+    async def note_add(
+        loop: LoopRef,
+        text: Annotated[
+            str,
+            Field(
+                min_length=1,
+                max_length=NOTE_MAX_LENGTH,
+                description="The note, in plain text: what people and agents "
+                "reading this loop's history should know.",
+            ),
+        ],
+    ) -> Annotated[CallToolResult, NoteAdded]:
+        """Add a note to a loop's history, beside its changes. A note stays: it can't be undone or edited, so a correction is a new note."""
+
+        async def call(principal: ConnectionPrincipal) -> CallToolResult:
+            _require(principal, "loop:write", "add notes")
+            with refusals():
+                added = await service().add_note(
+                    principal.tenant_id, loop, text=text, actor=principal.actor
+                )
+            if added is None:
+                raise await refused_loop(principal, loop)
+            key = added.value["key"]
+            change = changed(added, "loop", key)
+            entry = await service().get_change_entry(principal.tenant_id, change["id"])
+            return _result(
+                f"Added a note to {key}. Change {change['id']}, a note stays in "
+                f"history: {change['url']}",
+                NoteAdded(status="applied", change=change, note=entry),
+            )
+
+        return await once("note_add", {"loop": loop, "text": text}, call)
+
     async def change_undo(
         change: Annotated[str, Field(description="The id of the change to undo.")],
         reason: Reason,
@@ -1024,6 +1123,7 @@ def register(
         (loop_results, _READ),
         (metrics_list, _READ),
         (changes_list, _READ),
+        (loop_history, _READ),
         (milestones_list, _READ),
         (loop_create, _CREATE),
         (loop_launch, _DESTRUCTIVE),
@@ -1035,6 +1135,7 @@ def register(
         (cycle_start, _DESTRUCTIVE),
         (cycle_reset, _DESTRUCTIVE),
         (metric_create, _CREATE),
+        (note_add, _CREATE),
         (change_undo, _DESTRUCTIVE),
     ):
         server.add_tool(fn, annotations=hints)
