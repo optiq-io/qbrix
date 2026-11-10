@@ -11,6 +11,7 @@ from typing import Any
 
 from qbrixstore.postgres.models import Change
 
+from proxysvc.mod.change.note import NOTE_KINDS
 from proxysvc.mod.change.serialize import history_entry
 from proxysvc.mod.change.serialize import verb_of
 from proxysvc.mod.change.serialize import who_made
@@ -84,7 +85,11 @@ def _continues(newer: Change, older: Change) -> bool:
 
 
 def _foldable(change: Change) -> bool:
-    return change.status == "applied" and change.undoes_id is None
+    return (
+        change.status == "applied"
+        and change.undoes_id is None
+        and change.kind not in NOTE_KINDS
+    )
 
 
 def _burst_key(change: Change) -> tuple:

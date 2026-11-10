@@ -18,6 +18,11 @@ def change_url(
     return f"{console_origin}/metrics/{ref}?change={change_id}"
 
 
+def history_url(console_origin: str, loop: str) -> str:
+    """a loop's whole history in the console."""
+    return f"{console_origin}/loops/{quote(loop, safe='')}/history"
+
+
 def changes_url(console_origin: str, change_id: str) -> str:
     """the workspace's changes, opened at one."""
     return f"{console_origin}/changes?change={change_id}"

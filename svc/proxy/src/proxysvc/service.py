@@ -22,6 +22,7 @@ from proxysvc.core.entitlements import Entitlements
 from proxysvc.core.events import EventEmitter
 from proxysvc.mod.agent import AgentService
 from proxysvc.mod.change.applied import Applied
+from proxysvc.mod.change.note import HistoryShow
 from proxysvc.mod.change.service import ChangeService
 from proxysvc.mod.connection.service import ConnectionService
 from proxysvc.mod.experiment.service import ExperimentService
@@ -471,6 +472,7 @@ class ProxyService:
         *,
         who: Collection[str] = (),
         kinds: Collection[str] = (),
+        except_kinds: Collection[str] = (),
         loop: str | None = None,
         metric: str | None = None,
         undoable: bool | None = None,
@@ -482,6 +484,7 @@ class ProxyService:
             tenant_id,
             who=who,
             kinds=kinds,
+            except_kinds=except_kinds,
             loop=loop,
             metric=metric,
             undoable=undoable,
@@ -619,6 +622,11 @@ class ProxyService:
             tenant_id, ref, actor=actor, reason=reason
         )
 
+    async def add_note(
+        self, tenant_id: str, ref: str, *, text: str, actor: Actor
+    ) -> Applied | None:
+        return await self._loop_service.add_note(tenant_id, ref, text=text, actor=actor)
+
     async def pause_loop(
         self, tenant_id: str, ref: str, *, actor: Actor, reason: str | None = None
     ) -> Applied | None:
@@ -699,10 +707,16 @@ class ProxyService:
         return await LoopReadService.list_cycles(tenant_id, ref)
 
     async def loop_history(
-        self, tenant_id: str, ref: str, *, cursor: str | None = None, limit: int
+        self,
+        tenant_id: str,
+        ref: str,
+        *,
+        show: HistoryShow = "all",
+        cursor: str | None = None,
+        limit: int,
     ) -> dict | None:
         return await LoopReadService.loop_history(
-            tenant_id, ref, cursor=cursor, limit=limit
+            tenant_id, ref, show=show, cursor=cursor, limit=limit
         )
 
     async def select_loop(

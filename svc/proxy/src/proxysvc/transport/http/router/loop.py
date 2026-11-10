@@ -22,6 +22,8 @@ from proxysvc.core.error import InvalidCursorError
 from proxysvc.core.error import LoopInvalidError
 from proxysvc.core.error import LoopKeyTakenError
 from proxysvc.core.error import LoopStateError
+from proxysvc.mod.change.note import NOTE_MAX_LENGTH
+from proxysvc.mod.change.note import HistoryShow
 from proxysvc.service import ProxyService
 from proxysvc.transport.http.auth.dependencies import get_actor
 from proxysvc.transport.http.auth.dependencies import get_current_tenant_id
@@ -118,6 +120,14 @@ class CycleResetRequest(BaseModel):
     reason: Optional[str] = None
 
 
+class NoteRequest(BaseModel):
+    text: str = Field(
+        min_length=1,
+        max_length=NOTE_MAX_LENGTH,
+        description="Plain text. A note stays; a correction is a new note.",
+    )
+
+
 class LoopMetric(BaseModel):
     id: str
     name: str
@@ -175,6 +185,7 @@ class HistoryEntry(BaseModel):
     via: Optional[Via] = None
     reason: Optional[str] = None
     evidence: Optional[dict[str, Any]] = None
+    note: Optional[str] = None
     request_id: Optional[str] = None
     undoes_id: Optional[str] = None
 
@@ -394,21 +405,48 @@ async def list_cycles(
 )
 async def loop_history(
     loop: str,
+    show: HistoryShow = "all",
     cursor: Optional[str] = None,
     limit: int = Query(default=PAGE_LIMIT, ge=1, le=PAGE_LIMIT_MAX),
     tenant_id: str = Depends(get_current_tenant_id),
     _scoped=Depends(require_scopes(["loop:read"])),
 ):
-    """a loop's changes, newest first: what, when, who, via and why."""
+    """a loop's changes and notes, newest first: what, when, who, via and
+    why. show narrows it to changes or to notes."""
     try:
         history = await get_proxy_service().loop_history(
-            tenant_id, loop, cursor=cursor, limit=limit
+            tenant_id, loop, show=show, cursor=cursor, limit=limit
         )
     except InvalidCursorError as e:
         raise InvalidCursorException(str(e))
     if history is None:
         raise _not_found(loop)
     return HistoryResponse(**history)
+
+
+@router.post(
+    "/{loop}/notes",
+    status_code=status.HTTP_201_CREATED,
+    response_model=HistoryEntry,
+)
+async def add_note(
+    loop: str,
+    body: NoteRequest,
+    tenant_id: str = Depends(get_current_tenant_id),
+    actor: Actor = Depends(get_person),
+    _scoped=Depends(require_scopes(["loop:write"])),
+):
+    """add a note to a loop's history, returned as its history reads it. it
+    can't be undone or edited."""
+    service = get_proxy_service()
+    try:
+        added = await service.add_note(tenant_id, loop, text=body.text, actor=actor)
+    except LoopInvalidError as e:
+        raise InvalidLoopException(str(e))
+    if added is None:
+        raise _not_found(loop)
+    logger.info(f"note added: {added.change['id']} by user {actor.user_id}")
+    return HistoryEntry(**await service.get_change_entry(tenant_id, added.change["id"]))
 
 
 @router.get(

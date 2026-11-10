@@ -56,6 +56,7 @@ TOOLS = [
     "loop_results",
     "metrics_list",
     "changes_list",
+    "loop_history",
     "milestones_list",
     "loop_create",
     "loop_launch",
@@ -67,6 +68,7 @@ TOOLS = [
     "cycle_start",
     "cycle_reset",
     "metric_create",
+    "note_add",
     "change_undo",
 ]
 
@@ -1172,6 +1174,116 @@ class TestPauseAndResume:
         assert loop["state"] == "live"
 
 
+NOTE = {"loop": "checkout-headline", "text": "checkout copy is frozen until the 20th"}
+
+
+class TestNotesAndHistory:
+
+    async def test_note_add_is_recorded_via_the_client_and_links_it(
+        self, mcp, wired_app
+    ):
+        async with _session(mcp, wired_app) as client:
+            await _draft(client)
+            result = await _call(client, "note_add", NOTE)
+
+        assert not result.is_error, result
+        change = result.structured_content["change"]
+        note = result.structured_content["note"]
+        assert (change["kind"], change["undoable"]) == ("note.add", False)
+        assert change["url"] == (
+            f"{proxysvc.config.settings.console_origin}/loops/checkout-headline"
+            f"/history?change={change['id']}"
+        )
+        assert note["note"] == NOTE["text"]
+        assert note["who"]["user_id"] == "user-member"
+        assert note["via"]["client"] == "Claude Code"
+        assert result.content[0].text == (
+            f"Added a note to checkout-headline. Change {change['id']}, a note "
+            f"stays in history: {change['url']}"
+        )
+
+    async def test_loop_history_reads_notes_beside_changes(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _draft(client)
+            await _call(client, "note_add", NOTE)
+            result = await _call(client, "loop_history", {"loop": "checkout-headline"})
+
+        assert not result.is_error, result
+        kinds = [e["kind"] for e in result.structured_content["changes"]]
+        assert kinds == ["note.add", "loop.create"]
+        note_line, create_line = result.content[0].text.splitlines()[:2]
+        assert "Claude Code added a note to Checkout headline." in note_line
+        assert f'note "{NOTE["text"]}"' in note_line
+        assert "can be undone" not in note_line
+        assert "Claude Code created Checkout headline." in create_line
+        assert result.structured_content["url"] == (
+            f"{proxysvc.config.settings.console_origin}/loops/checkout-headline/history"
+        )
+
+    async def test_loop_history_shows_only_notes_or_only_changes(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _draft(client)
+            await _call(client, "note_add", NOTE)
+            notes = await _call(
+                client, "loop_history", {"loop": "checkout-headline", "show": "notes"}
+            )
+            changes = await _call(
+                client, "loop_history", {"loop": "checkout-headline", "show": "changes"}
+            )
+
+        assert [e["kind"] for e in notes.structured_content["changes"]] == ["note.add"]
+        assert [e["kind"] for e in changes.structured_content["changes"]] == [
+            "loop.create"
+        ]
+
+    async def test_loop_history_pages_with_a_cursor(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _draft(client)
+            await _call(client, "note_add", NOTE)
+            first = await _call(
+                client, "loop_history", {"loop": "checkout-headline", "limit": 1}
+            )
+            second = await _call(
+                client,
+                "loop_history",
+                {
+                    "loop": "checkout-headline",
+                    "limit": 1,
+                    "cursor": first.structured_content["next_cursor"],
+                },
+            )
+
+        assert "More history: call again with cursor" in first.content[0].text
+        assert [e["kind"] for e in second.structured_content["changes"]] == [
+            "loop.create"
+        ]
+        assert second.structured_content["next_cursor"] is None
+
+    async def test_loop_history_refuses_an_unknown_loop(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _draft(client)
+            result = await _call(client, "loop_history", {"loop": "checkout-hedline"})
+
+        assert "Did you mean checkout-headline?" in _error(result)
+
+    async def test_a_blank_note_is_refused_with_the_fix(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _draft(client)
+            result = await _call(client, "note_add", {**NOTE, "text": "   "})
+
+        assert _error(result) == "A note needs some text. Fix it and call again."
+
+    async def test_a_note_after_a_pause_keeps_who_paused_it(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await _call(client, "loop_pause", PAUSE)
+            await _call(client, "note_add", NOTE)
+            result = await _call(client, "loop_get", {"loop": "checkout-headline"})
+
+        assert "Paused by Mustafa via Claude Code at" in result.content[0].text
+        assert ": checkout bug. Everyone gets the fallback" in result.content[0].text
+
+
 class TestViewer:
 
     async def test_a_viewer_reads_every_read_tool(self, mcp, wired_app):
@@ -1184,6 +1296,7 @@ class TestViewer:
                 await _call(viewer, "loop_results", {"loop": "checkout-headline"}),
                 await _call(viewer, "metrics_list"),
                 await _call(viewer, "changes_list"),
+                await _call(viewer, "loop_history", {"loop": "checkout-headline"}),
             ]
 
         assert not any(result.is_error for result in results)
@@ -1205,6 +1318,7 @@ class TestViewer:
             ("cycle_start", {**CYCLE, "loop": "x"}, "start cycles"),
             ("cycle_reset", {"loop": "x", "reason": "go"}, "reset cycles"),
             ("metric_create", METRIC, "create metrics"),
+            ("note_add", {"loop": "x", "text": "hello"}, "add notes"),
         ],
     )
     async def test_a_viewer_gets_the_role_error_from_every_change_tool(

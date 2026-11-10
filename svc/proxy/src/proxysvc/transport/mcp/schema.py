@@ -7,6 +7,7 @@ from typing import Optional
 from pydantic import BaseModel
 
 from proxysvc.transport.http.router.change import ChangeEntry
+from proxysvc.transport.http.router.change import ChangePage
 from proxysvc.transport.http.router.loop import HistoryEntry
 from proxysvc.transport.http.router.loop import LoopResults
 from proxysvc.transport.http.router.loop import LoopSummary
@@ -95,3 +96,13 @@ class ChangeUndone(BaseModel):
     status: Literal["applied"]
     change: ChangeRef
     undone: ChangeEntry
+
+
+class HistoryPage(ChangePage):
+    url: str
+
+
+class NoteAdded(BaseModel):
+    status: Literal["applied"]
+    change: ChangeRef
+    note: ChangeEntry

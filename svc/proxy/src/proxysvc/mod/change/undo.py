@@ -37,6 +37,7 @@ NOT_UNDOABLE = {
     "the earlier cycle stays readable",
     "cycle.reset": "resetting a cycle begins fresh learning, so it can't be undone; "
     "the earlier cycle stays readable",
+    "note.add": "a note stays in history; add another note to correct it",
 }
 
 

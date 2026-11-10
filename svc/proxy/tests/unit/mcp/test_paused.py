@@ -1,5 +1,5 @@
 """loop_get's paused line: who paused a paused loop, when and why, read from
-its latest change, and nothing for any other state or change."""
+the change that paused it, and nothing for any other state or change."""
 
 from __future__ import annotations
 
@@ -35,8 +35,12 @@ def _loop(state: str = "paused", **entry) -> dict:
     }
 
 
+def _line(loop: dict) -> str | None:
+    return _paused_line(loop["state"], loop["latest_change"])
+
+
 def test_a_window_shorter_than_ten_minutes_says_how_long_it_was():
-    assert _paused_line(_loop()) == (
+    assert _line(_loop()) == (
         "Paused by qbrix at 2026-10-27 10:01 UTC: 6.1% of 114 calls failed over "
         "4 minutes (motor_unavailable 4, targeting_unavailable 3). Everyone gets "
         "the fallback until a person resumes it."
@@ -51,7 +55,7 @@ def test_a_person_reads_with_their_client_and_reason():
         evidence=None,
     )
 
-    assert _paused_line(loop) == (
+    assert _line(loop) == (
         "Paused by Ada via Claude Code at 2026-10-27 10:01 UTC: checkout is being "
         "rebuilt. Everyone gets the fallback until a person resumes it."
     )
@@ -65,5 +69,5 @@ def test_a_person_reads_with_their_client_and_reason():
         {"state": "paused", "latest_change": None},
     ],
 )
-def test_says_nothing_unless_the_latest_change_paused_it(loop):
-    assert _paused_line(loop) is None
+def test_says_nothing_unless_the_change_paused_it(loop):
+    assert _line(loop) is None
