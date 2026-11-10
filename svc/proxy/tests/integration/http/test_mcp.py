@@ -62,6 +62,8 @@ TOOLS = [
     "loop_commit",
     "loop_reopen",
     "loop_retire",
+    "loop_pause",
+    "loop_resume",
     "metric_create",
     "change_undo",
 ]
@@ -905,6 +907,124 @@ class TestRetire:
         assert loop["state"] == "retired"
 
 
+PAUSE = {"loop": "checkout-headline", "reason": "checkout bug"}
+
+
+class TestPauseAndResume:
+
+    async def test_pause_says_what_users_get_and_links_the_change(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            result = await _call(client, "loop_pause", PAUSE)
+
+        assert not result.is_error, result
+        structured = result.structured_content
+        assert structured["change"]["kind"] == "loop.pause"
+        assert structured["change"]["undoable"] is True
+        loop = structured["loop"]
+        assert (loop["state"], loop["paused_from"]) == ("paused", "live")
+        text = result.content[0].text
+        assert text.startswith(
+            "Paused checkout-headline: everyone gets its fallback from now on"
+        )
+        assert structured["change"]["url"] in text
+
+    async def test_pause_is_recorded_via_the_client_without_evidence(
+        self, mcp, wired_app
+    ):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await _call(client, "loop_pause", PAUSE)
+            result = await _call(client, "changes_list", {"kind": ["loop.pause"]})
+
+        entry = result.structured_content["changes"][0]
+        assert entry["reason"] == "checkout bug"
+        assert entry["via"]["client"] == "Claude Code"
+        assert entry.get("evidence") is None
+
+    async def test_a_committed_loop_resumes_to_its_option(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await _call(client, "loop_commit", COMMIT)
+            paused = await _call(client, "loop_pause", PAUSE)
+            result = await _call(client, "loop_resume", {**PAUSE, "reason": "fixed"})
+
+        assert paused.structured_content["loop"]["paused_from"] == "committed"
+        assert not result.is_error, result
+        loop = result.structured_content["loop"]
+        assert (loop["state"], loop["committed"]) == ("committed", "urgency")
+        assert result.structured_content["change"]["kind"] == "loop.resume"
+        assert result.content[0].text.startswith(
+            "Resumed checkout-headline: it is committed to urgency again."
+        )
+
+    async def test_resume_of_a_live_loop_is_refused(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            result = await _call(client, "loop_resume", PAUSE)
+
+        assert _error(result) == (
+            "The loop checkout-headline is live; only a paused loop can be "
+            "resumed. Nothing was changed. It is serving already."
+        )
+
+    async def test_pausing_a_draft_says_it_serves_its_fallback(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _draft(client)
+            result = await _call(client, "loop_pause", PAUSE)
+
+        assert _error(result) == (
+            "The loop checkout-headline is draft; nothing was paused. "
+            "A draft serves its fallback until it is launched with loop_launch."
+        )
+
+    async def test_pausing_twice_says_to_resume(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await _call(client, "loop_pause", PAUSE)
+            result = await _call(client, "loop_pause", {**PAUSE, "reason": "again"})
+
+        assert _error(result) == (
+            "The loop checkout-headline is paused; nothing was paused. "
+            "It is paused already; resume it with loop_resume."
+        )
+
+    async def test_committing_a_paused_loop_says_to_resume_it(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await _call(client, "loop_pause", PAUSE)
+            result = await _call(client, "loop_commit", COMMIT)
+
+        assert _error(result).endswith("Resume it with loop_resume first.")
+
+    async def test_a_paused_loop_retires(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await _call(client, "loop_pause", PAUSE)
+            result = await _call(client, "loop_retire", RETIRE)
+
+        assert not result.is_error, result
+        assert result.structured_content["loop"]["state"] == "retired"
+
+    async def test_undo_of_a_pause_resumes(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            paused = await _call(client, "loop_pause", PAUSE)
+            result = await _call(
+                client,
+                "change_undo",
+                {
+                    "change": paused.structured_content["change"]["id"],
+                    "reason": "false alarm",
+                },
+            )
+
+        assert not result.is_error, result
+        assert result.structured_content["change"]["kind"] == "loop.resume"
+        loop = await wired_app.svc.get_loop(TENANT, "checkout-headline")
+        assert loop["state"] == "live"
+
+
 class TestViewer:
 
     async def test_a_viewer_reads_every_read_tool(self, mcp, wired_app):
@@ -933,6 +1053,8 @@ class TestViewer:
             ),
             ("loop_reopen", {"loop": "x", "reason": "go"}, "reopen loops"),
             ("loop_retire", {"loop": "x", "reason": "go"}, "retire loops"),
+            ("loop_pause", {"loop": "x", "reason": "go"}, "pause loops"),
+            ("loop_resume", {"loop": "x", "reason": "go"}, "resume loops"),
             ("metric_create", METRIC, "create metrics"),
         ],
     )

@@ -763,6 +763,65 @@ def register(
 
         return await once("loop_retire", {"loop": loop, "reason": reason}, call)
 
+    async def loop_pause(
+        loop: LoopRef, reason: Reason
+    ) -> Annotated[CallToolResult, LoopChanged]:
+        """Pause a live or committed loop: everyone gets its fallback until it is resumed with loop_resume, which returns it to the state it was paused from. Decisions already made still seal and teach."""
+
+        async def call(principal: ConnectionPrincipal) -> CallToolResult:
+            _require(principal, "loop:write", "pause loops")
+            try:
+                paused = await service().pause_loop(
+                    principal.tenant_id, loop, actor=principal.actor, reason=reason
+                )
+            except LoopStateError as e:
+                found = await service().get_loop(principal.tenant_id, loop)
+                raise error.not_pausable(found["key"], found["state"]) from e
+            if paused is None:
+                raise await refused_loop(principal, loop)
+            value = paused.value
+            change = changed(paused, "loop", value["key"])
+            return _result(
+                f"Paused {value['key']}: everyone gets its fallback from now on, "
+                f"and decisions already made still seal and teach. Resume it "
+                f"with loop_resume. Change {change['id']}, can be undone: "
+                f"{change['url']}",
+                LoopChanged(status="applied", change=change, loop=value),
+            )
+
+        return await once("loop_pause", {"loop": loop, "reason": reason}, call)
+
+    async def loop_resume(
+        loop: LoopRef, reason: Reason
+    ) -> Annotated[CallToolResult, LoopChanged]:
+        """Resume a paused loop: it returns to the state it was paused from, live or committed, and decides again from now."""
+
+        async def call(principal: ConnectionPrincipal) -> CallToolResult:
+            _require(principal, "loop:write", "resume loops")
+            try:
+                resumed = await service().resume_loop(
+                    principal.tenant_id, loop, actor=principal.actor, reason=reason
+                )
+            except LoopStateError as e:
+                found = await service().get_loop(principal.tenant_id, loop)
+                raise error.not_paused(found["key"], found["state"]) from e
+            if resumed is None:
+                raise await refused_loop(principal, loop)
+            value = resumed.value
+            change = changed(resumed, "loop", value["key"])
+            serving = (
+                f"committed to {value['committed']}"
+                if value["state"] == "committed"
+                else "live"
+            )
+            return _result(
+                f"Resumed {value['key']}: it is {serving} again. "
+                f"Change {change['id']}, can be undone: {change['url']}",
+                LoopChanged(status="applied", change=change, loop=value),
+            )
+
+        return await once("loop_resume", {"loop": loop, "reason": reason}, call)
+
     async def metric_create(
         name: Annotated[
             str,
@@ -873,6 +932,8 @@ def register(
         (loop_commit, _DESTRUCTIVE),
         (loop_reopen, _DESTRUCTIVE),
         (loop_retire, _DESTRUCTIVE),
+        (loop_pause, _DESTRUCTIVE),
+        (loop_resume, _DESTRUCTIVE),
         (metric_create, _CREATE),
         (change_undo, _DESTRUCTIVE),
     ):

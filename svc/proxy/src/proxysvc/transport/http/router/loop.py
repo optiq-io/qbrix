@@ -35,6 +35,7 @@ from proxysvc.transport.http.exception import LoopNotCommittedException
 from proxysvc.transport.http.exception import LoopNotDraftException
 from proxysvc.transport.http.exception import LoopNotFoundException
 from proxysvc.transport.http.exception import LoopNotLiveException
+from proxysvc.transport.http.exception import LoopNotPausableException
 from proxysvc.transport.http.exception import LoopNotPausedException
 from proxysvc.transport.http.exception import LoopNotRetirableException
 
@@ -78,6 +79,10 @@ class LoopRenameRequest(BaseModel):
 
 
 class LoopResumeRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+class LoopPauseRequest(BaseModel):
     reason: Optional[str] = None
 
 
@@ -194,7 +199,7 @@ class LoopResults(BaseModel):
     decisions_per_second: float
 
 
-class ResumeResponse(BaseModel):
+class ServingResponse(BaseModel):
     loop: LoopResponse
     serving_within_seconds: int
 
@@ -294,6 +299,13 @@ LoopState = Literal["draft", "live", "committed", "paused", "retired"]
 ResultsPeriod = Literal["24h", "7d", "cycle"]
 PAGE_LIMIT = 50
 PAGE_LIMIT_MAX = 200
+
+
+def _serving(loop: dict) -> ServingResponse:
+    return ServingResponse(
+        loop=LoopResponse(**loop),
+        serving_within_seconds=math.ceil(settings.experiment_cache_ttl),
+    )
 
 
 def _not_found(loop: str) -> LoopNotFoundException:
@@ -592,7 +604,7 @@ async def retire_loop(
 @router.post(
     "/{loop}/resume",
     status_code=status.HTTP_200_OK,
-    response_model=ResumeResponse,
+    response_model=ServingResponse,
 )
 async def resume_loop(
     loop: str,
@@ -611,8 +623,32 @@ async def resume_loop(
         raise LoopNotPausedException(str(e))
     if resumed is None:
         raise _not_found(loop)
-    logger.info(f"loop resumed: {resumed['id']} by user {actor.user_id}")
-    return ResumeResponse(
-        loop=LoopResponse(**resumed),
-        serving_within_seconds=math.ceil(settings.experiment_cache_ttl),
-    )
+    logger.info(f"loop resumed: {resumed.value['id']} by user {actor.user_id}")
+    return _serving(resumed.value)
+
+
+@router.post(
+    "/{loop}/pause",
+    status_code=status.HTTP_200_OK,
+    response_model=ServingResponse,
+)
+async def pause_loop(
+    loop: str,
+    body: Optional[LoopPauseRequest] = None,
+    tenant_id: str = Depends(get_current_tenant_id),
+    actor: Actor = Depends(get_person),
+    _scoped=Depends(require_scopes(["loop:write"])),
+):
+    """pause a live or committed loop: everyone gets its fallback until a
+    person resumes it. serving moves on every replica within
+    serving_within_seconds."""
+    try:
+        paused = await get_proxy_service().pause_loop(
+            tenant_id, loop, actor=actor, reason=body.reason if body else None
+        )
+    except LoopStateError as e:
+        raise LoopNotPausableException(str(e))
+    if paused is None:
+        raise _not_found(loop)
+    logger.info(f"loop paused: {paused.value['id']} by user {actor.user_id}")
+    return _serving(paused.value)
