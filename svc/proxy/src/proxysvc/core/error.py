@@ -94,6 +94,32 @@ class ChangeMovedError(ChangeConflictError):
         self.later_change_id = later_change_id
 
 
+class ChangeNoLongerAppliesError(ChangeConflictError):
+    """raised when approving a waiting change whose write the target refuses
+    now; later_change_id is the newest change since it was asked, if any."""
+
+    def __init__(self, message: str, later_change_id: str | None):
+        super().__init__(message)
+        self.later_change_id = later_change_id
+
+
+class ChangeWaitingError(ChangeConflictError):
+    """raised when a change of the same kind already waits on the target."""
+
+    def __init__(self, message: str, waiting_change_id: str):
+        super().__init__(message)
+        self.waiting_change_id = waiting_change_id
+
+
+class ChangeAnsweredError(ChangeConflictError):
+    """raised when answering a change that isn't waiting."""
+
+
+class ChangeAnswerForbiddenError(BaseAPIError):
+    """raised when someone other than the connection's own person answers its
+    waiting change."""
+
+
 class MetricInvalidError(BaseAPIError):
     """raised when a metric's name, type, range, window or semantic is refused."""
 

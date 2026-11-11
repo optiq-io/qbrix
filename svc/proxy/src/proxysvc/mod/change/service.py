@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Collection
+from dataclasses import replace
 from datetime import datetime
 from datetime import timezone
 from typing import TYPE_CHECKING
@@ -13,15 +14,32 @@ from qbrixstore.redis import Learning
 
 from proxysvc.core import cursor as pages
 from proxysvc.core.actor import Actor
+from proxysvc.core.actor import Approval
+from proxysvc.core.error import ChangeAnsweredError
+from proxysvc.core.error import ChangeAnswerForbiddenError
 from proxysvc.core.error import ChangeConflictError
+from proxysvc.core.error import ChangeMovedError
+from proxysvc.core.error import ChangeNoLongerAppliesError
 from proxysvc.core.error import ChangeNotUndoableError
+from proxysvc.core.error import LoopInvalidError
+from proxysvc.core.error import LoopKeyTakenError
 from proxysvc.core.error import LoopNotFoundError
+from proxysvc.core.error import LoopStateError
+from proxysvc.core.error import MetricInvalidError
+from proxysvc.core.error import MetricNameTakenError
 from proxysvc.core.error import MetricNotFoundError
 from proxysvc.mod.change.entry import COUNTS_WITHIN
 from proxysvc.mod.change.entry import TargetName
 from proxysvc.mod.change.entry import counts
 from proxysvc.mod.change.entry import fold as fold_bursts
 from proxysvc.mod.change.entry import workspace_entry
+from proxysvc.mod.change.applied import Applied
+from proxysvc.mod.change.proposal import DECLINED
+from proxysvc.mod.change.proposal import HAPPENED
+from proxysvc.mod.change.proposal import WAITING
+from proxysvc.mod.change.proposal import Draft
+from proxysvc.mod.change.proposal import Proposed
+from proxysvc.mod.change.proposal import Waiting
 from proxysvc.mod.change.repository import ChangeRepository
 from proxysvc.mod.change.repository import moved_since
 from proxysvc.mod.change.serialize import change_to_dict
@@ -57,6 +75,15 @@ _RESTORABLE_EXPERIMENT_FIELDS = ("name", "enabled", "policy_params")
 _LEARNING_KINDS = ("experiment.reset", "experiment.restore")
 _UNVERSIONED = ("version", "updated_at")
 _RESTORABLE_LOOP_FIELDS = ("name", "key", "state", "committed")
+_REFUSED_NOW = (
+    ChangeConflictError,
+    ChangeNotUndoableError,
+    LoopInvalidError,
+    LoopKeyTakenError,
+    LoopStateError,
+    MetricInvalidError,
+    MetricNameTakenError,
+)
 
 
 def _changed_fields(change: Change) -> list[str]:
@@ -121,6 +148,28 @@ def _restored_part(change: Change, state: dict | None) -> dict | None:
     return {"name": state["name"]}
 
 
+def _check_answerable(change: Change, actor: Actor) -> None:
+    """a waiting change is answered by the person its connection acts for,
+    themselves: not another member, not an admin, not a key or a connection."""
+    person = actor.kind == "member" and not actor.api_key_id
+    if not person or actor.user_id != change.actor_user_id:
+        raise ChangeAnswerForbiddenError(
+            "only the person a connection acts for answers its changes"
+        )
+    if change.status != WAITING:
+        raise ChangeAnsweredError(
+            f"change {change.id} is {change.status}, not waiting for an answer"
+        )
+
+
+def _ref(change: Change) -> dict:
+    return {
+        "id": change.id,
+        "kind": change.kind,
+        "undoable": is_undoable(change.kind),
+    }
+
+
 async def _targets(
     session: AsyncSession, tenant_id: str, loop: str | None, metric: str | None
 ) -> list[tuple[str, str]]:
@@ -152,6 +201,7 @@ async def _rows(
         session,
         tenant_id,
         [c.actor_user_id for c in changes]
+        + [c.decided_by_user_id for c in changes if c.decided_by_user_id]
         + [u.actor_user_id for u in undoers.values()],
     )
     loops = await LoopRepository(session, tenant_id).names(
@@ -267,6 +317,7 @@ class ChangeService:
         loop: str | None = None,
         metric: str | None = None,
         undoable: bool | None = None,
+        statuses: Collection[str] = HAPPENED,
         fold: bool = True,
         cursor: str | None = None,
         limit: int,
@@ -285,6 +336,7 @@ class ChangeService:
                 except_kinds=except_kinds,
                 targets=targets,
                 undoable=undoable,
+                statuses=statuses,
             )
             changes, next_cursor = pages.page(rows, limit)
             groups = fold_bursts(changes) if fold else [[c] for c in changes]
@@ -350,14 +402,18 @@ class ChangeService:
             latest_id=later[0].id if later else change.id,
             reason=reason,
         )
-        applied = await self._apply_inverse(
-            tenant_id,
-            change,
-            actor=actor,
-            undoing=undoing,
-            plan_tier=plan_tier,
-            baseline_applied=baseline_applied,
-        )
+        try:
+            applied = await self._apply_inverse(
+                tenant_id,
+                change,
+                actor=actor,
+                undoing=undoing,
+                plan_tier=plan_tier,
+                baseline_applied=baseline_applied,
+            )
+        except Proposed as proposed:
+            waiting = await self._wait(tenant_id, proposed.draft, actor, None)
+            return change_to_dict(waiting)
         if not applied:
             raise ChangeConflictError(
                 f"the {change.target_type} {change.target_id} no longer exists"
@@ -369,6 +425,11 @@ class ChangeService:
 
     @staticmethod
     async def _check_undoable(repo: ChangeRepository, change: Change) -> None:
+        if change.status not in HAPPENED:
+            raise ChangeNotUndoableError(
+                f"change {change.id} is {change.status}: it never applied, so "
+                f"there is nothing to undo"
+            )
         if not is_undoable(change.kind):
             raise ChangeNotUndoableError(
                 NOT_UNDOABLE.get(change.kind, f"{change.kind} cannot be undone")
@@ -378,6 +439,237 @@ class ChangeService:
             raise ChangeConflictError(
                 f"change {change.id} was already undone by {undo.id if undo else 'another change'}"
             )
+
+    async def act(
+        self,
+        tenant_id: str,
+        kind: str,
+        ref: str | None,
+        args: dict,
+        *,
+        actor: Actor,
+        reason: str | None = None,
+        evidence: dict | None = None,
+    ) -> Applied | Waiting | None:
+        """a connection's change at its level for the kind: applied at once,
+        or, when it must ask first, stored waiting for its person with args as
+        the proposal its approval re-runs. None when the target isn't found."""
+        try:
+            return await self._make(
+                tenant_id,
+                kind,
+                ref,
+                args,
+                actor=actor,
+                reason=reason,
+                evidence=evidence,
+            )
+        except Proposed as proposed:
+            waiting = await self._wait(tenant_id, proposed.draft, actor, args)
+            return Waiting(value=proposed.draft.before, change=_ref(waiting))
+
+    async def approve(
+        self,
+        tenant_id: str,
+        change_id: str,
+        *,
+        actor: Actor,
+        role: str,
+        where: str,
+        raise_level: bool = False,
+    ) -> dict | None:
+        """apply a waiting change as its connection, with its person's yes.
+
+        the write runs against the target as it is now, and the change that
+        waited becomes the applied one. when the target no longer takes it,
+        nothing applies and the change keeps waiting. raise_level then sets
+        the connection to act and notify for that kind, as a change of its own.
+        """
+        async with get_session() as session:
+            repo = ChangeRepository(session, tenant_id)
+            change = await repo.get(change_id)
+            if change is None:
+                return None
+            _check_answerable(change, actor)
+            undone = await repo.get(change.undoes_id) if change.undoes_id else None
+        if raise_level:
+            await self._connections.levels(
+                tenant_id, change.connection_id, user_id=actor.user_id, role=role
+            )
+
+        connection = replace(
+            Actor.connection(
+                change.actor_user_id,
+                connection_id=change.connection_id,
+                client_name=change.client_name or "",
+                request_id=actor.request_id,
+            ),
+            level=change.level,
+            approval=Approval(change_id=change.id, user_id=actor.user_id, where=where),
+        )
+        try:
+            if undone is not None:
+                made = await self.undo(
+                    tenant_id, undone.id, actor=connection, reason=change.reason
+                )
+            else:
+                made = await self._make(
+                    tenant_id,
+                    change.kind,
+                    change.target_id,
+                    change.proposal or {},
+                    actor=connection,
+                    reason=change.reason,
+                    evidence=change.evidence,
+                )
+        except ChangeAnsweredError:
+            raise
+        except ChangeMovedError as e:
+            raise ChangeNoLongerAppliesError(
+                f"{e}. nothing was applied; the change still waits",
+                e.later_change_id,
+            ) from e
+        except _REFUSED_NOW as e:
+            raise await self._no_longer_applies(tenant_id, change, str(e)) from e
+        if made is None:
+            raise await self._no_longer_applies(
+                tenant_id, change, f"the {change.target_type} is gone"
+            )
+
+        if raise_level:
+            await self._connections.set_levels(
+                tenant_id,
+                change.connection_id,
+                {undone.kind if undone else change.kind: "notify"},
+                actor=actor,
+                role=role,
+                reason=f"raised when approving change {change.id}",
+            )
+        return await self.get_entry(tenant_id, change.id)
+
+    async def decline(
+        self,
+        tenant_id: str,
+        change_id: str,
+        *,
+        actor: Actor,
+        where: str,
+        reason: str | None = None,
+    ) -> dict | None:
+        """turn a waiting change down. it stays in history with the reason,
+        which agents read before proposing it again."""
+        async with get_session() as session:
+            repo = ChangeRepository(session, tenant_id)
+            change = await repo.get(change_id)
+            if change is None:
+                return None
+            _check_answerable(change, actor)
+            await repo.decide(
+                change.id,
+                status=DECLINED,
+                user_id=actor.user_id,
+                where=where,
+                reason=reason,
+            )
+        return await self.get_entry(tenant_id, change_id)
+
+    async def _wait(
+        self, tenant_id: str, draft: Draft, actor: Actor, proposal: dict | None
+    ) -> Change:
+        async with get_session() as session:
+            return await ChangeRepository(session, tenant_id).propose(
+                draft, actor, proposal
+            )
+
+    async def _no_longer_applies(
+        self, tenant_id: str, change: Change, refused: str
+    ) -> ChangeNoLongerAppliesError:
+        """the refusal, with the newest change since it was asked: what moved
+        the target, when one did."""
+        async with get_session() as session:
+            later = await ChangeRepository(session, tenant_id).newest_since(
+                change.target_type, change.target_id, change.asked_at
+            )
+        if later is None:
+            return ChangeNoLongerAppliesError(
+                f"{refused}. nothing was applied; the change still waits", None
+            )
+        return ChangeNoLongerAppliesError(
+            f"{refused}: {later.kind} ({later.id}) changed the {change.target_type} "
+            f"since this was asked. nothing was applied; the change still waits",
+            later.id,
+        )
+
+    async def _make(
+        self,
+        tenant_id: str,
+        kind: str,
+        ref: str | None,
+        args: dict,
+        *,
+        actor: Actor,
+        reason: str | None,
+        evidence: dict | None,
+    ) -> Applied | None:
+        """the write a kind of change makes, from its args. a waiting change
+        stores args as its proposal, so asking and approving run the same."""
+        loops = self._loops
+        if kind == "loop.create":
+            return await loops.create_loop(
+                tenant_id, **args, actor=actor, reason=reason
+            )
+        if kind == "metric.create":
+            score_range = args.get("score_range")
+            return await self._metrics.create_metric(
+                tenant_id,
+                name=args["name"],
+                semantic=args["semantic"],
+                metric_type=args["metric_type"],
+                score_range=tuple(score_range) if score_range else None,
+                window_seconds=args["window_seconds"],
+                actor=actor,
+                reason=reason,
+            )
+        if kind == "note.add":
+            return await loops.add_note(tenant_id, ref, text=args["text"], actor=actor)
+        if kind == "loop.launch":
+            return await loops.launch_loop(tenant_id, ref, actor=actor, reason=reason)
+        if kind == "loop.rename":
+            return await loops.rename_loop(
+                tenant_id,
+                ref,
+                name=args.get("name"),
+                key=args.get("key"),
+                actor=actor,
+                reason=reason,
+            )
+        if kind == "loop.commit":
+            return await loops.commit_loop(
+                tenant_id, ref, option=args["option"], actor=actor, reason=reason
+            )
+        if kind == "loop.reopen":
+            return await loops.reopen_loop(tenant_id, ref, actor=actor, reason=reason)
+        if kind == "loop.retire":
+            return await loops.retire_loop(tenant_id, ref, actor=actor, reason=reason)
+        if kind == "loop.pause":
+            return await loops.pause_loop(
+                tenant_id, ref, actor=actor, reason=reason, evidence=evidence
+            )
+        if kind == "loop.resume":
+            return await loops.resume_loop(tenant_id, ref, actor=actor, reason=reason)
+        if kind == "cycle.start":
+            return await loops.start_cycle(
+                tenant_id,
+                ref,
+                options=args.get("options"),
+                engine=args.get("engine"),
+                fallback=args.get("fallback"),
+                actor=actor,
+                reason=reason,
+            )
+        if kind == "cycle.reset":
+            return await loops.reset_cycle(tenant_id, ref, actor=actor, reason=reason)
+        raise ValueError(f"a connection doesn't make {kind} changes directly")
 
     @staticmethod
     async def _check_unchanged_since(

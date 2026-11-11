@@ -16,12 +16,29 @@ Every change in qbrix has a person behind it. People act in the console, or thro
 
 A connection can never do more than its person. What it may do is the person's role, checked on every call, so a viewer's connection can only read, and changing someone's role changes what their connections may do from their next call.
 
+## Changes that ask first
+
+For each kind of change, a connection has one of three levels:
+
+- **Act on its own:** the change applies at once.
+- **Act and notify:** the change applies at once, and you are told.
+- **Ask first:** the change waits until you approve it.
+
+A new connection asks first to launch a loop, start a cycle or retire a loop, because these put something new in front of users or can't be fully undone. It creates drafts, metrics and notes on its own, and acts and notifies for everything else. Undoing a change runs at the level of the change it undoes. Reads have no level.
+
+A change that asks first is stored, waiting, with the client's reason and what it would change, and nothing applies. Only you answer your connections' changes, and only if your role could make the change yourself:
+
+- **Approve:** the change applies, and history records that you approved it and where, for example "approved by Mustafa in qbrix". You can also let the connection act and notify for that kind from now on; that is recorded as a change of its own.
+- **Decline:** the change stays in history with your reason, if you give one. Agents read a loop's declined changes before proposing again.
+
+A waiting change never expires, and one change of each kind waits on a loop at a time. When you approve, it runs against the loop as it is then. If the loop has moved so that the change no longer applies, for example the loop was committed while a new cycle waited, nothing applies, qbrix names the change that moved it, and the change keeps waiting until you decline it. A change in between that doesn't stop it, such as a rename, doesn't block it.
+
 ## Signing a client in
 
 You add qbrix to your client with one address, the [MCP server](/docs/mcp-server). The first time the client calls qbrix, it finds qbrix's sign-in by itself and opens your browser:
 
 1. You sign in to the console, if you aren't already.
-2. qbrix shows the client's name, where it comes from, and that its changes apply at once, within your role.
+2. qbrix shows the client's name, where it comes from, and the [autonomy](#changes-that-ask-first) it starts with.
 3. You approve, and the client receives its access. You can decline instead, and the client gets nothing.
 
 Nobody registers an app first: clients identify themselves, either by publishing a description of themselves at a URL or by registering when they first sign in. The access a client receives works only for your qbrix's MCP server, never for the API or anything else.

@@ -4,6 +4,7 @@ import logging
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
+from dataclasses import replace
 from datetime import datetime
 from datetime import timezone
 
@@ -81,6 +82,10 @@ class ConnectionPrincipal:
 
     def level(self, kind: str) -> autonomy.Level:
         return autonomy.level_of(kind, self.levels)
+
+    def acting(self, kind: str) -> Actor:
+        """the connection's actor for one change, at its level for the kind."""
+        return replace(self.actor, level=self.level(kind))
 
 
 class ConnectionService:

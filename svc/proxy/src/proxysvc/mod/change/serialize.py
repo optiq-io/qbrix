@@ -42,9 +42,35 @@ VERBS = {
 }
 _ANY_KIND = "changed"
 
+ASKING = {
+    "loop.create": "create",
+    "loop.launch": "launch",
+    "loop.rename": "rename",
+    "loop.commit": "commit",
+    "loop.reopen": "reopen",
+    "loop.pause": "pause",
+    "loop.resume": "resume",
+    "loop.retire": "retire",
+    "cycle.start": "start a new cycle of",
+    "cycle.reset": "reset",
+    "metric.create": "create",
+    "metric.delete": "delete",
+    "note.add": "add a note to",
+}
+
 
 def verb_of(kind: str) -> str:
     return VERBS.get(kind, _ANY_KIND)
+
+
+def verb_for(change: Change) -> str:
+    """the verb as the change stands: done, asked for, or asked for and
+    turned down."""
+    if change.status == "waiting":
+        return f"asks to {ASKING.get(change.kind, 'change')}"
+    if change.status == "declined":
+        return f"asked to {ASKING.get(change.kind, 'change')}"
+    return verb_of(change.kind)
 
 
 def snapshot(value: Any) -> Any:
@@ -88,7 +114,7 @@ def history_entry(change: Change, people: People) -> dict:
     return {
         "id": change.id,
         "kind": change.kind,
-        "verb": verb_of(change.kind),
+        "verb": verb_for(change),
         "at": change.created_at.isoformat() if change.created_at else None,
         "status": change.status,
         "who": who_made(change, people),
@@ -102,6 +128,26 @@ def history_entry(change: Change, people: People) -> dict:
         "note": change.after["text"] if change.kind == NOTE else None,
         "request_id": change.request_id,
         "undoes_id": change.undoes_id,
+        "level": change.level,
+        "asked_at": change.asked_at.isoformat() if change.asked_at else None,
+        "decision": decision_of(change, people),
+    }
+
+
+def decision_of(change: Change, people: People) -> dict | None:
+    """who answered a change that asked first, where, and why when declined."""
+    if change.decided_by_user_id is None:
+        return None
+    return {
+        "answer": "declined" if change.status == "declined" else "approved",
+        "who": {
+            "kind": "member",
+            "user_id": change.decided_by_user_id,
+            "name": people.name(change.decided_by_user_id),
+        },
+        "at": change.decided_at.isoformat() if change.decided_at else None,
+        "where": change.decided_in,
+        "reason": change.decision_reason,
     }
 
 
@@ -125,7 +171,7 @@ def change_to_dict(change: Change) -> dict:
         "after": change.after,
         "learning": change.learning,
         "status": change.status,
-        "undoable": is_undoable(change.kind),
+        "undoable": is_undoable(change.kind) and change.status == "applied",
         "undoes_id": change.undoes_id,
         "created_at": change.created_at.isoformat() if change.created_at else None,
     }

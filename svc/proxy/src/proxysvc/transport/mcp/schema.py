@@ -40,6 +40,7 @@ class LoopView(Loop):
     latest_change: Optional[HistoryEntry] = None
     wire: Wiring
     autonomy: dict[str, Level]
+    declined: list[ChangeEntry]
 
 
 class LoopListItem(Loop):
@@ -82,20 +83,26 @@ class ChangeRef(BaseModel):
     url: str
 
 
+ChangeStatus = Literal["applied", "waiting"]
+
+
 class LoopChanged(BaseModel):
-    status: Literal["applied"]
+    """the loop as the change left it; while the change waits, as it is now,
+    and none for a loop that waits to be created."""
+
+    status: ChangeStatus
     change: ChangeRef
-    loop: Loop
+    loop: Optional[Loop] = None
 
 
 class MetricChanged(BaseModel):
-    status: Literal["applied"]
+    status: ChangeStatus
     change: ChangeRef
-    metric: MetricResponse
+    metric: Optional[MetricResponse] = None
 
 
 class ChangeUndone(BaseModel):
-    status: Literal["applied"]
+    status: ChangeStatus
     change: ChangeRef
     undone: ChangeEntry
 
@@ -105,6 +112,6 @@ class HistoryPage(ChangePage):
 
 
 class NoteAdded(BaseModel):
-    status: Literal["applied"]
+    status: ChangeStatus
     change: ChangeRef
     note: ChangeEntry

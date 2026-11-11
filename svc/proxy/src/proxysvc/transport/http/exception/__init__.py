@@ -43,6 +43,9 @@ from proxysvc.transport.http.exception.base import InvalidMetricException
 from proxysvc.transport.http.exception.base import MetricNameTakenException
 from proxysvc.transport.http.exception.base import ChangeNotFoundException
 from proxysvc.transport.http.exception.base import ChangeNotUndoableException
+from proxysvc.transport.http.exception.base import ChangeAnsweredException
+from proxysvc.transport.http.exception.base import ChangeAnswerForbiddenException
+from proxysvc.transport.http.exception.base import ChangeNoLongerAppliesException
 from proxysvc.transport.http.exception.base import LoopNotFoundException
 from proxysvc.transport.http.exception.base import CycleNotFoundException
 from proxysvc.transport.http.exception.base import InvalidLoopException
@@ -109,6 +112,9 @@ __all__ = [
     "MetricNameTakenException",
     "ChangeNotFoundException",
     "ChangeNotUndoableException",
+    "ChangeAnsweredException",
+    "ChangeAnswerForbiddenException",
+    "ChangeNoLongerAppliesException",
     "LoopNotFoundException",
     "CycleNotFoundException",
     "InvalidLoopException",

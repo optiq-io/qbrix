@@ -12,9 +12,13 @@ from fastapi import status
 from pydantic import BaseModel
 
 from proxysvc.core.actor import Actor
+from proxysvc.core.error import ChangeAnsweredError
+from proxysvc.core.error import ChangeAnswerForbiddenError
 from proxysvc.core.error import ChangeConflictError
 from proxysvc.core.error import ChangeMovedError
+from proxysvc.core.error import ChangeNoLongerAppliesError
 from proxysvc.core.error import ChangeNotUndoableError
+from proxysvc.core.error import ConnectionNotFoundError
 from proxysvc.core.error import ConnectionLevelsForbiddenError
 from proxysvc.core.error import ExperimentLimitError
 from proxysvc.core.error import ExperimentRunningError
@@ -24,15 +28,20 @@ from proxysvc.core.error import LoopNotFoundError
 from proxysvc.core.error import LoopStateError
 from proxysvc.core.error import MetricNotFoundError
 from proxysvc.mod.auth.scope import ROLE_SCOPES
+from proxysvc.mod.change.proposal import HAPPENED
 from proxysvc.mod.change.undo import undo_scope
 from proxysvc.service import ProxyService
 from proxysvc.transport.http.auth.dependencies import get_current_active_user
 from proxysvc.transport.http.auth.dependencies import get_current_tenant_id
 from proxysvc.transport.http.auth.dependencies import get_person
 from proxysvc.transport.http.auth.dependencies import require_scopes
+from proxysvc.transport.http.exception import ChangeAnsweredException
+from proxysvc.transport.http.exception import ChangeAnswerForbiddenException
+from proxysvc.transport.http.exception import ChangeNoLongerAppliesException
 from proxysvc.transport.http.exception import ChangeNotFoundException
 from proxysvc.transport.http.exception import ChangeNotUndoableException
 from proxysvc.transport.http.exception import ConnectionLevelsForbiddenException
+from proxysvc.transport.http.exception import ConnectionNotFoundException
 from proxysvc.transport.http.exception import InsufficientScopesException
 from proxysvc.transport.http.exception import InvalidCursorException
 from proxysvc.transport.http.exception import LoopNotFoundException
@@ -139,6 +148,17 @@ class UndoRequest(BaseModel):
     reason: Optional[str] = None
 
 
+class ApproveRequest(BaseModel):
+    raise_level: bool = False
+
+
+class DeclineRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+ChangeStatus = Literal["applied", "undone", "waiting", "declined"]
+
+
 @router.get(
     "",
     status_code=status.HTTP_200_OK,
@@ -150,13 +170,15 @@ async def list_changes(
     loop: Optional[str] = None,
     metric: Optional[str] = None,
     undoable: Optional[bool] = None,
+    status: Optional[list[ChangeStatus]] = Query(default=None),
     fold: bool = True,
     cursor: Optional[str] = None,
     limit: int = Query(default=PAGE_LIMIT, ge=1, le=PAGE_LIMIT_MAX),
     tenant_id: str = Depends(get_current_tenant_id),
     _scoped=Depends(require_scopes(["loop:read"])),
 ):
-    """every change in the workspace, newest first, with bursts folded."""
+    """every change in the workspace, newest first, with bursts folded. the
+    ones that happened, applied or undone, unless status names others."""
     try:
         page = await get_proxy_service().list_workspace_changes(
             tenant_id,
@@ -165,6 +187,7 @@ async def list_changes(
             loop=loop,
             metric=metric,
             undoable=undoable,
+            statuses=status or HAPPENED,
             fold=fold,
             cursor=cursor,
             limit=limit,
@@ -271,3 +294,86 @@ async def undo_change(
         raise ChangeNotUndoableException(str(e))
     logger.info(f"change undone: {change_id} by user {actor.user_id}")
     return ChangeEntry(**await service.get_change_entry(tenant_id, undo["id"]))
+
+
+async def _answerable(change_id: str, tenant_id: str, user) -> None:
+    """answering a change takes what making it takes."""
+    change = await get_proxy_service().get_change(tenant_id, change_id)
+    if change is None:
+        raise ChangeNotFoundException(f"no change with the id {change_id!r}")
+    scope = undo_scope(change["target_type"])
+    if scope is not None and scope not in ROLE_SCOPES.get(user.role, ()):
+        raise InsufficientScopesException(f"required scope '{scope}' not available")
+
+
+@router.post(
+    "/{change_id}/approve",
+    status_code=status.HTTP_200_OK,
+    response_model=ChangeEntry,
+)
+async def approve_change(
+    change_id: str,
+    body: Optional[ApproveRequest] = None,
+    tenant_id: str = Depends(get_current_tenant_id),
+    actor: Actor = Depends(get_person),
+    user=Depends(get_current_active_user),
+):
+    """apply a change that waited for its person, and return it applied."""
+    await _answerable(change_id, tenant_id, user)
+    try:
+        entry = await get_proxy_service().approve_change(
+            tenant_id,
+            change_id,
+            actor=actor,
+            role=user.role,
+            where="qbrix",
+            raise_level=body.raise_level if body else False,
+        )
+    except ChangeAnswerForbiddenError as e:
+        raise ChangeAnswerForbiddenException(str(e))
+    except ChangeAnsweredError as e:
+        raise ChangeAnsweredException(str(e))
+    except ChangeNoLongerAppliesError as e:
+        context = {"later_change_id": e.later_change_id} if e.later_change_id else None
+        raise ChangeNoLongerAppliesException(str(e), context=context)
+    except ConnectionNotFoundError:
+        raise ConnectionNotFoundException(
+            "the connection that asked is gone, so its level can't be raised; "
+            "approve without raise_level"
+        )
+    if entry is None:
+        raise ChangeNotFoundException(f"no change with the id {change_id!r}")
+    logger.info(f"change approved: {change_id} by user {actor.user_id}")
+    return ChangeEntry(**entry)
+
+
+@router.post(
+    "/{change_id}/decline",
+    status_code=status.HTTP_200_OK,
+    response_model=ChangeEntry,
+)
+async def decline_change(
+    change_id: str,
+    body: Optional[DeclineRequest] = None,
+    tenant_id: str = Depends(get_current_tenant_id),
+    actor: Actor = Depends(get_person),
+    user=Depends(get_current_active_user),
+):
+    """turn down a change that waited for its person; it stays in history."""
+    await _answerable(change_id, tenant_id, user)
+    try:
+        entry = await get_proxy_service().decline_change(
+            tenant_id,
+            change_id,
+            actor=actor,
+            where="qbrix",
+            reason=body.reason if body else None,
+        )
+    except ChangeAnswerForbiddenError as e:
+        raise ChangeAnswerForbiddenException(str(e))
+    except ChangeAnsweredError as e:
+        raise ChangeAnsweredException(str(e))
+    if entry is None:
+        raise ChangeNotFoundException(f"no change with the id {change_id!r}")
+    logger.info(f"change declined: {change_id} by user {actor.user_id}")
+    return ChangeEntry(**entry)

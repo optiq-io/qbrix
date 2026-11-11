@@ -430,6 +430,17 @@ class Change(Base):
         ),
         # the workspace's changes, newest first
         Index("ix_changes_tenant_id_created_at", "tenant_id", "created_at", "id"),
+        # one change of a kind waits on a target at a time
+        Index(
+            "uq_changes_waiting",
+            "tenant_id",
+            "target_type",
+            "target_id",
+            "kind",
+            unique=True,
+            postgresql_where=text("status = 'waiting'"),
+            sqlite_where=text("status = 'waiting'"),
+        ),
     )
 
     id: Mapped[str] = mapped_column(
@@ -457,10 +468,24 @@ class Change(Base):
     learning: Mapped[dict | None] = mapped_column(
         JSON(none_as_null=True), nullable=True
     )
+    # applied, undone, waiting (asked first, not applied) or declined
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="applied")
     undoes_id: Mapped[str | None] = mapped_column(
         String(32), ForeignKey("changes.id"), nullable=True
     )
+    level: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    proposal: Mapped[dict | None] = mapped_column(
+        JSON(none_as_null=True), nullable=True
+    )
+    asked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    decided_by_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    decided_in: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    decision_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

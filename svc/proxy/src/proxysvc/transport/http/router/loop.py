@@ -175,12 +175,20 @@ class Via(BaseModel):
     client: Optional[str] = None
 
 
+class Decision(BaseModel):
+    answer: Literal["approved", "declined"]
+    who: Who
+    at: Optional[str] = None
+    where: Optional[str] = None
+    reason: Optional[str] = None
+
+
 class HistoryEntry(BaseModel):
     id: str
     kind: str
     verb: str
     at: Optional[str] = None
-    status: str
+    status: Literal["applied", "undone", "waiting", "declined"]
     who: Who
     via: Optional[Via] = None
     reason: Optional[str] = None
@@ -188,6 +196,9 @@ class HistoryEntry(BaseModel):
     note: Optional[str] = None
     request_id: Optional[str] = None
     undoes_id: Optional[str] = None
+    level: Optional[Literal["own", "notify", "ask"]] = None
+    asked_at: Optional[str] = None
+    decision: Optional[Decision] = None
 
 
 class LoopSummary(BaseModel):
@@ -576,7 +587,7 @@ async def rename_loop(
         raise LoopNotDraftException(str(e))
     if renamed is None:
         raise _not_found(loop)
-    return LoopResponse(**renamed)
+    return LoopResponse(**renamed.value)
 
 
 @router.post(
