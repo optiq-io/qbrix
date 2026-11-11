@@ -39,6 +39,7 @@ from proxysvc.mod.loop.result import LoopResultService
 from proxysvc.mod.loop.route import LoopRouteCache
 from proxysvc.mod.loop.select import LoopSelectService
 from proxysvc.mod.milestone.service import MilestoneService
+from proxysvc.mod.summary.service import SummaryService
 from proxysvc.mod.loop.service import LoopService
 from proxysvc.mod.metric.service import DEFAULT_WINDOW_SECONDS
 from proxysvc.mod.metric.service import MetricService
@@ -77,6 +78,7 @@ class ProxyService:
         self._loop_outcome_service: LoopOutcomeService | None = None
         self._loop_result_service: LoopResultService | None = None
         self._milestone_service: MilestoneService | None = None
+        self._summary_service: SummaryService | None = None
         self._experiment_service: ExperimentService | None = None
         self._connection_service: ConnectionService | None = None
         self._oauth_service: OAuthService | None = None
@@ -172,6 +174,9 @@ class ProxyService:
             redis=self._redis, clickhouse=self._clickhouse
         )
         self._milestone_service = MilestoneService(self._loop_result_service.read)
+        self._summary_service = SummaryService(
+            self._loop_result_service, self._milestone_service
+        )
         self._connection_service = ConnectionService(
             redis=self._redis, settings=self._settings
         )
@@ -797,6 +802,11 @@ class ProxyService:
         return await self._milestone_service.list_milestones(
             tenant_id, loop=loop, metric=metric, kinds=kinds, since=since, limit=limit
         )
+
+    async def workspace_summary(
+        self, tenant_id: str, since: datetime | None = None
+    ) -> dict:
+        return await self._summary_service.week(tenant_id, since)
 
     async def outcome(
         self,

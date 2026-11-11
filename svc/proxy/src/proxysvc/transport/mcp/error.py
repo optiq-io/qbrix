@@ -18,6 +18,7 @@ from proxysvc.core.error import LoopKeyTakenError
 from proxysvc.core.error import LoopStateError
 from proxysvc.core.error import MetricInvalidError
 from proxysvc.core.error import MetricNameTakenError
+from proxysvc.core.error import SummaryRangeError
 
 
 class Refusal(Exception):
@@ -253,3 +254,5 @@ def refusals() -> Iterator[None]:
         raise Refusal(f"{_sentence(str(e))} Fix it and call again.") from e
     except MetricInvalidError as e:
         raise Refusal(f"{_sentence(str(e))} Fix it and call again.") from e
+    except SummaryRangeError as e:
+        raise Refusal(_sentence(str(e))) from e

@@ -28,6 +28,7 @@ def next_routes(app: FastAPI, settings: ProxySettings) -> None:
     from proxysvc.transport.http.router.pin import router as pin_router
     from proxysvc.transport.http.router.runtime import status_router
     from proxysvc.transport.http.router.select import router as select_router
+    from proxysvc.transport.http.router.summary import router as summary_router
 
     app.include_router(metric_router, prefix="/api/v1")
     app.include_router(loop_router, prefix="/api/v1")
@@ -38,6 +39,7 @@ def next_routes(app: FastAPI, settings: ProxySettings) -> None:
     app.include_router(pin_router, prefix="/api/v1")
     app.include_router(change_router, prefix="/api/v1")
     app.include_router(milestone_router, prefix="/api/v1")
+    app.include_router(summary_router, prefix="/api/v1")
     app.include_router(status_router, prefix="/api/v1")
     app.include_router(oauth_router)
 

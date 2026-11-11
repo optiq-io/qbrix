@@ -104,6 +104,14 @@ def _lift_span(
     return CycleSpan(cycle.id, started, until), until < ended
 
 
+def _running_at(loop: Loop, at_ms: int) -> Cycle | None:
+    for cycle in loop.cycles:
+        ended = _ms(cycle.ended_at) if cycle.ended_at else None
+        if _ms(cycle.started_at) < at_ms and (ended is None or at_ms <= ended):
+            return cycle
+    return None
+
+
 def _decisions(selects: dict[str, int]) -> int:
     """the answers that were decisions, out of a loop's select counts."""
     return (
@@ -327,6 +335,44 @@ class LoopResultService:
                 "decisions_per_second": _rate(_decisions(recent[loop.id]), cycle, now),
             }
         return summaries
+
+    async def shares_at(
+        self, tenant_id: str, loops: Sequence[Loop], at_ms: int
+    ) -> dict:
+        """each loop's share as it stood at a moment: the decisions of the day
+        before it, in the cycle running then, keyed by loop id, from one query
+        for them all. a loop with no cycle running then has none."""
+        running = [
+            (loop, cycle) for loop in loops if (cycle := _running_at(loop, at_ms))
+        ]
+        if not running:
+            return {}
+        spans = [
+            CycleSpan(
+                cycle.id,
+                max(_ms(cycle.started_at), at_ms - PERIODS_MS[SUMMARY_PERIOD]),
+                at_ms,
+            )
+            for _, cycle in running
+        ]
+        counts = await self.read(lambda ch: ch.decision_counts(tenant_id, spans, None))
+        shares = {}
+        for loop, cycle in running:
+            counted = _by_option(cycle, [c for c in counts if c.cycle_id == cycle.id])
+            total = sum(count.decisions for count in counted)
+            shares[loop.id] = {
+                "at": _iso(at_ms),
+                "cycle": cycle.number,
+                "options": [
+                    {
+                        "key": option["key"],
+                        "name": option["name"],
+                        "share": count.decisions / total if total else None,
+                    }
+                    for option, count in zip(cycle.options, counted)
+                ],
+            }
+        return shares
 
 
 def _by_option(cycle: Cycle, counts: Sequence[DecisionCount]) -> list[DecisionCount]:

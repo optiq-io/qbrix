@@ -145,6 +145,17 @@ class LoopRepository:
         response = await self._session.execute(stmt)
         return list(response.scalars().all())
 
+    async def with_states(self, states: Sequence[str]) -> list[Loop]:
+        """every loop in these states, newest first."""
+        stmt = (
+            select(Loop)
+            .options(*_LOADS)
+            .where(Loop.tenant_id == self._tenant_id, Loop.state.in_(states))
+            .order_by(Loop.created_at.desc(), Loop.id.desc())
+        )
+        response = await self._session.execute(stmt)
+        return list(response.scalars().all())
+
     async def live_cycles(self, cycle_ids: Sequence[str]) -> list[tuple[Loop, str]]:
         """the live loops whose running cycle is one of cycle_ids, with it."""
         stmt = (
