@@ -459,7 +459,7 @@ class TestHealth:
 
         assert results["calls"]["live"] == 600
         elapsed = 4 * 60 + (now % MINUTE_MS) / 1000
-        assert results["decisions_per_second"] == 60 / elapsed
+        assert results["decisions_per_second"] == pytest.approx(60 / elapsed)
 
     async def test_a_young_cycles_rate_reads_only_what_it_has_run(self, wired_app, api):
         loop = await _loop(wired_app)
