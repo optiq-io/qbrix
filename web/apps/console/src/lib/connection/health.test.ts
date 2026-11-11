@@ -12,6 +12,7 @@ function connection(lastUsedDaysAgo: number | null, overrides: Partial<Connectio
     user: { id: "u1", name: "Ada" },
     created_at: new Date(NOW - 100 * DAY).toISOString(),
     last_used_at: lastUsedDaysAgo === null ? null : new Date(NOW - lastUsedDaysAgo * DAY).toISOString(),
+    levels_changed: [],
     ...overrides,
   };
 }

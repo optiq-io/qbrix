@@ -19,6 +19,7 @@ from qbrixstore.postgres.session import get_session
 from qbrixstore.redis.client import RedisClient
 
 from proxysvc.config import ProxySettings
+from proxysvc.core import autonomy
 from proxysvc.core.error import OAuthError
 from proxysvc.core.error import OAuthRedirectError
 from proxysvc.core.error import OAuthRequestNotFoundError
@@ -249,7 +250,7 @@ class OAuthService:
                 "registered_by_itself": client["metadata_url"] is None,
             },
             "acts_for": {"name": name, "email": email},
-            "applies_at_once": True,
+            "autonomy": autonomy.by_level(),
         }
 
     async def decide(

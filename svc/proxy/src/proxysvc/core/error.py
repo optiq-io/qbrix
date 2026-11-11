@@ -208,6 +208,11 @@ class ConnectionNotFoundError(BaseAPIError):
     """raised when a connection doesn't exist or isn't the caller's to see."""
 
 
+class ConnectionLevelsForbiddenError(BaseAPIError):
+    """raised when anyone but a connection's own person sets its levels,
+    the connection itself included."""
+
+
 class PinTargetNotFoundError(BaseAPIError):
     """raised when a pin names a loop or metric the workspace doesn't have."""
 

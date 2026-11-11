@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from datetime import timezone
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from qbrixstore.postgres.models import Connection
 from qbrixstore.postgres.models import ConnectionToken
@@ -12,15 +15,21 @@ from qbrixstore.postgres.session import get_session
 from qbrixstore.redis.client import RedisClient
 
 from proxysvc.config import ProxySettings
+from proxysvc.core import autonomy
 from proxysvc.core.actor import Actor
+from proxysvc.core.error import ConnectionLevelsForbiddenError
 from proxysvc.core.error import ConnectionNotFoundError
 from proxysvc.core.error import ConnectionRateLimitedError
 from proxysvc.core.error import ConnectionTokenInvalidError
 from proxysvc.core.error import OAuthError
 from proxysvc.mod.auth.limit import count_this_minute
 from proxysvc.mod.auth.model import Role
+from proxysvc.mod.change.repository import ChangeRepository
+from proxysvc.mod.change.undo import Undoing
 from proxysvc.mod.connection.repository import ConnectionRepository
 from proxysvc.mod.connection.serialize import connection_to_dict
+from proxysvc.mod.connection.serialize import levels_snapshot
+from proxysvc.mod.connection.serialize import overrides_of
 from proxysvc.mod.connection.token import ACCESS
 from proxysvc.mod.connection.token import ACCESS_PREFIX
 from proxysvc.mod.connection.token import ACCESS_TTL
@@ -62,11 +71,16 @@ class IssuedTokens:
 
 @dataclass(frozen=True, slots=True)
 class ConnectionPrincipal:
-    """who a connection's token acts for, with the person's role as it is now."""
+    """who a connection's token acts for, with the person's role and the
+    connection's levels as they are now."""
 
     actor: Actor
     tenant_id: str
     role: str
+    levels: Mapping[str, str]
+
+    def level(self, kind: str) -> autonomy.Level:
+        return autonomy.level_of(kind, self.levels)
 
 
 class ConnectionService:
@@ -210,6 +224,7 @@ class ConnectionService:
                 ),
                 tenant_id=connection.tenant_id,
                 role=user.role,
+                levels=overrides_of(connection),
             )
         await self._count(connection.id)
         await self._touch(connection.id)
@@ -277,10 +292,118 @@ class ConnectionService:
     ) -> None:
         async with get_session() as session:
             repo = ConnectionRepository(session)
-            connection = await repo.get(tenant_id, connection_id)
-            if connection is None or (
-                role != Role.ADMIN.value and connection.user_id != user_id
-            ):
-                raise ConnectionNotFoundError(f"no connection with id {connection_id}")
+            connection = await self._visible(
+                repo, tenant_id, connection_id, user_id, role
+            )
             await repo.revoke(connection, datetime.now(timezone.utc))
             logger.info(f"connection {connection_id} revoked by user {user_id}")
+
+    async def levels(
+        self, tenant_id: str, connection_id: str, *, user_id: str, role: str
+    ) -> list[dict]:
+        """every kind of change with this connection's level; an admin reads
+        anyone's, anyone else their own."""
+        async with get_session() as session:
+            connection = await self._visible(
+                ConnectionRepository(session), tenant_id, connection_id, user_id, role
+            )
+            return autonomy.levels(overrides_of(connection))
+
+    async def set_levels(
+        self,
+        tenant_id: str,
+        connection_id: str,
+        levels: Mapping[str, str] | None,
+        *,
+        actor: Actor,
+        role: str,
+        reason: str | None = None,
+    ) -> dict:
+        """set some of a connection's levels, or with None return them all to
+        their defaults, as one connection.levels change. only its person sets
+        them; an admin sees them but can't."""
+        if levels is not None:
+            autonomy.check(levels)
+        async with get_session() as session:
+            repo = ConnectionRepository(session)
+            connection = await self._visible(
+                repo, tenant_id, connection_id, actor.user_id, role
+            )
+            current = overrides_of(connection)
+            wanted = {} if levels is None else {**current, **levels}
+            change_id = await self._write(
+                session, repo, connection, wanted, actor, reason=reason
+            )
+            return {
+                "levels": autonomy.levels(autonomy.normalise(wanted)),
+                "change_id": change_id,
+            }
+
+    async def restore_levels(
+        self,
+        tenant_id: str,
+        connection_id: str,
+        overrides: Mapping[str, str],
+        *,
+        actor: Actor,
+        undoing: Undoing,
+    ) -> bool:
+        """write back the levels an undone change left; false when the
+        connection is gone."""
+        async with get_session() as session:
+            repo = ConnectionRepository(session)
+            connection = await repo.get(tenant_id, connection_id)
+            if connection is None:
+                return False
+            await self._write(
+                session, repo, connection, dict(overrides), actor, undoing=undoing
+            )
+            return True
+
+    @staticmethod
+    async def _visible(
+        repo: ConnectionRepository,
+        tenant_id: str,
+        connection_id: str,
+        user_id: str,
+        role: str,
+    ) -> Connection:
+        connection = await repo.get(tenant_id, connection_id)
+        if connection is None or (
+            role != Role.ADMIN.value and connection.user_id != user_id
+        ):
+            raise ConnectionNotFoundError(f"no connection with id {connection_id}")
+        return connection
+
+    @staticmethod
+    async def _write(
+        session: AsyncSession,
+        repo: ConnectionRepository,
+        connection: Connection,
+        wanted: Mapping[str, str],
+        actor: Actor,
+        *,
+        reason: str | None = None,
+        undoing: Undoing | None = None,
+    ) -> str | None:
+        if actor.kind != "member" or actor.user_id != connection.user_id:
+            raise ConnectionLevelsForbiddenError(
+                "only a connection's own person can set its levels, in the console"
+            )
+        before = overrides_of(connection)
+        after = autonomy.normalise(wanted)
+        if after == before and undoing is None:
+            return None
+        await repo.set_levels(connection.id, after)
+        change = await ChangeRepository(session, connection.tenant_id).record(
+            "connection.levels",
+            "connection",
+            connection.id,
+            actor,
+            before=levels_snapshot(connection, before),
+            after=levels_snapshot(connection, after),
+            reason=reason,
+            undoing=undoing,
+        )
+        logger.info(f"levels of connection {connection.id} set by user {actor.user_id}")
+        return change.id

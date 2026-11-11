@@ -732,6 +732,24 @@ class Connection(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    levels: Mapped[list["ConnectionLevel"]] = relationship(
+        "ConnectionLevel", lazy="selectin", viewonly=True
+    )
+
+
+class ConnectionLevel(Base):
+    """a connection's level for one kind of change, kept only where its person
+    moved it off the default."""
+
+    __tablename__ = "connection_levels"
+
+    connection_id: Mapped[str] = mapped_column(
+        String(32),
+        ForeignKey("connections.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    kind: Mapped[str] = mapped_column(String(64), primary_key=True)
+    level: Mapped[str] = mapped_column(String(16), nullable=False)
 
 
 class ConnectionToken(Base):

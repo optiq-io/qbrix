@@ -57,6 +57,8 @@ def test_pinning_needs_no_scope(method, path):
     [
         ("GET", "/api/v1/connections"),
         ("DELETE", "/api/v1/connections/abc"),
+        ("GET", "/api/v1/connections/abc/levels"),
+        ("PUT", "/api/v1/connections/abc/levels"),
         ("GET", "/api/v1/connections/requests/abc"),
         ("POST", "/api/v1/connections/requests/abc"),
     ],

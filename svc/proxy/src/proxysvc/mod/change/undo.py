@@ -19,6 +19,7 @@ UNDOABLE_KINDS = frozenset(
         "loop.reopen",
         "loop.pause",
         "loop.resume",
+        "connection.levels",
     }
 )
 
@@ -45,8 +46,11 @@ def is_undoable(kind: str) -> bool:
     return kind in UNDOABLE_KINDS
 
 
-def undo_scope(target_type: str) -> str:
-    """undoing a change takes what writing to its target takes."""
+def undo_scope(target_type: str) -> str | None:
+    """undoing a change takes what writing to its target takes. a connection's
+    levels take no role scope: only its own person sets them, whatever the role."""
+    if target_type == "connection":
+        return None
     return f"{target_type}:write"
 
 

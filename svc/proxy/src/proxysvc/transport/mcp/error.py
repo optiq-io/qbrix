@@ -8,6 +8,7 @@ from difflib import get_close_matches
 from proxysvc.core.error import ChangeConflictError
 from proxysvc.core.error import ChangeMovedError
 from proxysvc.core.error import ChangeNotUndoableError
+from proxysvc.core.error import ConnectionLevelsForbiddenError
 from proxysvc.core.error import ExperimentLimitError
 from proxysvc.core.error import ExperimentRunningError
 from proxysvc.core.error import InvalidCursorError
@@ -191,6 +192,11 @@ def undo_refusals() -> Iterator[None]:
         ) from e
     except ExperimentRunningError as e:
         raise Refusal(f"{_sentence(str(e))} Nothing was undone.") from e
+    except ConnectionLevelsForbiddenError as e:
+        raise Refusal(
+            "A connection's levels are set by its person in the console, never "
+            "over MCP. Nothing was undone."
+        ) from e
     except (
         ChangeConflictError,
         ExperimentLimitError,

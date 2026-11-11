@@ -1558,3 +1558,54 @@ class TestRefusals:
             )
 
         assert "reason" in _error(result)
+
+
+class TestAutonomy:
+
+    async def _connection_id(self, wired_app, user="user-member") -> str:
+        [connection] = await wired_app.svc.connections.list(
+            TENANT, user_id=user, role="member"
+        )
+        return connection["id"]
+
+    async def test_loop_get_returns_this_connections_levels(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _draft(client)
+            await wired_app.svc.connections.set_levels(
+                TENANT,
+                await self._connection_id(wired_app),
+                {"loop.launch": "notify"},
+                actor=Actor.member("user-member"),
+                role="member",
+            )
+            result = await _call(client, "loop_get", {"loop": "checkout-headline"})
+
+        levels = result.structured_content["autonomy"]
+        assert levels["loop.launch"] == "notify"
+        assert levels["cycle.start"] == "ask"
+        assert levels["note.add"] == "own"
+        assert "loop.create" not in levels and "metric.create" not in levels
+        assert (
+            "Your autonomy here: ask first: cycle_start, loop_retire; "
+            "act and notify: loop_launch," in result.content[0].text
+        )
+
+    async def test_a_connection_cant_undo_its_levels(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            changed = await wired_app.svc.connections.set_levels(
+                TENANT,
+                await self._connection_id(wired_app),
+                {"loop.launch": "notify"},
+                actor=Actor.member("user-member"),
+                role="member",
+            )
+            result = await _call(
+                client,
+                "change_undo",
+                {"change": changed["change_id"], "reason": "raise it back"},
+            )
+
+        assert _error(result) == (
+            "A connection's levels are set by its person in the console, never "
+            "over MCP. Nothing was undone."
+        )

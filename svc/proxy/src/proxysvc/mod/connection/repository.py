@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from qbrixstore.postgres.models import Connection
+from qbrixstore.postgres.models import ConnectionLevel
 from qbrixstore.postgres.models import ConnectionToken
 
 from proxysvc.mod.connection.token import REFRESH
@@ -123,7 +124,25 @@ class ConnectionRepository:
             .execution_options(synchronize_session=False)
         )
 
+    async def set_levels(self, connection_id: str, overrides: dict[str, str]) -> None:
+        """replace a connection's stored levels with these overrides."""
+        await self._session.execute(
+            delete(ConnectionLevel).where(
+                ConnectionLevel.connection_id == connection_id
+            )
+        )
+        self._session.add_all(
+            ConnectionLevel(connection_id=connection_id, kind=kind, level=level)
+            for kind, level in overrides.items()
+        )
+        await self._session.flush()
+
     async def revoke(self, connection: Connection, now: datetime) -> None:
         connection.revoked_at = now
         await self.drop_tokens(connection.id)
+        await self._session.execute(
+            delete(ConnectionLevel).where(
+                ConnectionLevel.connection_id == connection.id
+            )
+        )
         await self._session.flush()

@@ -573,8 +573,11 @@ export interface ConnectionRequest {
     registered_by_itself: boolean;
   };
   acts_for: { name: string; email: string };
-  applies_at_once: boolean;
+  /** the kinds of change a new connection starts with, by level */
+  autonomy: Record<AutonomyLevel, string[]>;
 }
+
+export type AutonomyLevel = "own" | "notify" | "ask";
 
 export interface ConnectionDecision {
   redirect_to: string;
@@ -587,6 +590,15 @@ export interface Connection {
   user: { id: string; name: string };
   created_at: string;
   last_used_at: string | null;
+  /** the levels its person moved off their default; empty on defaults */
+  levels_changed: ConnectionLevel[];
+}
+
+/** GET /v1/connections/{id}/levels: one kind of change with its level */
+export interface ConnectionLevel {
+  kind: string;
+  level: AutonomyLevel;
+  default: AutonomyLevel;
 }
 
 /** GET /v1/runtime/status: the install's version, its services, and how far

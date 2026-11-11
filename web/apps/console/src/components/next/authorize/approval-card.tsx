@@ -1,6 +1,5 @@
 import { Button } from "@qbrix/ui/next/button";
 import type { ConnectionRequest, User } from "@/lib/api/types";
-import { Autonomy } from "./autonomy";
 import { AuthorizeFrame, AuthorizeTitle } from "./frame";
 
 function webUri(uri: string | null): string | null {
@@ -72,8 +71,6 @@ export function ApprovalCard({
           </p>
         )}
       </div>
-
-      {!viewer && <Autonomy request={request} />}
 
       <p className="n-meta text-n-text-3">
         Revoke it any time in Connections, without signing out anywhere else. Access renews on its

@@ -296,7 +296,19 @@ class TestSignIn:
             "registered_by_itself": True,
         }
         assert shown.json()["acts_for"]["email"] == "user-member@example.com"
-        assert shown.json()["applies_at_once"] is True
+        assert shown.json()["autonomy"] == {
+            "own": ["loop.create", "metric.create", "note.add"],
+            "notify": [
+                "loop.rename",
+                "loop.pause",
+                "loop.resume",
+                "loop.commit",
+                "loop.reopen",
+                "cycle.reset",
+                "metric.delete",
+            ],
+            "ask": ["loop.launch", "cycle.start", "loop.retire"],
+        }
 
         back = await _approve(oauth, wired_app, location)
         params = _query(back)
