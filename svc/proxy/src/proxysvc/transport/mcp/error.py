@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from difflib import get_close_matches
 
 from proxysvc.core.error import ChangeConflictError
+from proxysvc.core.error import ChangeNoLongerAppliesError
 from proxysvc.core.error import ChangeMovedError
 from proxysvc.core.error import ChangeNotUndoableError
 from proxysvc.core.error import ChangeWaitingError
@@ -185,6 +186,33 @@ def already_waiting(e: ChangeWaitingError) -> Refusal:
     return Refusal(
         f"{_sentence(str(e))} Nothing new was asked: find its answer with "
         f"change_get, and propose again once it is answered."
+    )
+
+
+def answered(entry: dict) -> Refusal:
+    decision = entry.get("decision")
+    if decision is None:
+        return Refusal(
+            f"Change {entry['id']} isn't waiting any more. Read it with change_get."
+        )
+    return Refusal(
+        f"Change {entry['id']} was already {decision['answer']} by "
+        f"{decision['who']['name']} in {decision['where']}; this answer changed "
+        f"nothing. Read it with change_get."
+    )
+
+
+def no_longer_applies(e: ChangeNoLongerAppliesError) -> Refusal:
+    return Refusal(
+        f"{_sentence(str(e))} Its person declines it in qbrix, or approves it "
+        f"again once the loop takes it."
+    )
+
+
+def not_asked_here() -> Refusal:
+    return Refusal(
+        "That answer is for a question this connection wasn't asked; nothing "
+        "changed. Read the change with change_get."
     )
 
 

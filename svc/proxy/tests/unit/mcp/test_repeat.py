@@ -100,3 +100,13 @@ async def test_a_failed_call_leaves_nothing_behind(redis):
 
     assert await redis.get("k") is None
     assert (await guard.once("k", _Call()))["n"] == 1
+
+
+async def test_a_forgotten_call_runs_again(redis):
+    guard = RepeatGuard(redis)
+    await guard.once("k", _Call())
+
+    await guard.forget("k")
+
+    assert (await guard.once("k", _Call()))["n"] == 1
+    assert await redis.get("k") is not None

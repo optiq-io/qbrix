@@ -1,5 +1,7 @@
 from typing import Literal
 
+from cryptography.hazmat.primitives.hashes import SHA256
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -60,6 +62,8 @@ class ProxySettings(GrpcSettings):
 
     token_secret: str = "change-me-in-production"  # need to come from secrets.
     token_max_age_ms: int | None = None
+    # the root of the keys qbrix seals and encrypts with; each use derives its own
+    secret_box_key: str = "change-me-in-production"
 
     gate_cache_maxsize: int = 1000
     gate_cache_ttl: float = 30.0  # seconds
@@ -182,6 +186,12 @@ class ProxySettings(GrpcSettings):
     @property
     def token_secret_bytes(self) -> bytes:
         return self.token_secret.encode()
+
+    def derived_key(self, label: str) -> bytes:
+        """a 32-byte key for one use of the secret box key, named by its label."""
+        return HKDF(
+            algorithm=SHA256(), length=32, salt=None, info=label.encode()
+        ).derive(self.secret_box_key.encode())
 
 
 settings = ProxySettings()

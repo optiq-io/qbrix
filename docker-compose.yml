@@ -75,6 +75,7 @@ services:
       PROXY_CORTEX_HOST: cortex
       PROXY_JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is not set, run bin/selfhost-init}
       PROXY_TOKEN_SECRET: ${TOKEN_SECRET:?TOKEN_SECRET is not set, run bin/selfhost-init}
+      PROXY_SECRET_BOX_KEY: ${SECRET_BOX_KEY:-}
       PROXY_SIGNUP_MODE: ${SIGNUP_MODE:-first-user}
       PROXY_CONSOLE_URL: ${CONSOLE_URL:-http://localhost:${QBRIX_PORT:-8000}}
       PROXY_CORS_ORIGINS: ${CORS_ORIGINS:-}

@@ -113,6 +113,7 @@ def run_probe(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
             "PROXY_GRPC_PORT": str(free_port()),
             "PROXY_JWT_SECRET_KEY": "probe-jwt-secret",
             "PROXY_TOKEN_SECRET": "probe-token-secret",
+            "PROXY_SECRET_BOX_KEY": "probe-secret-box-key",
             **env,
         },
     )

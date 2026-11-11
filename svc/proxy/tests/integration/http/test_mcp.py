@@ -10,6 +10,10 @@ invariants verified:
   change, whether it can be undone and its console link. a repeated change
   within the window changes nothing twice. change_get reads one change of
   this workspace, by anyone, with its status, and no other workspace's. a
+  change that asks first is put to its person in a client that can ask, on
+  any replica: approved, declined with or without a reason, or left waiting
+  when the question is closed; an answer is taken once, only for its own
+  call and connection, and doesn't count as a second change. a
   viewer's connection reads and can't change. a loop paused by qbrix says who paused it, when and why, in
   loop_get and loops_list. workspace_summary reads the same as the service,
   in product words, an open safety pause first. every refusal says what to do
@@ -30,6 +34,8 @@ import pytest
 import pytest_asyncio
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
+from mcp_types import ElicitResult
+from mcp_types import InputRequiredResult
 from starlette.applications import Starlette
 from starlette.routing import Route
 
@@ -186,13 +192,15 @@ def _http(app, token: str | None) -> httpx2.AsyncClient:
 
 @asynccontextmanager
 async def _connect(
-    http: httpx2.AsyncClient, mode: str = MODERN
+    http: httpx2.AsyncClient, mode: str = MODERN, answer=None
 ) -> AsyncIterator[Client]:
+    """a client; with answer, one that can ask its person and answers so."""
     async with (
         http,
         Client(
             streamable_http_client(f"http://test{MCP_PATH}", http_client=http),
             mode=mode,
+            elicitation_callback=answer,
         ) as client,
     ):
         yield client
@@ -202,7 +210,9 @@ ON_ITS_OWN = {"loop.launch": "own", "cycle.start": "own", "loop.retire": "own"}
 
 
 @asynccontextmanager
-async def _session(app, wired_app, user="user-member", mode=MODERN, levels=ON_ITS_OWN):
+async def _session(
+    app, wired_app, user="user-member", mode=MODERN, levels=ON_ITS_OWN, answer=None
+):
     """a connected client. its person lets it make every change on its own,
     so a tool's own result is what a test sees; tests about asking first pass
     levels=None for the defaults."""
@@ -222,7 +232,7 @@ async def _session(app, wired_app, user="user-member", mode=MODERN, levels=ON_IT
             actor=Actor.member(user),
             role=PEOPLE[user][0],
         )
-    async with _connect(_http(app, token), mode) as client:
+    async with _connect(_http(app, token), mode, answer) as client:
         yield client
 
 
@@ -1799,6 +1809,270 @@ class TestAskingFirst:
         [raised] = levels.structured_content["changes"]
         assert raised["who"]["user_id"] == "user-member"
         assert raised["via"] is None
+
+
+APPROVE = {"answer": "approve"}
+
+
+def _answering(action: str = "accept", content: dict | None = None, asked=None):
+    """a person who answers every question the same way, noting what was asked."""
+
+    async def answer(context, params):
+        if asked is not None:
+            asked.append(params)
+        return ElicitResult(action=action, content=content)
+
+    return answer
+
+
+async def _asked(client: Client, tool: str, arguments: dict) -> InputRequiredResult:
+    """the question as the wire carries it, for a test to answer by hand."""
+    result = await client.session.call_tool(tool, arguments, allow_input_required=True)
+    assert isinstance(result, InputRequiredResult), result
+    return result
+
+
+def _reply(content: dict | None = None, action: str = "accept") -> dict:
+    return {"answer": ElicitResult(action=action, content=content)}
+
+
+class TestAskingInChat:
+
+    async def test_approving_in_the_chat_launches_and_says_where(self, mcp, wired_app):
+        asked = []
+        async with _session(
+            mcp, wired_app, levels=None, answer=_answering(content=APPROVE, asked=asked)
+        ) as client:
+            await _draft(client)
+            launched = await _call(client, "loop_launch", LAUNCH)
+            again = await _call(client, "loop_launch", LAUNCH)
+            history = await _call(client, "loop_history", {"loop": "checkout-headline"})
+
+        [question] = asked
+        assert question.message == (
+            "Claude Code asks to launch Checkout headline. "
+            'Reason: "the select call is in". Nothing applies until you answer.'
+        )
+        assert question.requested_schema["properties"]["answer"]["default"] == "approve"
+        assert not launched.is_error, launched
+        structured = launched.structured_content
+        assert structured["status"] == "applied"
+        assert structured["loop"]["state"] == "live"
+        assert structured["change"]["url"].endswith(
+            f"/loops/checkout-headline/history?change={structured['change']['id']}"
+        )
+        assert launched.content[0].text.startswith(
+            "Approved by Mustafa in Claude Code: "
+        )
+        assert _error(again).startswith("The loop checkout-headline is live already")
+        newest = history.structured_content["changes"][0]
+        assert newest["decision"]["answer"] == "approved"
+        assert newest["decision"]["where"] == "Claude Code"
+        assert "approved by Mustafa in Claude Code" in history.content[0].text
+
+    async def test_declining_with_a_reason_keeps_it(self, mcp, wired_app):
+        answer = _answering(content={"answer": "decline", "reason": "  legal first "})
+        async with _session(mcp, wired_app, levels=None, answer=answer) as client:
+            await _draft(client)
+            launched = await _call(client, "loop_launch", LAUNCH)
+
+        structured = launched.structured_content
+        assert structured["status"] == "declined"
+        assert structured["loop"]["state"] == "draft"
+        assert launched.content[0].text.startswith(
+            'Declined by Mustafa in Claude Code: "legal first". Nothing changed'
+        )
+        entry = await wired_app.svc.get_change_entry(TENANT, structured["change"]["id"])
+        assert entry["status"] == "declined"
+        assert entry["decision"]["reason"] == "legal first"
+        assert entry["decision"]["where"] == "Claude Code"
+
+    async def test_the_clients_own_decline_declines_without_a_reason(
+        self, mcp, wired_app
+    ):
+        async with _session(
+            mcp, wired_app, levels=None, answer=_answering(action="decline")
+        ) as client:
+            await _draft(client)
+            launched = await _call(client, "loop_launch", LAUNCH)
+
+        assert launched.structured_content["status"] == "declined"
+        entry = await wired_app.svc.get_change_entry(
+            TENANT, launched.structured_content["change"]["id"]
+        )
+        assert entry["decision"]["reason"] is None
+
+    async def test_closing_the_question_leaves_it_waiting(self, mcp, wired_app):
+        async with _session(
+            mcp, wired_app, levels=None, answer=_answering(action="cancel")
+        ) as client:
+            await _draft(client)
+            launched = await _call(client, "loop_launch", LAUNCH)
+
+        structured = launched.structured_content
+        assert structured["status"] == "waiting"
+        assert launched.content[0].text.startswith("Waiting for approval:")
+        approved = await _approve(wired_app, structured["change"]["id"])
+        assert approved["status"] == "applied"
+
+    @pytest.mark.parametrize("mode, can_ask", [(MODERN, False), (LEGACY, True)])
+    async def test_a_client_that_cant_ask_gets_the_console_link(
+        self, mcp, wired_app, mode, can_ask
+    ):
+        asked = []
+        answer = _answering(content=APPROVE, asked=asked) if can_ask else None
+        async with _session(
+            mcp, wired_app, mode=mode, levels=None, answer=answer
+        ) as client:
+            await _draft(client)
+            launched = await _call(client, "loop_launch", LAUNCH)
+
+        assert asked == []
+        assert launched.structured_content["status"] == "waiting"
+        assert "/changes?change=" in launched.content[0].text
+
+    async def test_an_answer_is_taken_once(self, mcp, wired_app):
+        async with _session(
+            mcp, wired_app, levels=None, answer=_answering(content=APPROVE)
+        ) as client:
+            await _draft(client)
+            question = await _asked(client, "loop_launch", LAUNCH)
+            first = await client.call_tool(
+                "loop_launch",
+                LAUNCH,
+                input_responses=_reply(APPROVE),
+                request_state=question.request_state,
+            )
+            replayed = await client.call_tool(
+                "loop_launch",
+                LAUNCH,
+                input_responses=_reply({"answer": "decline"}),
+                request_state=question.request_state,
+            )
+
+        assert first.structured_content["status"] == "applied"
+        assert _error(replayed).startswith(
+            f"Change {first.structured_content['change']['id']} was already "
+            f"approved by Mustafa in Claude Code"
+        )
+
+    async def test_an_edited_question_is_refused(self, mcp, wired_app):
+        async with _session(
+            mcp, wired_app, levels=None, answer=_answering(content=APPROVE)
+        ) as client:
+            await _draft(client)
+            question = await _asked(client, "loop_launch", LAUNCH)
+            state = question.request_state
+            edited = state[:-6] + (
+                "AAAAAA" if not state.endswith("AAAAAA") else "BBBBBB"
+            )
+            with pytest.raises(Exception, match="requestState"):
+                await client.call_tool(
+                    "loop_launch",
+                    LAUNCH,
+                    input_responses=_reply(APPROVE),
+                    request_state=edited,
+                )
+            with pytest.raises(Exception, match="requestState"):
+                await client.call_tool(
+                    "loop_launch",
+                    {**LAUNCH, "reason": "something else"},
+                    input_responses=_reply(APPROVE),
+                    request_state=state,
+                )
+
+        loop = await wired_app.svc.get_loop(TENANT, "checkout-headline")
+        assert loop["state"] == "draft"
+
+    async def test_another_connection_cant_answer(self, mcp, wired_app):
+        async with _session(
+            mcp, wired_app, levels=None, answer=_answering(content=APPROVE)
+        ) as client:
+            await _draft(client)
+            question = await _asked(client, "loop_launch", LAUNCH)
+        cursor = await _token(wired_app, client="Cursor")
+        async with _connect(_http(mcp, cursor)) as other:
+            with pytest.raises(Exception, match="requestState"):
+                await other.call_tool(
+                    "loop_launch",
+                    LAUNCH,
+                    input_responses=_reply(APPROVE),
+                    request_state=question.request_state,
+                )
+
+        loop = await wired_app.svc.get_loop(TENANT, "checkout-headline")
+        assert loop["state"] == "draft"
+
+    async def test_any_replica_takes_the_answer(self, mcp, wired_app):
+        replicas = []
+        for _ in range(2):
+            server, asgi = build_mcp(proxysvc.config.settings)
+            replicas.append((server, Starlette(routes=[Route(MCP_PATH, asgi)])))
+        transport = _RoundRobin(
+            [httpx2.ASGITransport(app=replica) for _, replica in replicas]
+        )
+        token = await _token(wired_app)
+        await wired_app.svc.connections.set_levels(
+            TENANT,
+            await _connection_id(wired_app),
+            {"loop.create": "ask"},
+            actor=Actor.member("user-member"),
+            role="member",
+        )
+        http = httpx2.AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        async with replicas[0][0].session_manager.run():
+            async with replicas[1][0].session_manager.run():
+                async with _connect(http, answer=_answering(content=APPROVE)) as client:
+                    await _call(client, "metric_create", METRIC)
+                    question = await _asked(client, "loop_create", LOOP)
+                    created = await client.call_tool(
+                        "loop_create",
+                        LOOP,
+                        input_responses=_reply(APPROVE),
+                        request_state=question.request_state,
+                    )
+
+        assert transport.served == {0, 1}
+        assert created.structured_content["status"] == "applied", created
+        assert created.structured_content["loop"]["key"] == "checkout-headline"
+
+    async def test_the_answer_counts_as_the_change_it_answers(
+        self, mcp, wired_app, monkeypatch
+    ):
+        monkeypatch.setattr(wired_app.svc._settings, "mcp_changes_per_minute", 3)
+        async with _session(
+            mcp, wired_app, levels=None, answer=_answering(content=APPROVE)
+        ) as client:
+            await _draft(client)
+            launched = await _call(client, "loop_launch", LAUNCH)
+
+        assert launched.structured_content["status"] == "applied", launched
+
+    async def test_a_metric_asked_in_the_chat_reads_as_created(self, mcp, wired_app):
+        token = await _token(wired_app)
+        await wired_app.svc.connections.set_levels(
+            TENANT,
+            await _connection_id(wired_app),
+            {"metric.create": "ask"},
+            actor=Actor.member("user-member"),
+            role="member",
+        )
+        async with _connect(
+            _http(mcp, token), answer=_answering(content=APPROVE)
+        ) as client:
+            created = await _call(client, "metric_create", METRIC)
+
+        structured = created.structured_content
+        assert structured["status"] == "applied", created
+        assert structured["metric"]["name"] == "purchase"
+        assert structured["change"]["url"].endswith(
+            f"/metrics/purchase?change={structured['change']['id']}"
+        )
 
 
 RENAME = {

@@ -12,6 +12,7 @@ from mcp.server.auth.middleware.bearer_auth import RequireAuthMiddleware
 from mcp.server.auth.routes import build_resource_metadata_url
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import RequestStateSecurity
 from mcp.server.streamable_http_manager import StreamableHTTPASGIApp
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import AnyHttpUrl
@@ -34,6 +35,8 @@ logger = get_logger(__name__)
 MCP_PATH = "/mcp"
 METADATA_PATH = "/.well-known/oauth-protected-resource/mcp"
 TOOLS_TTL_MS = 60 * 60 * 1000
+REQUEST_STATE_LABEL = "mcp-request-state"
+REQUEST_STATE_TTL_SEC = 60 * 60
 
 _proxy_service: Optional[ProxyService] = None
 
@@ -66,6 +69,11 @@ def build_mcp(settings: ProxySettings) -> tuple[MCPServer, ASGIApp]:
         ),
         cache_hints={"tools/list": CacheHint(ttl_ms=TOOLS_TTL_MS)},
         subscriptions=False,
+        request_state_security=RequestStateSecurity(
+            keys=[settings.derived_key(REQUEST_STATE_LABEL)],
+            ttl=REQUEST_STATE_TTL_SEC,
+            audience=settings.mcp_resource,
+        ),
     )
     register(server, settings, get_proxy_service)
     # the bearer token is the only credential, and a browser never attaches

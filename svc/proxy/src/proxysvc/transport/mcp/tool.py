@@ -11,8 +11,10 @@ from typing import Any
 from typing import Literal
 from typing import Optional
 
+from mcp.server.mcpserver import Context
 from mcp.server.mcpserver import MCPServer
 from mcp_types import CallToolResult
+from mcp_types import InputRequiredResult
 from mcp_types import TextContent
 from mcp_types import ToolAnnotations
 from pydantic import BaseModel
@@ -20,6 +22,9 @@ from pydantic import Field
 
 from proxysvc.config import ProxySettings
 from proxysvc.core import autonomy
+from proxysvc.core.actor import Actor
+from proxysvc.core.error import ChangeAnsweredError
+from proxysvc.core.error import ChangeNoLongerAppliesError
 from proxysvc.core.error import ChangeWaitingError
 from proxysvc.core.error import ConnectionRateLimitedError
 from proxysvc.core.error import CycleNotFoundError
@@ -43,6 +48,7 @@ from proxysvc.service import ProxyService
 from proxysvc.transport.http.router.change import ChangePage
 from proxysvc.transport.http.router.milestone import MilestoneList
 from proxysvc.transport.http.router.summary import WeekSummary
+from proxysvc.transport.mcp import ask
 from proxysvc.transport.mcp import error
 from proxysvc.transport.mcp.error import Refusal
 from proxysvc.transport.mcp.error import refusals
@@ -51,6 +57,7 @@ from proxysvc.transport.mcp.link import changes_url
 from proxysvc.transport.mcp.link import history_url
 from proxysvc.transport.mcp.repeat import RepeatGuard
 from proxysvc.transport.mcp.repeat import repeat_key
+from proxysvc.transport.mcp.schema import ChangeStatus
 from proxysvc.transport.mcp.schema import ChangeUndone
 from proxysvc.transport.mcp.schema import ChangeView
 from proxysvc.transport.mcp.schema import Detail
@@ -226,6 +233,19 @@ def _sentence(entry: dict) -> str:
         else:
             words.append(piece.get("text") or piece.get("name") or "")
     return "".join(words)
+
+
+def waiting_text(entry: dict, url: str) -> str:
+    return (
+        f"Waiting for approval: {_sentence(entry)} Nothing has changed yet. "
+        f"{entry['who']['name']} approves or declines it in qbrix; find its "
+        f"answer with change_get. Change {entry['id']}: {url}"
+    )
+
+
+Answered = Callable[
+    [ConnectionPrincipal, ChangeStatus, dict, dict], Awaitable[BaseModel]
+]
 
 
 def _difference_line(difference: dict) -> str:
@@ -448,10 +468,22 @@ def register(
         tool: str,
         arguments: dict[str, Any],
         call: Callable[[ConnectionPrincipal], Awaitable[CallToolResult]],
-    ) -> CallToolResult:
+        ctx: Context,
+        answered: Answered,
+    ) -> CallToolResult | InputRequiredResult:
         """a change call, run once per connection and arguments in the window.
-        a repeat counts as a change, so retrying can't get around the cap."""
+        a repeat counts as a change, so retrying can't get around the cap.
+
+        a change that waits is asked in the chat when the client can ask; the
+        call that carries the answer is the same change, so it neither counts
+        again nor meets the repeat guard."""
         principal = current_principal()
+        key = repeat_key(principal.actor.connection_id, tool, arguments)
+        if ctx.request_state is not None:
+            try:
+                return await answer(principal, ctx, key, answered)
+            except Refusal as refusal:
+                return _refused(refusal)
 
         async def first() -> dict[str, Any]:
             result = await call(principal)
@@ -462,15 +494,158 @@ def register(
         except ConnectionRateLimitedError as e:
             return _refused(error.too_many_changes(e.limit, e.retry_after))
         try:
-            stored = await repeats().once(
-                repeat_key(principal.actor.connection_id, tool, arguments), first
-            )
+            stored = await repeats().once(key, first)
         except Refusal as refusal:
             return _refused(refusal)
+        structured = stored["structured"] or {}
+        if structured.get("status") == "waiting" and ask.can_ask(ctx):
+            return await question(principal, structured["change"]["id"])
         return CallToolResult(
             content=[TextContent(type="text", text=stored["text"])],
             structured_content=stored["structured"],
         )
+
+    async def question(
+        principal: ConnectionPrincipal, change_id: str
+    ) -> InputRequiredResult:
+        """the waiting change, put to its person on the client's screen."""
+        entry = await service().get_change_entry(principal.tenant_id, change_id)
+        return InputRequiredResult(
+            input_requests=ask.question(_sentence(entry), entry.get("reason")),
+            request_state=ask.seal(change_id, principal.actor.connection_id),
+        )
+
+    async def answer(
+        principal: ConnectionPrincipal, ctx: Context, key: str, answered: Answered
+    ) -> CallToolResult:
+        """the person's answer to a question this connection was asked."""
+        try:
+            change_id, connection_id = ask.unseal(ctx.request_state)
+        except ValueError as e:
+            raise error.not_asked_here() from e
+        if connection_id != principal.actor.connection_id:
+            raise error.not_asked_here()
+        reply = ask.read(ctx.input_responses)
+        tenant_id = principal.tenant_id
+        if reply.verdict == "closed":
+            entry = await service().get_change_entry(tenant_id, change_id)
+        else:
+            person = Actor.member(
+                principal.actor.user_id, request_id=principal.actor.request_id
+            )
+            where = principal.actor.client_name
+            try:
+                if reply.verdict == "approve":
+                    entry = await service().approve_change(
+                        tenant_id,
+                        change_id,
+                        actor=person,
+                        role=principal.role,
+                        where=where,
+                    )
+                else:
+                    entry = await service().decline_change(
+                        tenant_id,
+                        change_id,
+                        actor=person,
+                        where=where,
+                        reason=reply.reason,
+                    )
+            except ChangeAnsweredError as e:
+                found = await service().get_change_entry(tenant_id, change_id)
+                raise error.answered(found) from e
+            except ChangeNoLongerAppliesError as e:
+                raise error.no_longer_applies(e) from e
+            await repeats().forget(key)
+        if entry is None:
+            raise error.unknown_change(change_id)
+        return await respond(principal, entry, answered)
+
+    async def respond(
+        principal: ConnectionPrincipal, entry: dict, answered: Answered
+    ) -> CallToolResult:
+        """a change as its person left it: applied, declined, or still waiting."""
+        status: ChangeStatus = (
+            entry["status"] if entry["status"] in ("waiting", "declined") else "applied"
+        )
+        target = entry["target"]
+        if status == "applied" and target["type"] in ("loop", "metric"):
+            url = change_url(
+                settings.console_origin,
+                target["type"],
+                target["key"] or target["name"] or target["id"],
+                entry["id"],
+            )
+        else:
+            url = changes_url(settings.console_origin, entry["id"])
+        change = {
+            "id": entry["id"],
+            "kind": entry["kind"],
+            "undoable": entry["undoable"],
+            "url": url,
+        }
+        model = await answered(principal, status, change, entry)
+        decision = entry.get("decision")
+        if status == "waiting":
+            return _result(waiting_text(entry, url), model)
+        if status == "declined":
+            text = (
+                f"Declined by {decision['who']['name']} in {decision['where']}"
+                + (f': "{decision["reason"]}"' if decision["reason"] else "")
+                + f". Nothing changed: {_sentence(entry)} Read the reason before "
+                f"proposing this again. Change {entry['id']}: {url}"
+            )
+            return _result(text, model)
+        undo = "can be undone" if entry["undoable"] else "can't be undone"
+        return _result(
+            f"Approved by {decision['who']['name']} in {decision['where']}: "
+            f"{_sentence(entry)} Change {entry['id']}, {undo}: {url}",
+            model,
+        )
+
+    async def loop_answered(
+        principal: ConnectionPrincipal,
+        status: ChangeStatus,
+        change: dict,
+        entry: dict,
+    ) -> BaseModel:
+        target = entry["target"]
+        loop = (
+            await service().get_loop(principal.tenant_id, target["id"])
+            if target["type"] == "loop"
+            else None
+        )
+        return LoopChanged(status=status, change=change, loop=loop)
+
+    async def metric_answered(
+        principal: ConnectionPrincipal,
+        status: ChangeStatus,
+        change: dict,
+        entry: dict,
+    ) -> BaseModel:
+        target = entry["target"]
+        metric = (
+            await service().get_metric(principal.tenant_id, target["name"])
+            if target["type"] == "metric" and target["name"]
+            else None
+        )
+        return MetricChanged(status=status, change=change, metric=metric)
+
+    async def note_answered(
+        principal: ConnectionPrincipal,
+        status: ChangeStatus,
+        change: dict,
+        entry: dict,
+    ) -> BaseModel:
+        return NoteAdded(status=status, change=change, note=entry)
+
+    async def undo_answered(
+        principal: ConnectionPrincipal,
+        status: ChangeStatus,
+        change: dict,
+        entry: dict,
+    ) -> BaseModel:
+        return ChangeUndone(status=status, change=change, undone=entry)
 
     async def latest_pause(tenant_id: str, loop: dict) -> dict | None:
         """the change that paused a paused loop, though others came after it."""
@@ -514,12 +689,7 @@ def register(
         url = changes_url(settings.console_origin, waiting["id"])
         change = {**waiting, "url": url}
         entry = await service().get_change_entry(principal.tenant_id, change["id"])
-        return _result(
-            f"Waiting for approval: {_sentence(entry)} Nothing has changed yet. "
-            f"{entry['who']['name']} approves or declines it in qbrix; find its "
-            f"answer with change_get. Change {change['id']}: {url}",
-            result(change, entry),
-        )
+        return _result(waiting_text(entry, url), result(change, entry))
 
     def changed(applied: Applied, target: Literal["loop", "metric"], ref: str) -> dict:
         return {
@@ -919,6 +1089,7 @@ def register(
         return _result("\n".join(_week_lines(week)), WeekSummary(**week))
 
     async def loop_create(
+        ctx: Context,
         name: Annotated[str, Field(description="What people call the loop.")],
         metric: Annotated[
             str, Field(description="The metric it improves: its name or id.")
@@ -943,7 +1114,7 @@ def register(
                 description="The option's key served when qbrix can't decide; the first option when left out."
             ),
         ] = None,
-    ) -> Annotated[CallToolResult, LoopChanged]:
+    ) -> Annotated[CallToolResult, LoopChanged] | InputRequiredResult:
         """Create a draft loop with its options and metric. A draft serves its fallback until it is launched with loop_launch."""
         arguments = {
             "name": name,
@@ -991,15 +1162,16 @@ def register(
                 LoopChanged(status="applied", change=change, loop=loop),
             )
 
-        return await once("loop_create", arguments, call)
+        return await once("loop_create", arguments, call, ctx, loop_answered)
 
     async def loop_rename(
+        ctx: Context,
         loop: LoopRef,
         name: Annotated[
             str, Field(description="What people call the loop from now on.")
         ],
         reason: Reason,
-    ) -> Annotated[CallToolResult, LoopChanged]:
+    ) -> Annotated[CallToolResult, LoopChanged] | InputRequiredResult:
         """Rename a loop, in any state. Its key stays, so the code that calls it keeps working."""
 
         async def call(principal: ConnectionPrincipal) -> CallToolResult:
@@ -1028,12 +1200,16 @@ def register(
             )
 
         return await once(
-            "loop_rename", {"loop": loop, "name": name, "reason": reason}, call
+            "loop_rename",
+            {"loop": loop, "name": name, "reason": reason},
+            call,
+            ctx,
+            loop_answered,
         )
 
     async def loop_launch(
-        loop: LoopRef, reason: Reason
-    ) -> Annotated[CallToolResult, LoopChanged]:
+        ctx: Context, loop: LoopRef, reason: Reason
+    ) -> Annotated[CallToolResult, LoopChanged] | InputRequiredResult:
         """Take a draft loop live: its first cycle starts and qbrix begins choosing between its options. This puts its options in front of users."""
 
         async def call(principal: ConnectionPrincipal) -> CallToolResult:
@@ -1064,15 +1240,18 @@ def register(
                 LoopChanged(status="applied", change=change, loop=value),
             )
 
-        return await once("loop_launch", {"loop": loop, "reason": reason}, call)
+        return await once(
+            "loop_launch", {"loop": loop, "reason": reason}, call, ctx, loop_answered
+        )
 
     async def loop_commit(
+        ctx: Context,
         loop: LoopRef,
         option: Annotated[
             str, Field(description="The key of the option everyone gets from now on.")
         ],
         reason: Reason,
-    ) -> Annotated[CallToolResult, LoopChanged]:
+    ) -> Annotated[CallToolResult, LoopChanged] | InputRequiredResult:
         """Commit a live loop to one option: everyone gets it and exploration stops. It still decides, so that option's outcomes keep teaching it, and the others keep what they learned. Reopen with loop_reopen to learn again."""
 
         async def call(principal: ConnectionPrincipal) -> CallToolResult:
@@ -1108,12 +1287,16 @@ def register(
             )
 
         return await once(
-            "loop_commit", {"loop": loop, "option": option, "reason": reason}, call
+            "loop_commit",
+            {"loop": loop, "option": option, "reason": reason},
+            call,
+            ctx,
+            loop_answered,
         )
 
     async def loop_reopen(
-        loop: LoopRef, reason: Reason
-    ) -> Annotated[CallToolResult, LoopChanged]:
+        ctx: Context, loop: LoopRef, reason: Reason
+    ) -> Annotated[CallToolResult, LoopChanged] | InputRequiredResult:
         """Reopen a committed loop: it is live again in the same cycle, with everything it learned, and qbrix chooses between its options again."""
 
         async def call(principal: ConnectionPrincipal) -> CallToolResult:
@@ -1142,11 +1325,13 @@ def register(
                 LoopChanged(status="applied", change=change, loop=value),
             )
 
-        return await once("loop_reopen", {"loop": loop, "reason": reason}, call)
+        return await once(
+            "loop_reopen", {"loop": loop, "reason": reason}, call, ctx, loop_answered
+        )
 
     async def loop_retire(
-        loop: LoopRef, reason: Reason
-    ) -> Annotated[CallToolResult, LoopChanged]:
+        ctx: Context, loop: LoopRef, reason: Reason
+    ) -> Annotated[CallToolResult, LoopChanged] | InputRequiredResult:
         """Retire a live or committed loop once its choice has left the product: the chosen option is built in and the select call is going away. Apps that still call it get its fallback, its open decisions keep teaching until their windows close, and its history stays readable. This can't be undone; serving the choice again takes a new loop."""
 
         async def call(principal: ConnectionPrincipal) -> CallToolResult:
@@ -1175,11 +1360,13 @@ def register(
                 LoopChanged(status="applied", change=change, loop=value),
             )
 
-        return await once("loop_retire", {"loop": loop, "reason": reason}, call)
+        return await once(
+            "loop_retire", {"loop": loop, "reason": reason}, call, ctx, loop_answered
+        )
 
     async def loop_pause(
-        loop: LoopRef, reason: Reason
-    ) -> Annotated[CallToolResult, LoopChanged]:
+        ctx: Context, loop: LoopRef, reason: Reason
+    ) -> Annotated[CallToolResult, LoopChanged] | InputRequiredResult:
         """Pause a live or committed loop: everyone gets its fallback until it is resumed with loop_resume, which returns it to the state it was paused from. Decisions already made still seal and teach."""
 
         async def call(principal: ConnectionPrincipal) -> CallToolResult:
@@ -1209,9 +1396,12 @@ def register(
                 LoopChanged(status="applied", change=change, loop=value),
             )
 
-        return await once("loop_pause", {"loop": loop, "reason": reason}, call)
+        return await once(
+            "loop_pause", {"loop": loop, "reason": reason}, call, ctx, loop_answered
+        )
 
     async def cycle_start(
+        ctx: Context,
         loop: LoopRef,
         reason: Reason,
         options: Annotated[
@@ -1233,7 +1423,7 @@ def register(
                 description="The option's key served when qbrix can't decide; kept when left out, and needed if its option is gone."
             ),
         ] = None,
-    ) -> Annotated[CallToolResult, LoopChanged]:
+    ) -> Annotated[CallToolResult, LoopChanged] | InputRequiredResult:
         """Start a new cycle of a live or paused loop with new options, a new engine, or both. The new cycle learns afresh; the current one ends and its results stay readable, and its open decisions keep teaching it. A paused loop stays paused. This can't be undone."""
         arguments = {
             "loop": loop,
@@ -1286,11 +1476,11 @@ def register(
                 LoopChanged(status="applied", change=change, loop=value),
             )
 
-        return await once("cycle_start", arguments, call)
+        return await once("cycle_start", arguments, call, ctx, loop_answered)
 
     async def cycle_reset(
-        loop: LoopRef, reason: Reason
-    ) -> Annotated[CallToolResult, LoopChanged]:
+        ctx: Context, loop: LoopRef, reason: Reason
+    ) -> Annotated[CallToolResult, LoopChanged] | InputRequiredResult:
         """Reset the cycle of a live or paused loop: a new cycle with the same options, engine and fallback, learning afresh. The current one ends and its results stay readable, and its open decisions keep teaching it. A paused loop stays paused. This can't be undone."""
 
         async def call(principal: ConnectionPrincipal) -> CallToolResult:
@@ -1325,11 +1515,13 @@ def register(
                 LoopChanged(status="applied", change=change, loop=value),
             )
 
-        return await once("cycle_reset", {"loop": loop, "reason": reason}, call)
+        return await once(
+            "cycle_reset", {"loop": loop, "reason": reason}, call, ctx, loop_answered
+        )
 
     async def loop_resume(
-        loop: LoopRef, reason: Reason
-    ) -> Annotated[CallToolResult, LoopChanged]:
+        ctx: Context, loop: LoopRef, reason: Reason
+    ) -> Annotated[CallToolResult, LoopChanged] | InputRequiredResult:
         """Resume a paused loop: it returns to the state it was paused from, live or committed, and decides again from now."""
 
         async def call(principal: ConnectionPrincipal) -> CallToolResult:
@@ -1362,9 +1554,12 @@ def register(
                 LoopChanged(status="applied", change=change, loop=value),
             )
 
-        return await once("loop_resume", {"loop": loop, "reason": reason}, call)
+        return await once(
+            "loop_resume", {"loop": loop, "reason": reason}, call, ctx, loop_answered
+        )
 
     async def metric_create(
+        ctx: Context,
         name: Annotated[
             str,
             Field(
@@ -1390,7 +1585,7 @@ def register(
             int,
             Field(ge=1, description="How long after a decision its outcome counts."),
         ] = 86400,
-    ) -> Annotated[CallToolResult, MetricChanged]:
+    ) -> Annotated[CallToolResult, MetricChanged] | InputRequiredResult:
         """Create a metric loops can improve: what it stands for, its type and the window in which an outcome counts."""
         arguments = {
             "name": name,
@@ -1432,9 +1627,10 @@ def register(
                 MetricChanged(status="applied", change=change, metric=metric),
             )
 
-        return await once("metric_create", arguments, call)
+        return await once("metric_create", arguments, call, ctx, metric_answered)
 
     async def note_add(
+        ctx: Context,
         loop: LoopRef,
         text: Annotated[
             str,
@@ -1445,7 +1641,7 @@ def register(
                 "reading this loop's history should know.",
             ),
         ],
-    ) -> Annotated[CallToolResult, NoteAdded]:
+    ) -> Annotated[CallToolResult, NoteAdded] | InputRequiredResult:
         """Add a note to a loop's history, beside its changes. A note stays: it can't be undone or edited, so a correction is a new note."""
 
         async def call(principal: ConnectionPrincipal) -> CallToolResult:
@@ -1471,12 +1667,15 @@ def register(
                 NoteAdded(status="applied", change=change, note=entry),
             )
 
-        return await once("note_add", {"loop": loop, "text": text}, call)
+        return await once(
+            "note_add", {"loop": loop, "text": text}, call, ctx, note_answered
+        )
 
     async def change_undo(
+        ctx: Context,
         change: Annotated[str, Field(description="The id of the change to undo.")],
         reason: Reason,
-    ) -> Annotated[CallToolResult, ChangeUndone]:
+    ) -> Annotated[CallToolResult, ChangeUndone] | InputRequiredResult:
         """Undo an earlier change by writing its inverse as a new change. Refused when its kind can't be undone, it was already undone, or a later change moved what it would restore; the refusal says which and names that later change. It runs at your autonomy for the change it undoes, so it may wait for approval."""
 
         async def call(principal: ConnectionPrincipal) -> CallToolResult:
@@ -1523,7 +1722,13 @@ def register(
                 ),
             )
 
-        return await once("change_undo", {"change": change, "reason": reason}, call)
+        return await once(
+            "change_undo",
+            {"change": change, "reason": reason},
+            call,
+            ctx,
+            undo_answered,
+        )
 
     for fn, hints in (
         (loops_list, _READ),

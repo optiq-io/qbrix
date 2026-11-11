@@ -12,6 +12,7 @@
 #   kubectl create secret generic qbrix-clickhouse --from-literal=password=...
 #   kubectl create secret generic qbrix-jwt --from-literal=jwt-secret=$(openssl rand -hex 32)
 #   kubectl create secret generic qbrix-token --from-literal=token-secret=$(openssl rand -hex 32)
+#   kubectl create secret generic qbrix-secret-box --from-literal=secret-box-key=$(openssl rand -hex 32)
 #
 # supplying every secret also makes the release renderable by tools that never
 # talk to the cluster (helm template, argocd), which cannot keep generated ones.
@@ -47,3 +48,5 @@ proxy:
       existingSecret: "qbrix-jwt"
     token:
       existingSecret: "qbrix-token"
+    secretBox:
+      existingSecret: "qbrix-secret-box"

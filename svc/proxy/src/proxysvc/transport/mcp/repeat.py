@@ -59,6 +59,10 @@ class RepeatGuard:
             return result
         return await self._first(key, call)
 
+    async def forget(self, key: str) -> None:
+        """let the next identical call run, once the first one's result is stale."""
+        await self._redis.delete(key)
+
     async def _first(
         self, key: str, call: Callable[[], Awaitable[dict[str, Any]]]
     ) -> dict[str, Any]:

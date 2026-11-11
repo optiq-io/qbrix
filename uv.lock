@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.14"
 
 [manifest]
@@ -1339,6 +1339,7 @@ dependencies = [
     { name = "bcrypt" },
     { name = "cachebox" },
     { name = "click" },
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "grpcio" },
     { name = "grpcio-reflection" },
@@ -1377,6 +1378,7 @@ requires-dist = [
     { name = "bcrypt", specifier = ">=5.0.0" },
     { name = "cachebox", specifier = ">=5.2.1" },
     { name = "click", specifier = ">=8.3.1" },
+    { name = "cryptography", specifier = ">=50.0.2" },
     { name = "fastapi", specifier = ">=0.128.0" },
     { name = "grpcio", specifier = ">=1.76.0" },
     { name = "grpcio-reflection", specifier = ">=1.76.0" },

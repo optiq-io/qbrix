@@ -254,6 +254,13 @@ config:
     existingSecret: ""
     existingSecretKey: "token-secret"
 
+  # root of the keys qbrix encrypts and seals with; generated like the jwt key
+  # when unset. never rotate it: what it sealed can't be read again
+  secretBox:
+    secretKey: ""
+    existingSecret: ""
+    existingSecretKey: "secret-box-key"
+
 # extra environment variables
 extraEnv: []
   # - name: EXTRA_VAR

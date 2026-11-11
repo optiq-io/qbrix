@@ -123,6 +123,11 @@ class ProxyRuntime:
             raise RuntimeError("PROXY_JWT_SECRET_KEY must be set in production")
         if self._settings.token_secret == "change-me-in-production":
             raise RuntimeError("PROXY_TOKEN_SECRET must be set in production")
+        if self._settings.next_enabled and self._settings.secret_box_key in (
+            "",
+            "change-me-in-production",
+        ):
+            raise RuntimeError("PROXY_SECRET_BOX_KEY must be set when next is on")
 
     def _verify_stores(self) -> None:
         if not self._settings.clickhouse_host:

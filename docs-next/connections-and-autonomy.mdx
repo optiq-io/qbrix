@@ -26,9 +26,9 @@ For each kind of change, a connection has one of three levels:
 
 A new connection asks first to launch a loop, start a cycle or retire a loop, because these put something new in front of users or can't be fully undone. It creates drafts, metrics and notes on its own, and acts and notifies for everything else. Undoing a change runs at the level of the change it undoes. Reads have no level.
 
-A change that asks first is stored, waiting, with the client's reason and what it would change, and nothing applies. Only you answer your connections' changes, and only if your role could make the change yourself:
+A change that asks first is stored, waiting, with the client's reason and what it would change, and nothing applies. You answer it in your client, when it can ask you through [MCP](/docs/mcp-server#changes), or in your inbox in qbrix. Only you answer your connections' changes, and only if your role could make the change yourself:
 
-- **Approve:** the change applies, and history records that you approved it and where, for example "approved by Mustafa in qbrix". You can also let the connection act and notify for that kind from now on; that is recorded as a change of its own.
+- **Approve:** the change applies, and history records that you approved it and where, for example "approved by Mustafa in Claude Code" or "approved by Mustafa in qbrix". You can also let the connection act and notify for that kind from now on; that is recorded as a change of its own.
 - **Decline:** the change stays in history with your reason, if you give one. Agents read a loop's declined changes before proposing again.
 
 Your inbox holds what your connections asked for, oldest first, each with what it would change and how often that connection asked for the same kind lately and you approved; the changes your connections made at act and notify in the last seven days, with undo; and every loop qbrix paused that no one has resumed, which every member of the workspace sees. Nothing waits on a viewer, so a viewer's inbox holds alerts only. Nobody else sees your waiting changes, admins included. The count beside Inbox in the navigation is what waits on you. The same read is `GET /api/v1/inbox`, and the count is `GET /api/v1/inbox/count`.
@@ -70,5 +70,7 @@ Signing a client in uses OAuth 2.1, which requires HTTPS everywhere except `loca
 - Route `/oauth`, `/.well-known/oauth-authorization-server`, `/mcp` and `/.well-known/oauth-protected-resource` to the API, as `/api` is. The Docker Compose gateway and the Helm chart already do. See [self-hosting](/docs/self-hosting).
 
 A client describes itself at a URL on the public internet, which qbrix fetches when the client signs in. An install that can't reach the internet still works: the client registers itself instead.
+
+Asking in your client relies on the API's secret box key, `PROXY_SECRET_BOX_KEY` (`SECRET_BOX_KEY` in the Docker Compose `.env`). `bin/selfhost-init` and the Helm chart generate it; an install from before this release adds a long random value by hand, and the API won't start with qbrix next on without one. Never change it once set.
 
 To change a connection's limits, set `PROXY_MCP_CALLS_PER_MINUTE` (default `120`) and `PROXY_MCP_CHANGES_PER_MINUTE` (default `30`). Both must be at least `1`, and the API won't start otherwise. The cap on changes only binds below the cap on calls. With the Helm chart, pass them through `proxy.extraEnv`.
