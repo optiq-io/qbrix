@@ -183,7 +183,7 @@ def unknown_change(ref: str) -> Refusal:
 def already_waiting(e: ChangeWaitingError) -> Refusal:
     return Refusal(
         f"{_sentence(str(e))} Nothing new was asked: find its answer with "
-        f"changes_list, and propose again once it is answered."
+        f"change_get, and propose again once it is answered."
     )
 
 

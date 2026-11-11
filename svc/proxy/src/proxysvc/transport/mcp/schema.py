@@ -107,6 +107,10 @@ class ChangeUndone(BaseModel):
     undone: ChangeEntry
 
 
+class ChangeView(ChangeEntry):
+    url: str
+
+
 class HistoryPage(ChangePage):
     url: str
 

@@ -31,14 +31,27 @@ The first time the client calls qbrix, it opens your browser to sign in and appr
 | `loop_get` | One loop: purpose, options, metric, owner, fallback, state and current cycle, its latest change, this connection's level for each change to the loop (act on its own, act and notify, or ask first), the loop's most recent declined changes with their reasons, and the `select` and `outcome` calls that wire it, in Python and JavaScript. A paused loop says who paused it, when and why: for a [safety pause](/docs/alerts), the share of calls that failed and over how long. |
 | `loop_results` | A cycle's results: share of decisions per option, lift over an even split, decisions waiting to seal, and health. |
 | `metrics_list` | The workspace's metrics, with their type and window, and the loops that use each. |
+| `changes_list` | Every change in the workspace, newest first: who made it and through which client, what it touched, each field before and after, why, and whether it can be undone. Waiting and declined changes are included, with who answered, where and why. Filter by who, kind, loop, metric and whether it can be undone. |
+| `change_get` | One change by its id, with its status: applied, undone, waiting for approval, or declined, with who answered, where and why. |
+| `loop_history` | A loop's changes and notes, newest first, declined changes included with their reasons. |
 | `milestones_list` | What the workspace's loops reached, newest first: a draft's first call, a cycle's first window sealing, and a new option taking the lead. Filter by loop, metric, kind and time. |
 | `loop_create` | Creates a draft loop with its options and metric. |
+| `loop_rename` | Renames a loop, in any state. Its key stays, so the code that calls it keeps working. |
 | `loop_launch` | Takes a draft live: its first cycle starts. |
+| `loop_commit` | Commits a live loop to one option: everyone gets it, and its outcomes keep teaching it. |
+| `loop_reopen` | Reopens a committed loop: live again in the same cycle, with everything it learned. |
+| `loop_retire` | Retires a live, committed or paused loop once its choice has left the product. Apps that still call it get its fallback. |
+| `loop_pause` | Pauses a live or committed loop: everyone gets its fallback until it is resumed. |
+| `loop_resume` | Resumes a paused loop to the state it was paused from. |
+| `cycle_start` | Starts a new cycle of a live or paused loop with new options, a new engine, or both. |
+| `cycle_reset` | Starts a new cycle with the same options, engine and fallback, learning afresh. |
 | `metric_create` | Creates a metric with what it stands for, its type and its window. |
+| `note_add` | Adds a note to a loop's history. A note stays: a correction is a new note. |
+| `change_undo` | Undoes an earlier change by writing its inverse as a new change, at your level for the change it undoes. |
 
 - **A loop is named by its key or its id**, and a metric by its name or its id, in every tool.
 - **Loop reads are concise by default.** They leave out each option's config and the share series; ask for `detail: "full"` to include them. `loops_list` returns 20 loops a page, up to 100, with a cursor to the next page.
-- **Reads are marked read-only, and `loop_launch` destructive**, so your client can ask you before it launches a loop.
+- **Reads are marked read-only, and changes to an existing loop destructive**, so your client can ask you before it launches or pauses a loop.
 
 Asking for decisions and reporting outcomes never happen over MCP. They belong to your app and its key, so a chat never teaches a loop something no user did.
 
@@ -52,9 +65,9 @@ A change applies within your role and the connection's [autonomy](/docs/connecti
 - `change`: its id, its kind, whether it can be undone, and its link in the console
 - the loop or metric as it is now: changed, or unchanged while the change waits
 
-A waiting change applies nothing until you approve it in qbrix. The agent can check on it among the workspace's changes, where waiting and declined changes are listed with who answered, where and why. A loop's history lists its declined changes with their reasons, so an agent reads them before proposing the same change again. Only one change of each kind waits on a loop at a time; asking again names the one already waiting.
+A waiting change applies nothing until you approve it in qbrix. The agent checks on it with `change_get`, which says whether it is still waiting and, once answered, who answered, where and why. A loop's history lists its declined changes with their reasons, so an agent reads them before proposing the same change again. Only one change of each kind waits on a loop at a time; asking again names the one already waiting.
 
-Creating a loop or a metric can be undone. Launching can't.
+Creating a loop or a metric, renaming, committing, reopening, pausing and resuming can be undone. Launching, retiring and starting or resetting a cycle can't.
 
 **Repeating a call is harmless.** Clients and networks retry. The same change tool called again by the same connection with the same arguments within 5 minutes returns the first call's result and changes nothing twice. Change any argument, the reason included, and it is a new call.
 
