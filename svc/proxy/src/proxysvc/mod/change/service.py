@@ -188,7 +188,7 @@ async def _targets(
     return targets
 
 
-async def _rows(
+async def workspace_rows(
     session: AsyncSession, tenant_id: str, groups: list[list[Change]]
 ) -> list[dict]:
     """the entries for these groups, every name they mention read in a fixed
@@ -341,7 +341,7 @@ class ChangeService:
             changes, next_cursor = pages.page(rows, limit)
             groups = fold_bursts(changes) if fold else [[c] for c in changes]
             return {
-                "changes": await _rows(session, tenant_id, groups),
+                "changes": await workspace_rows(session, tenant_id, groups),
                 "next_cursor": next_cursor,
             }
 
@@ -369,7 +369,7 @@ class ChangeService:
             change = await ChangeRepository(session, tenant_id).get(change_id)
             if change is None:
                 return None
-            entries = await _rows(session, tenant_id, [[change]])
+            entries = await workspace_rows(session, tenant_id, [[change]])
             return entries[0]
 
     async def undo(

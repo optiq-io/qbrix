@@ -12,6 +12,7 @@ from sqlalchemy import or_
 from sqlalchemy import select
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from qbrixstore.postgres.models import Change
@@ -498,6 +499,87 @@ class ChangeRepository:
         )
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
+
+    def _of_connections(self, user_id: str) -> tuple:
+        """changes made through a person's connections, which only that
+        person answers."""
+        return (
+            Change.tenant_id == self._tenant_id,
+            Change.actor_user_id == user_id,
+            Change.connection_id.is_not(None),
+        )
+
+    async def waiting_for(self, user_id: str) -> list[Change]:
+        """what waits on a person's answer, oldest asked first."""
+        stmt = (
+            select(Change)
+            .where(*self._of_connections(user_id), Change.status == WAITING)
+            .order_by(Change.asked_at, Change.id)
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def count_waiting_for(self, user_id: str) -> int:
+        stmt = select(func.count()).where(
+            *self._of_connections(user_id), Change.status == WAITING
+        )
+        return (await self._session.execute(stmt)).scalar_one()
+
+    async def notified_for(
+        self, user_id: str, since: datetime, limit: int
+    ) -> list[Change]:
+        """what a person's connections did at act and notify since then,
+        newest first."""
+        stmt = (
+            select(Change)
+            .where(
+                *self._of_connections(user_id),
+                Change.level == "notify",
+                Change.status.in_(HAPPENED),
+                Change.created_at >= since,
+            )
+            .order_by(Change.created_at.desc(), Change.id.desc())
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def asked_by(
+        self, user_id: str, connection_ids: Collection[str], since: datetime
+    ) -> dict[tuple[str, str], tuple[int, int]]:
+        """per connection and the kind whose level an approval would raise, how
+        many changes it asked for since then and how many were approved. an
+        undo asks at the level of the kind it undoes."""
+        if not connection_ids:
+            return {}
+        undone = aliased(Change)
+        kind = func.coalesce(undone.kind, Change.kind)
+        approved = func.count().filter(Change.status.in_(HAPPENED))
+        stmt = (
+            select(Change.connection_id, kind, func.count(), approved)
+            .outerjoin(undone, undone.id == Change.undoes_id)
+            .where(
+                Change.tenant_id == self._tenant_id,
+                Change.actor_user_id == user_id,
+                Change.connection_id.in_(connection_ids),
+                Change.asked_at >= since,
+            )
+            .group_by(Change.connection_id, kind)
+        )
+        result = await self._session.execute(stmt)
+        return {
+            (connection_id, kind): (asked, approved)
+            for connection_id, kind, asked, approved in result.all()
+        }
+
+    async def kinds_of(self, change_ids: Collection[str]) -> dict[str, str]:
+        """each change's kind, in one query."""
+        if not change_ids:
+            return {}
+        stmt = select(Change.id, Change.kind).where(
+            Change.tenant_id == self._tenant_id, Change.id.in_(change_ids)
+        )
+        return {row.id: row.kind for row in (await self._session.execute(stmt)).all()}
 
     async def latest_for_each(
         self,

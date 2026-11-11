@@ -38,6 +38,7 @@ from proxysvc.mod.loop.read import LoopReadService
 from proxysvc.mod.loop.result import LoopResultService
 from proxysvc.mod.loop.route import LoopRouteCache
 from proxysvc.mod.loop.select import LoopSelectService
+from proxysvc.mod.inbox.service import InboxService
 from proxysvc.mod.milestone.service import MilestoneService
 from proxysvc.mod.summary.service import SummaryService
 from proxysvc.mod.loop.service import LoopService
@@ -83,6 +84,7 @@ class ProxyService:
         self._connection_service: ConnectionService | None = None
         self._oauth_service: OAuthService | None = None
         self._pin_service: PinService | None = None
+        self._inbox_service: InboxService | None = None
         self._cimd: CIMDFetcher | None = None
         self._entitlements: Entitlements | None = None
 
@@ -204,6 +206,7 @@ class ProxyService:
             fetcher=self._cimd or CIMDFetcher(),
         )
         self._pin_service = PinService()
+        self._inbox_service = InboxService()
 
     @property
     def entitlements(self) -> Entitlements:
@@ -807,6 +810,12 @@ class ProxyService:
         self, tenant_id: str, since: datetime | None = None
     ) -> dict:
         return await self._summary_service.week(tenant_id, since)
+
+    async def inbox(self, tenant_id: str, user_id: str, role: str) -> dict:
+        return await self._inbox_service.read(tenant_id, user_id, role)
+
+    async def inbox_count(self, tenant_id: str, user_id: str, role: str) -> dict:
+        return await self._inbox_service.count(tenant_id, user_id, role)
 
     async def outcome(
         self,
