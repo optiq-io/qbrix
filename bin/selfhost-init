@@ -51,6 +51,7 @@ sed \
     -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(secret)|" \
     -e "s|^JWT_SECRET_KEY=.*|JWT_SECRET_KEY=$(secret)|" \
     -e "s|^TOKEN_SECRET=.*|TOKEN_SECRET=$(secret)|" \
+    -e "s|^SECRET_BOX_KEY=.*|SECRET_BOX_KEY=$(secret)|" \
     -e "s|^QBRIX_PORT=.*|QBRIX_PORT=$port|" \
     -e "s|^CONSOLE_URL=.*|CONSOLE_URL=http://localhost:$port|" \
     "$template" > "$tmp"

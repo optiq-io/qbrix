@@ -83,7 +83,7 @@ class ChangeRef(BaseModel):
     url: str
 
 
-ChangeStatus = Literal["applied", "waiting"]
+ChangeStatus = Literal["applied", "waiting", "declined"]
 
 
 class LoopChanged(BaseModel):

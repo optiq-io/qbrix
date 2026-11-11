@@ -67,6 +67,7 @@ services:
       # auth
       PROXY_JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
       PROXY_TOKEN_SECRET: ${TOKEN_SECRET:-change-me-in-production}
+      PROXY_SECRET_BOX_KEY: ${SECRET_BOX_KEY:-change-me-in-production}
       # multi-tenancy
       PROXY_DEFAULT_TENANT_NAME: "Default"
       PROXY_DEFAULT_TENANT_SLUG: "default"

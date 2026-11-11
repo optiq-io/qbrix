@@ -35,7 +35,7 @@ Email links (verification, password reset, invites) use `proxy.config.consoleUrl
 
 ## Secrets
 
-With nothing configured, the chart generates the Postgres password, the JWT signing key and the selection-token secret on first install, and keeps them across upgrades. The Postgres secret also survives `helm uninstall`, because the database volume does.
+With nothing configured, the chart generates the Postgres password, the JWT signing key, the selection-token secret and the secret box key on first install, and keeps them across upgrades. The Postgres secret also survives `helm uninstall`, because the database volume does. Never rotate the secret box key: what qbrix sealed or encrypted with it can't be read again.
 
 Generated values are read back from the cluster, which render-only tools cannot do: `helm template`, Argo CD and Flux would get fresh values on every render. For those, or to manage secrets yourself, create them and name them:
 
@@ -46,6 +46,7 @@ Generated values are read back from the cluster, which render-only tools cannot 
 | `global.clickhouse.existingSecret` | `password` |
 | `proxy.config.jwt.existingSecret` | `jwt-secret` |
 | `proxy.config.token.existingSecret` | `token-secret` |
+| `proxy.config.secretBox.existingSecret` | `secret-box-key` |
 | `proxy.config.smtp.existingSecret` | `smtp-password` |
 
 ## External databases

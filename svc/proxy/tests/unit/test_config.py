@@ -35,3 +35,24 @@ class TestConnectionLimits:
 
         with pytest.raises(ValidationError):
             ProxySettings()
+
+
+class TestDerivedKey:
+
+    def test_a_label_always_derives_the_same_key(self):
+        settings = ProxySettings(secret_box_key="k" * 64)
+
+        assert settings.derived_key("mcp-request-state") == ProxySettings(
+            secret_box_key="k" * 64
+        ).derived_key("mcp-request-state")
+        assert len(settings.derived_key("mcp-request-state")) == 32
+
+    def test_each_label_and_root_derives_its_own(self):
+        settings = ProxySettings(secret_box_key="k" * 64)
+
+        assert settings.derived_key("mcp-request-state") != settings.derived_key(
+            "secret-box"
+        )
+        assert settings.derived_key("mcp-request-state") != ProxySettings(
+            secret_box_key="j" * 64
+        ).derived_key("mcp-request-state")

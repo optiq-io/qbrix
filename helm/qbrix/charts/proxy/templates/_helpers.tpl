@@ -192,6 +192,17 @@ Get token secret name
 {{- end }}
 
 {{/*
+Get secret box key secret name
+*/}}
+{{- define "proxy.secretBoxSecretName" -}}
+{{- if .Values.config.secretBox.existingSecret }}
+{{- .Values.config.secretBox.existingSecret }}
+{{- else }}
+{{- printf "%s-secret-box" (include "proxy.fullname" .) }}
+{{- end }}
+{{- end }}
+
+{{/*
 Get sentry secret name
 */}}
 {{- define "proxy.sentrySecretName" -}}

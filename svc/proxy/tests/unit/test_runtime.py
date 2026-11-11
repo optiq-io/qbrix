@@ -87,3 +87,35 @@ async def test_the_watch_runs_with_next_on_and_stops_with_the_runtime(watches):
 def test_the_interval_stays_under_the_lease():
     with pytest.raises(ValueError):
         _settings(safety_interval_sec=60)
+
+
+def _production(**overrides) -> ProxySettings:
+    return ProxySettings(
+        runenv="prod",
+        clickhouse_host="clickhouse",
+        jwt_secret_key="jwt",
+        token_secret="token",
+        **overrides,
+    )
+
+
+@pytest.mark.parametrize("key", ["", "change-me-in-production"])
+def test_next_needs_the_secret_box_key_outside_dev(key):
+    with pytest.raises(RuntimeError, match="PROXY_SECRET_BOX_KEY"):
+        ProxyRuntime(
+            _production(next_enabled=True, secret_box_key=key)
+        )._verify_secrets()
+
+
+def test_without_next_the_secret_box_key_can_wait():
+    ProxyRuntime(_production(next_enabled=False))._verify_secrets()
+    ProxyRuntime(
+        _production(next_enabled=True, secret_box_key="s" * 64)
+    )._verify_secrets()
+
+
+def test_a_short_secret_box_key_is_refused_with_next_on():
+    with pytest.raises(RuntimeError, match="at least 32 characters"):
+        ProxyRuntime(
+            _production(next_enabled=True, secret_box_key="hunter2")
+        )._verify_secrets()

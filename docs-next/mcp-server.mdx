@@ -62,11 +62,13 @@ Every change tool takes a `reason`, a sentence on why. It is recorded in the loo
 
 A change applies within your role and the connection's [autonomy](/docs/connections-and-autonomy#changes-that-ask-first), and its result says what happened:
 
-- `status`: `applied`, or `waiting` when the change asks first
+- `status`: `applied`, `waiting` when the change asks first and hasn't been answered, or `declined`
 - `change`: its id, its kind, whether it can be undone, and its link in the console
 - the loop or metric as it is now: changed, or unchanged while the change waits
 
-A waiting change applies nothing until you approve it in qbrix. The agent checks on it with `change_get`, which says whether it is still waiting and, once answered, who answered, where and why. A loop's history lists its declined changes with their reasons, so an agent reads them before proposing the same change again. Only one change of each kind waits on a loop at a time; asking again names the one already waiting.
+A change that asks first is put to you in your client, when the client can ask you through MCP: you approve it with one click, or decline it, with a reason if you like, without leaving the chat. The question goes to your screen, not to the model, so the agent can't answer it for you. The result then says `applied` or `declined`, and history records that you answered in that client, for example "approved by Mustafa in Claude Code". Your client's own decline button declines the change too, without a reason. If you close the question, or the client can't ask, the change keeps waiting with its link, and you answer it in your inbox in qbrix.
+
+A waiting change applies nothing until you approve it. The agent checks on it with `change_get`, which says whether it is still waiting and, once answered, who answered, where and why. A loop's history lists its declined changes with their reasons, so an agent reads them before proposing the same change again. Only one change of each kind waits on a loop at a time; asking again names the one already waiting.
 
 Creating a loop or a metric, renaming, committing, reopening, pausing and resuming can be undone. Launching, retiring and starting or resetting a cycle can't.
 

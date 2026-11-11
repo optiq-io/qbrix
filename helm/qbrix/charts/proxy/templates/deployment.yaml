@@ -84,6 +84,12 @@ spec:
                 secretKeyRef:
                   name: {{ include "proxy.tokenSecretName" . }}
                   key: {{ .Values.config.token.existingSecretKey }}
+            # root of the keys qbrix encrypts and seals with
+            - name: PROXY_SECRET_BOX_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "proxy.secretBoxSecretName" . }}
+                  key: {{ .Values.config.secretBox.existingSecretKey }}
             # email provider credentials
             {{- if .Values.config.resend.existingSecret }}
             - name: PROXY_RESEND_API_KEY

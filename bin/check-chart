@@ -76,6 +76,7 @@ SCENARIOS = [
             "qbrix-clickhouse",
             "qbrix-jwt",
             "qbrix-token",
+            "qbrix-secret-box",
         },
         expect_config={
             "PROXY_POSTGRES_HOST": "qbrix.xxxxxxxx.eu-central-1.rds.amazonaws.com",
