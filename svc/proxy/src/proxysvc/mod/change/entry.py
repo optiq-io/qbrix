@@ -13,7 +13,7 @@ from qbrixstore.postgres.models import Change
 
 from proxysvc.mod.change.note import NOTE_KINDS
 from proxysvc.mod.change.serialize import history_entry
-from proxysvc.mod.change.serialize import verb_of
+from proxysvc.mod.change.serialize import verb_for
 from proxysvc.mod.change.serialize import who_made
 from proxysvc.mod.change.undo import NOT_UNDOABLE
 from proxysvc.mod.change.undo import is_undoable
@@ -198,7 +198,7 @@ def _target_pieces(target: dict) -> list[dict]:
 def pieces(change: Change, target: dict, people: People, count: int = 1) -> list[dict]:
     """the sentence as typed parts: who, one verb per kind, the target. what
     changed stays in the diff, so a value never lands in the sentence."""
-    verb = f"made {count} changes to" if count > 1 else verb_of(change.kind)
+    verb = f"made {count} changes to" if count > 1 else verb_for(change)
     return [
         _actor_piece(change, people),
         {"kind": "text", "text": f" {verb} "},

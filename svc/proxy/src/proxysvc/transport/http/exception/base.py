@@ -446,6 +446,28 @@ class ChangeNotUndoableException(ConflictException):
     code = "CHANGE_NOT_UNDOABLE"
 
 
+class ChangeAnsweredException(ConflictException):
+    """the change isn't waiting: it was already approved or declined."""
+
+    detail = "the change was already answered"
+    code = "CHANGE_ANSWERED"
+
+
+class ChangeNoLongerAppliesException(ConflictException):
+    """approving a change its target no longer takes. it keeps waiting; context
+    names the change that moved the target since it was asked, when one did."""
+
+    detail = "the change no longer applies"
+    code = "CHANGE_NO_LONGER_APPLIES"
+
+
+class ChangeAnswerForbiddenException(ForbiddenException):
+    """answering a change asked by someone else's connection."""
+
+    detail = "only the person a connection acts for answers its changes"
+    code = "CHANGE_ANSWER_FORBIDDEN"
+
+
 class InvalidDecisionContextException(BadRequestException):
     """a select's context has no unit, or properties that aren't an object."""
 

@@ -8,6 +8,7 @@ from difflib import get_close_matches
 from proxysvc.core.error import ChangeConflictError
 from proxysvc.core.error import ChangeMovedError
 from proxysvc.core.error import ChangeNotUndoableError
+from proxysvc.core.error import ChangeWaitingError
 from proxysvc.core.error import ConnectionLevelsForbiddenError
 from proxysvc.core.error import ExperimentLimitError
 from proxysvc.core.error import ExperimentRunningError
@@ -179,11 +180,20 @@ def unknown_change(ref: str) -> Refusal:
     )
 
 
+def already_waiting(e: ChangeWaitingError) -> Refusal:
+    return Refusal(
+        f"{_sentence(str(e))} Nothing new was asked: find its answer with "
+        f"changes_list, and propose again once it is answered."
+    )
+
+
 @contextmanager
 def undo_refusals() -> Iterator[None]:
     """why an undo was refused. nothing was applied in any of these."""
     try:
         yield
+    except ChangeWaitingError as e:
+        raise already_waiting(e) from e
     except ChangeMovedError as e:
         raise Refusal(f"{_sentence(str(e))} Nothing was undone.") from e
     except ChangeNotUndoableError as e:

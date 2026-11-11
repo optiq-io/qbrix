@@ -192,9 +192,30 @@ async def _connect(
         yield client
 
 
+ON_ITS_OWN = {"loop.launch": "own", "cycle.start": "own", "loop.retire": "own"}
+
+
 @asynccontextmanager
-async def _session(app, wired_app, user="user-member", mode=MODERN):
+async def _session(app, wired_app, user="user-member", mode=MODERN, levels=ON_ITS_OWN):
+    """a connected client. its person lets it make every change on its own,
+    so a tool's own result is what a test sees; tests about asking first pass
+    levels=None for the defaults."""
     token = await _token(wired_app, user)
+    if levels:
+        [connection] = [
+            connection
+            for connection in await wired_app.svc.connections.list(
+                TENANT, user_id=user, role=PEOPLE[user][0]
+            )
+            if connection["client"]["name"] == "Claude Code"
+        ]
+        await wired_app.svc.connections.set_levels(
+            TENANT,
+            connection["id"],
+            levels,
+            actor=Actor.member(user),
+            role=PEOPLE[user][0],
+        )
     async with _connect(_http(app, token), mode) as client:
         yield client
 
@@ -1562,18 +1583,12 @@ class TestRefusals:
 
 class TestAutonomy:
 
-    async def _connection_id(self, wired_app, user="user-member") -> str:
-        [connection] = await wired_app.svc.connections.list(
-            TENANT, user_id=user, role="member"
-        )
-        return connection["id"]
-
     async def test_loop_get_returns_this_connections_levels(self, mcp, wired_app):
-        async with _session(mcp, wired_app) as client:
+        async with _session(mcp, wired_app, levels=None) as client:
             await _draft(client)
             await wired_app.svc.connections.set_levels(
                 TENANT,
-                await self._connection_id(wired_app),
+                await _connection_id(wired_app),
                 {"loop.launch": "notify"},
                 actor=Actor.member("user-member"),
                 role="member",
@@ -1591,10 +1606,10 @@ class TestAutonomy:
         )
 
     async def test_a_connection_cant_undo_its_levels(self, mcp, wired_app):
-        async with _session(mcp, wired_app) as client:
+        async with _session(mcp, wired_app, levels=None) as client:
             changed = await wired_app.svc.connections.set_levels(
                 TENANT,
-                await self._connection_id(wired_app),
+                await _connection_id(wired_app),
                 {"loop.launch": "notify"},
                 actor=Actor.member("user-member"),
                 role="member",
@@ -1609,3 +1624,163 @@ class TestAutonomy:
             "A connection's levels are set by its person in the console, never "
             "over MCP. Nothing was undone."
         )
+
+
+async def _connection_id(wired_app, user: str = "user-member") -> str:
+    [connection] = await wired_app.svc.connections.list(
+        TENANT, user_id=user, role=PEOPLE[user][0]
+    )
+    return connection["id"]
+
+
+async def _approve(wired_app, change_id: str, **kwargs) -> dict:
+    return await wired_app.svc.approve_change(
+        TENANT,
+        change_id,
+        actor=Actor.member("user-member"),
+        role="member",
+        where="qbrix",
+        **kwargs,
+    )
+
+
+async def _decline(wired_app, change_id: str, reason: str) -> dict:
+    return await wired_app.svc.decline_change(
+        TENANT,
+        change_id,
+        actor=Actor.member("user-member"),
+        where="qbrix",
+        reason=reason,
+    )
+
+
+LAUNCH = {"loop": "checkout-headline", "reason": "the select call is in"}
+
+
+class TestAskingFirst:
+
+    async def test_a_launch_waits_and_a_create_applies(self, mcp, wired_app):
+        async with _session(mcp, wired_app, levels=None) as client:
+            draft = await _draft(client)
+            launched = await _call(client, "loop_launch", LAUNCH)
+
+        assert draft["status"] == "applied"
+        assert not launched.is_error, launched
+        structured = launched.structured_content
+        assert structured["status"] == "waiting"
+        assert structured["loop"]["state"] == "draft"
+        assert structured["change"]["kind"] == "loop.launch"
+        assert structured["change"]["url"] == (
+            f"{proxysvc.config.settings.console_origin}/changes"
+            f"?change={structured['change']['id']}"
+        )
+        text = launched.content[0].text
+        assert text.startswith(
+            "Waiting for approval: Claude Code asks to launch Checkout headline."
+        )
+        assert "Nothing has changed yet. Mustafa approves or declines it" in text
+        loop = await wired_app.svc.get_loop(TENANT, "checkout-headline")
+        assert loop["state"] == "draft"
+
+    async def test_a_second_launch_names_the_one_waiting(self, mcp, wired_app):
+        async with _session(mcp, wired_app, levels=None) as client:
+            await _draft(client)
+            first = await _call(client, "loop_launch", LAUNCH)
+            again = await _call(
+                client, "loop_launch", {**LAUNCH, "reason": "really ready now"}
+            )
+
+        waiting = first.structured_content["change"]["id"]
+        assert f"({waiting})" in _error(again)
+        assert "find its answer with changes_list" in _error(again)
+
+    async def test_an_approved_launch_reads_who_approved_where(self, mcp, wired_app):
+        async with _session(mcp, wired_app, levels=None) as client:
+            await _draft(client)
+            launched = await _call(client, "loop_launch", LAUNCH)
+            await _approve(wired_app, launched.structured_content["change"]["id"])
+            history = await _call(client, "loop_history", {"loop": "checkout-headline"})
+
+        newest = history.structured_content["changes"][0]
+        assert newest["status"] == "applied"
+        assert newest["decision"]["where"] == "qbrix"
+        assert "approved by Mustafa in qbrix" in history.content[0].text.splitlines()[0]
+        loop = await wired_app.svc.get_loop(TENANT, "checkout-headline")
+        assert loop["state"] == "live"
+
+    async def test_a_decline_reaches_the_agent_with_its_reason(self, mcp, wired_app):
+        reason = "not before legal approves the copy on 1 March"
+        async with _session(mcp, wired_app, levels=None) as client:
+            await _draft(client)
+            launched = await _call(client, "loop_launch", LAUNCH)
+            await _decline(
+                wired_app, launched.structured_content["change"]["id"], reason
+            )
+            got = await _call(client, "loop_get", {"loop": "checkout-headline"})
+            history = await _call(client, "loop_history", {"loop": "checkout-headline"})
+            listed = await _call(client, "changes_list", {"kind": ["loop.launch"]})
+
+        [declined] = got.structured_content["declined"]
+        assert declined["decision"]["reason"] == reason
+        assert "Declined recently, read before proposing again:" in got.content[0].text
+        assert f'declined by Mustafa in qbrix: "{reason}"' in history.content[0].text
+        assert listed.structured_content["changes"][0]["status"] == "declined"
+
+    async def test_changes_list_holds_waiting_changes(self, mcp, wired_app):
+        async with _session(mcp, wired_app, levels=None) as client:
+            await _draft(client)
+            await _call(client, "loop_launch", LAUNCH)
+            listed = await _call(client, "changes_list", {"kind": ["loop.launch"]})
+
+        [entry] = listed.structured_content["changes"]
+        assert entry["status"] == "waiting"
+        assert "waiting for approval" in listed.content[0].text
+
+    async def test_an_undo_asks_at_the_level_of_what_it_undoes(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            paused = await _call(
+                client, "loop_pause", {"loop": "checkout-headline", "reason": "check"}
+            )
+            await wired_app.svc.connections.set_levels(
+                TENANT,
+                await _connection_id(wired_app),
+                {"loop.pause": "ask"},
+                actor=Actor.member("user-member"),
+                role="member",
+            )
+            undo = await _call(
+                client,
+                "change_undo",
+                {
+                    "change": paused.structured_content["change"]["id"],
+                    "reason": "it was fine",
+                },
+            )
+
+        assert not undo.is_error, undo
+        assert undo.structured_content["status"] == "waiting"
+        assert undo.structured_content["undone"]["kind"] == "loop.resume"
+        loop = await wired_app.svc.get_loop(TENANT, "checkout-headline")
+        assert loop["state"] == "paused"
+
+    async def test_approving_can_raise_the_level_as_its_own_change(
+        self, mcp, wired_app
+    ):
+        async with _session(mcp, wired_app, levels=None) as client:
+            await _draft(client)
+            launched = await _call(client, "loop_launch", LAUNCH)
+            await _approve(
+                wired_app,
+                launched.structured_content["change"]["id"],
+                raise_level=True,
+            )
+            got = await _call(client, "loop_get", {"loop": "checkout-headline"})
+            levels = await _call(
+                client, "changes_list", {"kind": ["connection.levels"]}
+            )
+
+        assert got.structured_content["autonomy"]["loop.launch"] == "notify"
+        [raised] = levels.structured_content["changes"]
+        assert raised["who"]["user_id"] == "user-member"
+        assert raised["via"] is None

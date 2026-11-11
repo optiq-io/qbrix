@@ -363,8 +363,9 @@ class LoopService:
         name: str | None = None,
         key: str | None = None,
         actor: Actor,
+        reason: str | None = None,
         undoing: Undoing | None = None,
-    ) -> dict | None:
+    ) -> Applied | None:
         """a new name at any time; a new key only while the loop is a draft."""
         if name is None and key is None:
             raise LoopInvalidError("a rename needs a new name, a new key or both")
@@ -398,17 +399,18 @@ class LoopService:
                 raise _taken(key) from e
             loop_dict = loop_to_dict(loop, people)
             route = route_of(loop)
-            await ChangeRepository(session, tenant_id).record(
+            change = await ChangeRepository(session, tenant_id).record(
                 "loop.rename",
                 "loop",
                 loop.id,
                 actor,
                 before=before,
                 after=loop_dict,
+                reason=reason,
                 undoing=undoing,
             )
         await self._routes.put(tenant_id, route, old_key=old_key)
-        return loop_dict
+        return Applied.of(loop_dict, change)
 
     async def add_note(
         self, tenant_id: str, ref: str, *, text: str, actor: Actor

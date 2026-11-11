@@ -22,6 +22,8 @@ from proxysvc.core.entitlements import Entitlements
 from proxysvc.core.events import EventEmitter
 from proxysvc.mod.agent import AgentService
 from proxysvc.mod.change.applied import Applied
+from proxysvc.mod.change.proposal import HAPPENED
+from proxysvc.mod.change.proposal import Waiting
 from proxysvc.mod.change.note import HistoryShow
 from proxysvc.mod.change.service import ChangeService
 from proxysvc.mod.connection.service import ConnectionService
@@ -477,6 +479,7 @@ class ProxyService:
         loop: str | None = None,
         metric: str | None = None,
         undoable: bool | None = None,
+        statuses: Collection[str] = HAPPENED,
         fold: bool = True,
         cursor: str | None = None,
         limit: int,
@@ -489,6 +492,7 @@ class ProxyService:
             loop=loop,
             metric=metric,
             undoable=undoable,
+            statuses=statuses,
             fold=fold,
             cursor=cursor,
             limit=limit,
@@ -508,6 +512,53 @@ class ProxyService:
     ) -> dict | None:
         return await self._change_service.undo(
             tenant_id, change_id, actor=actor, reason=reason, plan_tier=plan_tier
+        )
+
+    async def act(
+        self,
+        tenant_id: str,
+        kind: str,
+        ref: str | None,
+        args: dict,
+        *,
+        actor: Actor,
+        reason: str | None = None,
+        evidence: dict | None = None,
+    ) -> Applied | Waiting | None:
+        return await self._change_service.act(
+            tenant_id, kind, ref, args, actor=actor, reason=reason, evidence=evidence
+        )
+
+    async def approve_change(
+        self,
+        tenant_id: str,
+        change_id: str,
+        *,
+        actor: Actor,
+        role: str,
+        where: str,
+        raise_level: bool = False,
+    ) -> dict | None:
+        return await self._change_service.approve(
+            tenant_id,
+            change_id,
+            actor=actor,
+            role=role,
+            where=where,
+            raise_level=raise_level,
+        )
+
+    async def decline_change(
+        self,
+        tenant_id: str,
+        change_id: str,
+        *,
+        actor: Actor,
+        where: str,
+        reason: str | None = None,
+    ) -> dict | None:
+        return await self._change_service.decline(
+            tenant_id, change_id, actor=actor, where=where, reason=reason
         )
 
     # metrics
@@ -591,7 +642,7 @@ class ProxyService:
         name: str | None = None,
         key: str | None = None,
         actor: Actor,
-    ) -> dict | None:
+    ) -> Applied | None:
         return await self._loop_service.rename_loop(
             tenant_id, ref, name=name, key=key, actor=actor
         )

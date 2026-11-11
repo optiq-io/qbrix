@@ -20,6 +20,7 @@ from pydantic import Field
 
 from proxysvc.config import ProxySettings
 from proxysvc.core import autonomy
+from proxysvc.core.error import ChangeWaitingError
 from proxysvc.core.error import ConnectionRateLimitedError
 from proxysvc.core.error import CycleNotFoundError
 from proxysvc.core.error import LoopInvalidError
@@ -31,6 +32,9 @@ from proxysvc.mod.change.applied import Applied
 from proxysvc.mod.change.note import HISTORY_SHOW
 from proxysvc.mod.change.note import NOTE_MAX_LENGTH
 from proxysvc.mod.change.note import HistoryShow
+from proxysvc.mod.change.proposal import DECLINED
+from proxysvc.mod.change.proposal import STATUSES
+from proxysvc.mod.change.proposal import Waiting
 from proxysvc.mod.change.undo import undo_scope
 from proxysvc.mod.connection.service import ConnectionPrincipal
 from proxysvc.mod.metric.serialize import window_label
@@ -60,6 +64,7 @@ from proxysvc.transport.mcp.verifier import current_principal
 from proxysvc.transport.mcp.wire import wiring
 
 LIMIT_DEFAULT = 20
+DECLINES_SHOWN = 3
 LIMIT_MAX = 100
 
 _READ = ToolAnnotations(read_only_hint=True, open_world_hint=False)
@@ -242,6 +247,16 @@ def _change_line(entry: dict) -> str:
         parts.append(f"decision errors {_failed(evidence)}")
     if entry["reason"]:
         parts.append(f'"{entry["reason"]}"')
+    decision = entry.get("decision")
+    if entry["status"] == "waiting":
+        parts.append("waiting for approval")
+    elif decision and decision["answer"] == "declined":
+        declined = f"declined by {decision['who']['name']} in {decision['where']}"
+        if decision["reason"]:
+            declined += f': "{decision["reason"]}"'
+        parts.append(declined)
+    elif decision:
+        parts.append(f"approved by {decision['who']['name']} in {decision['where']}")
     if entry["undone_by"]:
         parts.append(f"undone by {_who(entry['undone_by'])}")
     elif entry["undoable"]:
@@ -322,6 +337,43 @@ def register(
         )
         return page["changes"][0] if page["changes"] else None
 
+    async def make(
+        principal: ConnectionPrincipal,
+        kind: str,
+        ref: str | None,
+        args: dict[str, Any],
+        *,
+        reason: str | None = None,
+    ) -> Applied | Waiting | None:
+        """a change at this connection's level for its kind."""
+        try:
+            return await service().act(
+                principal.tenant_id,
+                kind,
+                ref,
+                args,
+                actor=principal.acting(kind),
+                reason=reason,
+            )
+        except ChangeWaitingError as e:
+            raise error.already_waiting(e) from e
+
+    async def asked(
+        principal: ConnectionPrincipal,
+        waiting: dict,
+        result: Callable[[dict, dict], BaseModel],
+    ) -> CallToolResult:
+        """a change that waits for its person, and where they answer it."""
+        url = changes_url(settings.console_origin, waiting["id"])
+        change = {**waiting, "url": url}
+        entry = await service().get_change_entry(principal.tenant_id, change["id"])
+        return _result(
+            f"Waiting for approval: {_sentence(entry)} Nothing has changed yet. "
+            f"{entry['who']['name']} approves or declines it in qbrix; find its "
+            f"answer with changes_list. Change {change['id']}: {url}",
+            result(change, entry),
+        )
+
     def changed(applied: Applied, target: Literal["loop", "metric"], ref: str) -> dict:
         return {
             **applied.change,
@@ -381,7 +433,7 @@ def register(
     async def loop_get(
         loop: LoopRef, detail: DetailArg = "concise"
     ) -> Annotated[CallToolResult, LoopView]:
-        """Read one loop: its purpose, options, metric, owner, fallback, state (and the option it is committed to, if committed) and current cycle, its latest change, who paused it, when and why if it is paused, this connection's autonomy for each change to the loop, and how to wire it: the select and outcome calls for this loop in Python and JavaScript."""
+        """Read one loop: its purpose, options, metric, owner, fallback, state (and the option it is committed to, if committed) and current cycle, its latest change, who paused it, when and why if it is paused, this connection's autonomy for each change to the loop, its most recent declined changes with the reasons given, and how to wire it: the select and outcome calls for this loop in Python and JavaScript."""
         principal = current_principal()
         try:
             _require(principal, "loop:read", "read loops")
@@ -392,7 +444,20 @@ def register(
             return _refused(refusal)
         wire = wiring(found, settings.public_origin)
         levels = {kind: principal.level(kind) for kind in autonomy.ON_LOOP}
-        view = LoopView(**_concise(found, detail), wire=wire, autonomy=levels)
+        declined = await service().list_workspace_changes(
+            principal.tenant_id,
+            loop=found["id"],
+            statuses=[DECLINED],
+            fold=False,
+            limit=DECLINES_SHOWN,
+        )
+        declines = declined["changes"]
+        view = LoopView(
+            **_concise(found, detail),
+            wire=wire,
+            autonomy=levels,
+            declined=declines,
+        )
         options = "\n".join(
             f"- {option['key']}: {option['name']}"
             + (f" {json.dumps(option['config'])}" if detail == "full" else "")
@@ -408,7 +473,14 @@ def register(
             f"Owner: {found['owner']['name']} · fallback {found['fallback']} · "
             f"engine {found['engine']}\n"
             f"{_autonomy_line(levels)}\n"
-            f"Options:\n{options}\n\n"
+            + (
+                "Declined recently, read before proposing again:\n"
+                + "\n".join(f"- {_change_line(entry)}" for entry in declines)
+                + "\n"
+                if declines
+                else ""
+            )
+            + f"Options:\n{options}\n\n"
             f"Wire it in Python:\n```python\n{wire['python']}```\n\n"
             f"Or in JavaScript:\n```javascript\n{wire['javascript']}```"
         )
@@ -536,7 +608,7 @@ def register(
         ] = None,
         limit: Annotated[int, Field(ge=1, le=LIMIT_MAX)] = LIMIT_DEFAULT,
     ) -> Annotated[CallToolResult, ChangePage]:
-        """List every change in the workspace, newest first: who made it and through which client, what it touched, each changed field before and after, why, and whether it can be undone."""
+        """List every change in the workspace, newest first: who made it and through which client, what it touched, each changed field before and after, why, and whether it can be undone. Changes waiting for approval and declined changes are included, with who answered, where and why."""
         principal = current_principal()
         try:
             _require(principal, "loop:read", "read changes")
@@ -549,6 +621,7 @@ def register(
                         loop=loop,
                         metric=metric,
                         undoable=undoable,
+                        statuses=STATUSES,
                         fold=fold,
                         cursor=cursor,
                         limit=limit,
@@ -581,7 +654,7 @@ def register(
         ] = None,
         limit: Annotated[int, Field(ge=1, le=LIMIT_MAX)] = LIMIT_DEFAULT,
     ) -> Annotated[CallToolResult, HistoryPage]:
-        """Read a loop's history, newest first: every change and note, who made it and through which client, each changed field before and after, why, a note's text, and whether it can be undone."""
+        """Read a loop's history, newest first: every change and note, who made it and through which client, each changed field before and after, why, a note's text, and whether it can be undone. Declined changes are included with the reason they were declined: read them before proposing a change again."""
         principal = current_principal()
         kinds, except_kinds = HISTORY_SHOW[show]
         try:
@@ -593,6 +666,7 @@ def register(
                         kinds=kinds,
                         except_kinds=except_kinds,
                         loop=loop,
+                        statuses=STATUSES,
                         fold=False,
                         cursor=cursor,
                         limit=limit,
@@ -702,16 +776,27 @@ def register(
             if await service().get_metric(principal.tenant_id, metric) is None:
                 raise await refused_metric(principal, metric)
             with refusals():
-                created = await service().create_loop(
-                    principal.tenant_id,
-                    name=name,
-                    key=key,
-                    purpose=purpose,
-                    metric=metric,
-                    options=arguments["options"],
-                    fallback=fallback,
-                    actor=principal.actor,
+                created = await make(
+                    principal,
+                    "loop.create",
+                    None,
+                    {
+                        "name": name,
+                        "key": key,
+                        "purpose": purpose,
+                        "metric": metric,
+                        "options": arguments["options"],
+                        "fallback": fallback,
+                    },
                     reason=reason,
+                )
+            if isinstance(created, Waiting):
+                return await asked(
+                    principal,
+                    created.change,
+                    lambda change, _: LoopChanged(
+                        status="waiting", change=change, loop=created.value
+                    ),
                 )
             loop = created.value
             change = changed(created, "loop", loop["key"])
@@ -733,17 +818,22 @@ def register(
             _require(principal, "loop:write", "launch loops")
             try:
                 with refusals():
-                    launched = await service().launch_loop(
-                        principal.tenant_id,
-                        loop,
-                        actor=principal.actor,
-                        reason=reason,
+                    launched = await make(
+                        principal, "loop.launch", loop, {}, reason=reason
                     )
             except LoopStateError as e:
                 found = await service().get_loop(principal.tenant_id, loop)
                 raise error.not_draft(found["key"], found["state"]) from e
             if launched is None:
                 raise await refused_loop(principal, loop)
+            if isinstance(launched, Waiting):
+                return await asked(
+                    principal,
+                    launched.change,
+                    lambda change, _: LoopChanged(
+                        status="waiting", change=change, loop=launched.value
+                    ),
+                )
             value = launched.value
             change = changed(launched, "loop", value["key"])
             return _result(
@@ -766,12 +856,8 @@ def register(
         async def call(principal: ConnectionPrincipal) -> CallToolResult:
             _require(principal, "loop:write", "commit loops")
             try:
-                committed = await service().commit_loop(
-                    principal.tenant_id,
-                    loop,
-                    option=option,
-                    actor=principal.actor,
-                    reason=reason,
+                committed = await make(
+                    principal, "loop.commit", loop, {"option": option}, reason=reason
                 )
             except LoopInvalidError as e:
                 raise error.unknown_option(str(e)) from e
@@ -782,6 +868,14 @@ def register(
                 ) from e
             if committed is None:
                 raise await refused_loop(principal, loop)
+            if isinstance(committed, Waiting):
+                return await asked(
+                    principal,
+                    committed.change,
+                    lambda change, _: LoopChanged(
+                        status="waiting", change=change, loop=committed.value
+                    ),
+                )
             value = committed.value
             change = changed(committed, "loop", value["key"])
             return _result(
@@ -803,14 +897,20 @@ def register(
         async def call(principal: ConnectionPrincipal) -> CallToolResult:
             _require(principal, "loop:write", "reopen loops")
             try:
-                reopened = await service().reopen_loop(
-                    principal.tenant_id, loop, actor=principal.actor, reason=reason
-                )
+                reopened = await make(principal, "loop.reopen", loop, {}, reason=reason)
             except LoopStateError as e:
                 found = await service().get_loop(principal.tenant_id, loop)
                 raise error.not_committed(found["key"], found["state"]) from e
             if reopened is None:
                 raise await refused_loop(principal, loop)
+            if isinstance(reopened, Waiting):
+                return await asked(
+                    principal,
+                    reopened.change,
+                    lambda change, _: LoopChanged(
+                        status="waiting", change=change, loop=reopened.value
+                    ),
+                )
             value = reopened.value
             change = changed(reopened, "loop", value["key"])
             return _result(
@@ -830,14 +930,20 @@ def register(
         async def call(principal: ConnectionPrincipal) -> CallToolResult:
             _require(principal, "loop:write", "retire loops")
             try:
-                retired = await service().retire_loop(
-                    principal.tenant_id, loop, actor=principal.actor, reason=reason
-                )
+                retired = await make(principal, "loop.retire", loop, {}, reason=reason)
             except LoopStateError as e:
                 found = await service().get_loop(principal.tenant_id, loop)
                 raise error.not_retirable(found["key"], found["state"]) from e
             if retired is None:
                 raise await refused_loop(principal, loop)
+            if isinstance(retired, Waiting):
+                return await asked(
+                    principal,
+                    retired.change,
+                    lambda change, _: LoopChanged(
+                        status="waiting", change=change, loop=retired.value
+                    ),
+                )
             value = retired.value
             change = changed(retired, "loop", value["key"])
             return _result(
@@ -857,14 +963,20 @@ def register(
         async def call(principal: ConnectionPrincipal) -> CallToolResult:
             _require(principal, "loop:write", "pause loops")
             try:
-                paused = await service().pause_loop(
-                    principal.tenant_id, loop, actor=principal.actor, reason=reason
-                )
+                paused = await make(principal, "loop.pause", loop, {}, reason=reason)
             except LoopStateError as e:
                 found = await service().get_loop(principal.tenant_id, loop)
                 raise error.not_pausable(found["key"], found["state"]) from e
             if paused is None:
                 raise await refused_loop(principal, loop)
+            if isinstance(paused, Waiting):
+                return await asked(
+                    principal,
+                    paused.change,
+                    lambda change, _: LoopChanged(
+                        status="waiting", change=change, loop=paused.value
+                    ),
+                )
             value = paused.value
             change = changed(paused, "loop", value["key"])
             return _result(
@@ -917,13 +1029,15 @@ def register(
             _require(principal, "loop:write", "start cycles")
             try:
                 with refusals():
-                    started = await service().start_cycle(
-                        principal.tenant_id,
+                    started = await make(
+                        principal,
+                        "cycle.start",
                         loop,
-                        options=arguments["options"],
-                        engine=engine,
-                        fallback=fallback,
-                        actor=principal.actor,
+                        {
+                            "options": arguments["options"],
+                            "engine": engine,
+                            "fallback": fallback,
+                        },
                         reason=reason,
                     )
             except LoopStateError as e:
@@ -933,6 +1047,14 @@ def register(
                 ) from e
             if started is None:
                 raise await refused_loop(principal, loop)
+            if isinstance(started, Waiting):
+                return await asked(
+                    principal,
+                    started.change,
+                    lambda change, _: LoopChanged(
+                        status="waiting", change=change, loop=started.value
+                    ),
+                )
             value = started.value
             change = changed(started, "loop", value["key"])
             return _result(
@@ -953,8 +1075,8 @@ def register(
             _require(principal, "loop:write", "reset cycles")
             try:
                 with refusals():
-                    reset = await service().reset_cycle(
-                        principal.tenant_id, loop, actor=principal.actor, reason=reason
+                    reset = await make(
+                        principal, "cycle.reset", loop, {}, reason=reason
                     )
             except LoopStateError as e:
                 found = await service().get_loop(principal.tenant_id, loop)
@@ -963,6 +1085,14 @@ def register(
                 ) from e
             if reset is None:
                 raise await refused_loop(principal, loop)
+            if isinstance(reset, Waiting):
+                return await asked(
+                    principal,
+                    reset.change,
+                    lambda change, _: LoopChanged(
+                        status="waiting", change=change, loop=reset.value
+                    ),
+                )
             value = reset.value
             change = changed(reset, "loop", value["key"])
             return _result(
@@ -983,14 +1113,20 @@ def register(
         async def call(principal: ConnectionPrincipal) -> CallToolResult:
             _require(principal, "loop:write", "resume loops")
             try:
-                resumed = await service().resume_loop(
-                    principal.tenant_id, loop, actor=principal.actor, reason=reason
-                )
+                resumed = await make(principal, "loop.resume", loop, {}, reason=reason)
             except LoopStateError as e:
                 found = await service().get_loop(principal.tenant_id, loop)
                 raise error.not_paused(found["key"], found["state"]) from e
             if resumed is None:
                 raise await refused_loop(principal, loop)
+            if isinstance(resumed, Waiting):
+                return await asked(
+                    principal,
+                    resumed.change,
+                    lambda change, _: LoopChanged(
+                        status="waiting", change=change, loop=resumed.value
+                    ),
+                )
             value = resumed.value
             change = changed(resumed, "loop", value["key"])
             serving = (
@@ -1046,15 +1182,24 @@ def register(
         async def call(principal: ConnectionPrincipal) -> CallToolResult:
             _require(principal, "metric:write", "create metrics")
             with refusals():
-                created = await service().create_metric(
-                    principal.tenant_id,
-                    name=name,
-                    semantic=semantic,
-                    metric_type=type,
-                    score_range=(range.lo, range.hi) if range else None,
-                    window_seconds=window_seconds,
-                    actor=principal.actor,
+                created = await make(
+                    principal,
+                    "metric.create",
+                    None,
+                    {
+                        "name": name,
+                        "semantic": semantic,
+                        "metric_type": type,
+                        "score_range": [range.lo, range.hi] if range else None,
+                        "window_seconds": window_seconds,
+                    },
                     reason=reason,
+                )
+            if isinstance(created, Waiting):
+                return await asked(
+                    principal,
+                    created.change,
+                    lambda change, _: MetricChanged(status="waiting", change=change),
                 )
             metric = created.value
             change = changed(created, "metric", metric["name"])
@@ -1084,11 +1229,17 @@ def register(
         async def call(principal: ConnectionPrincipal) -> CallToolResult:
             _require(principal, "loop:write", "add notes")
             with refusals():
-                added = await service().add_note(
-                    principal.tenant_id, loop, text=text, actor=principal.actor
-                )
+                added = await make(principal, "note.add", loop, {"text": text})
             if added is None:
                 raise await refused_loop(principal, loop)
+            if isinstance(added, Waiting):
+                return await asked(
+                    principal,
+                    added.change,
+                    lambda change, entry: NoteAdded(
+                        status="waiting", change=change, note=entry
+                    ),
+                )
             key = added.value["key"]
             change = changed(added, "loop", key)
             entry = await service().get_change_entry(principal.tenant_id, change["id"])
@@ -1104,7 +1255,7 @@ def register(
         change: Annotated[str, Field(description="The id of the change to undo.")],
         reason: Reason,
     ) -> Annotated[CallToolResult, ChangeUndone]:
-        """Undo an earlier change by writing its inverse as a new change. Refused when its kind can't be undone, it was already undone, or a later change moved what it would restore; the refusal says which and names that later change."""
+        """Undo an earlier change by writing its inverse as a new change. Refused when its kind can't be undone, it was already undone, or a later change moved what it would restore; the refusal says which and names that later change. It runs at your autonomy for the change it undoes, so it may wait for approval."""
 
         async def call(principal: ConnectionPrincipal) -> CallToolResult:
             found = await service().get_change(principal.tenant_id, change)
@@ -1113,15 +1264,28 @@ def register(
             scope = undo_scope(found["target_type"])
             if scope is not None:
                 _require(principal, scope, "undo this change")
+            kind = found["kind"]
             with error.undo_refusals():
                 undo = await service().undo_change(
                     principal.tenant_id,
                     change,
-                    actor=principal.actor,
+                    actor=(
+                        principal.acting(kind)
+                        if kind in autonomy.DEFAULTS
+                        else principal.actor
+                    ),
                     reason=reason,
                 )
             entry = await service().get_change_entry(principal.tenant_id, undo["id"])
             url = changes_url(settings.console_origin, undo["id"])
+            if undo["status"] == "waiting":
+                return await asked(
+                    principal,
+                    {"id": undo["id"], "kind": undo["kind"], "undoable": False},
+                    lambda ref, waiting: ChangeUndone(
+                        status="waiting", change=ref, undone=waiting
+                    ),
+                )
             return _result(
                 f"{_sentence(entry)} This undoes change {change}. "
                 f"Change {undo['id']}: {url}",

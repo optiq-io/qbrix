@@ -127,7 +127,10 @@ class LoopReadService:
             )
             changes, next_cursor = pages.page(rows, limit)
             people = await People.load(
-                session, tenant_id, [change.actor_user_id for change in changes]
+                session,
+                tenant_id,
+                [change.actor_user_id for change in changes]
+                + [c.decided_by_user_id for c in changes if c.decided_by_user_id],
             )
             return {
                 "changes": [history_entry(change, people) for change in changes],

@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Collection
 from collections.abc import Sequence
 from datetime import datetime
+from datetime import timezone
 
 from sqlalchemy import and_
 from sqlalchemy import func
@@ -10,15 +11,23 @@ from sqlalchemy import not_
 from sqlalchemy import or_
 from sqlalchemy import select
 from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from qbrixstore.postgres.models import Change
 
 from proxysvc.core.actor import Actor
+from proxysvc.core.actor import Approval
 from proxysvc.core.cursor import Position
+from proxysvc.core.error import ChangeAnsweredError
 from proxysvc.core.error import ChangeConflictError
 from proxysvc.core.error import ChangeMovedError
+from proxysvc.core.error import ChangeWaitingError
 from proxysvc.mod.change.note import NOTE_KINDS
+from proxysvc.mod.change.proposal import HAPPENED
+from proxysvc.mod.change.proposal import WAITING
+from proxysvc.mod.change.proposal import Draft
+from proxysvc.mod.change.proposal import Proposed
 from proxysvc.mod.change.undo import UNDOABLE_KINDS
 from proxysvc.mod.change.undo import Undoing
 
@@ -28,6 +37,14 @@ def moved_since(later: Change) -> ChangeMovedError:
         f"a later change exists on this {later.target_type}: {later.kind} "
         f"({later.id}). undo that one first",
         later_change_id=later.id,
+    )
+
+
+def _already_waiting(waiting: Change) -> ChangeWaitingError:
+    return ChangeWaitingError(
+        f"a {waiting.kind} change already waits on this {waiting.target_type} "
+        f"({waiting.id}). its person answers it first",
+        waiting_change_id=waiting.id,
     )
 
 
@@ -54,9 +71,11 @@ def _workspace_filters(
     except_kinds: Collection[str] = (),
     targets: Collection[tuple[str, str]] = (),
     undoable: bool | None = None,
+    statuses: Collection[str] = HAPPENED,
 ) -> list:
     """every filter given narrows the changes, targets included."""
     filters = _kind_filters(kinds, except_kinds)
+    filters.append(Change.status.in_(statuses))
     for target_type, target_id in targets:
         filters.append(Change.target_type == target_type)
         filters.append(Change.target_id == target_id)
@@ -92,10 +111,36 @@ class ChangeRepository:
 
         every change about a loop targets the loop, its cycles included, with
         the cycle in before and after: a loop's history is then one query.
+
+        a change whose actor must ask first is not recorded: Proposed unwinds
+        the write instead. once approved, the same write turns the waiting
+        change into this one.
         """
         if undoing is not None:
             await self._mark_undone(undoing, target_type, target_id)
             reason = undoing.reason
+        if actor.level == "ask" and actor.approval is None:
+            raise Proposed(
+                Draft(
+                    kind=kind,
+                    target_type=target_type,
+                    target_id=target_id,
+                    before=before,
+                    after=after,
+                    learning=learning,
+                    reason=reason,
+                    evidence=evidence,
+                    undoes_id=undoing.change_id if undoing else None,
+                )
+            )
+        if actor.approval is not None:
+            return await self._approve(
+                actor,
+                target_id=target_id,
+                before=before,
+                after=after,
+                learning=learning,
+            )
         change = Change(
             tenant_id=self._tenant_id,
             kind=kind,
@@ -113,9 +158,128 @@ class ChangeRepository:
             after=after,
             learning=learning,
             undoes_id=undoing.change_id if undoing else None,
+            level=actor.level or None,
         )
         self._session.add(change)
         await self._session.flush()
+        return change
+
+    async def propose(
+        self, draft: Draft, actor: Actor, proposal: dict | None
+    ) -> Change:
+        """store a change that asks first, waiting, with what it would do."""
+        waiting = await self.waiting_on(draft.target_type, draft.target_id, draft.kind)
+        if waiting is not None:
+            raise _already_waiting(waiting)
+        now = datetime.now(timezone.utc)
+        change = Change(
+            tenant_id=self._tenant_id,
+            kind=draft.kind,
+            target_type=draft.target_type,
+            target_id=draft.target_id,
+            actor_kind=actor.kind,
+            actor_user_id=actor.user_id,
+            connection_id=actor.connection_id or None,
+            client_name=actor.client_name or None,
+            request_id=actor.request_id or None,
+            reason=draft.reason,
+            evidence=draft.evidence,
+            before=draft.before,
+            after=draft.after,
+            learning=draft.learning,
+            undoes_id=draft.undoes_id,
+            status=WAITING,
+            level=actor.level,
+            proposal=proposal,
+            asked_at=now,
+            created_at=now,
+        )
+        self._session.add(change)
+        try:
+            await self._session.flush()
+        except IntegrityError as e:
+            await self._session.rollback()
+            waiting = await self.waiting_on(
+                draft.target_type, draft.target_id, draft.kind
+            )
+            if waiting is None:
+                raise
+            raise _already_waiting(waiting) from e
+        return change
+
+    async def waiting_on(
+        self, target_type: str, target_id: str, kind: str
+    ) -> Change | None:
+        stmt = select(Change).where(
+            Change.tenant_id == self._tenant_id,
+            Change.target_type == target_type,
+            Change.target_id == target_id,
+            Change.kind == kind,
+            Change.status == WAITING,
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def decide(
+        self,
+        change_id: str,
+        *,
+        status: str,
+        user_id: str,
+        where: str,
+        reason: str | None = None,
+    ) -> None:
+        """answer a waiting change, once: a concurrent answer is refused."""
+        result = await self._session.execute(
+            update(Change)
+            .where(
+                Change.id == change_id,
+                Change.tenant_id == self._tenant_id,
+                Change.status == WAITING,
+            )
+            .values(
+                status=status,
+                decided_by_user_id=user_id,
+                decided_at=datetime.now(timezone.utc),
+                decided_in=where,
+                decision_reason=reason,
+            )
+        )
+        if result.rowcount != 1:
+            raise ChangeAnsweredError(f"change {change_id} was already answered")
+
+    async def _approve(
+        self,
+        actor: Actor,
+        *,
+        target_id: str,
+        before: dict | None,
+        after: dict | None,
+        learning: dict | None,
+    ) -> Change:
+        """the approved write, recorded on the change that waited for it: it
+        happened now, so it moves to now; asked_at keeps when it was asked."""
+        approval: Approval = actor.approval
+        await self.decide(
+            approval.change_id,
+            status="applied",
+            user_id=approval.user_id,
+            where=approval.where,
+        )
+        await self._session.execute(
+            update(Change)
+            .where(Change.id == approval.change_id)
+            .values(
+                target_id=target_id,
+                before=before,
+                after=after,
+                learning=learning,
+                request_id=actor.request_id or None,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        change = await self.get(approval.change_id)
+        await self._session.refresh(change)
         return change
 
     async def _mark_undone(
@@ -147,6 +311,7 @@ class ChangeRepository:
                 Change.target_type == target_type,
                 Change.target_id == target_id,
                 Change.kind.not_in(NOTE_KINDS),
+                Change.status.in_(HAPPENED),
             )
             .order_by(Change.created_at.desc())
             .limit(1)
@@ -165,6 +330,7 @@ class ChangeRepository:
                 Change.target_id == change.target_id,
                 Change.created_at > change.created_at,
                 Change.kind.not_in(NOTE_KINDS),
+                Change.status.in_(HAPPENED),
             )
             .order_by(Change.created_at.desc())
         )
@@ -173,7 +339,9 @@ class ChangeRepository:
 
     async def undone_by(self, change_id: str) -> Change | None:
         stmt = select(Change).where(
-            Change.undoes_id == change_id, Change.tenant_id == self._tenant_id
+            Change.undoes_id == change_id,
+            Change.tenant_id == self._tenant_id,
+            Change.status.in_(HAPPENED),
         )
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
@@ -210,12 +378,14 @@ class ChangeRepository:
         *,
         kinds: Collection[str] = (),
         except_kinds: Collection[str] = (),
+        statuses: Collection[str] = HAPPENED,
     ) -> list[Change]:
         """an object's changes newest first, from just after before."""
         stmt = select(Change).where(
             Change.tenant_id == self._tenant_id,
             Change.target_type == target_type,
             Change.target_id == target_id,
+            Change.status.in_(statuses),
             *_kind_filters(kinds, except_kinds),
         )
         if before is not None:
@@ -234,6 +404,7 @@ class ChangeRepository:
         except_kinds: Collection[str] = (),
         targets: Collection[tuple[str, str]] = (),
         undoable: bool | None = None,
+        statuses: Collection[str] = HAPPENED,
     ) -> list[Change]:
         """the workspace's changes newest first, from just after before."""
         stmt = select(Change).where(
@@ -243,6 +414,7 @@ class ChangeRepository:
                 except_kinds=except_kinds,
                 targets=targets,
                 undoable=undoable,
+                statuses=statuses,
             ),
         )
         if before is not None:
@@ -274,12 +446,34 @@ class ChangeRepository:
         result = await self._session.execute(stmt)
         return [tuple(row) for row in result.all()]
 
+    async def newest_since(
+        self, target_type: str, target_id: str, since: datetime
+    ) -> Change | None:
+        """the newest change that moved the target after a moment."""
+        stmt = (
+            select(Change)
+            .where(
+                Change.tenant_id == self._tenant_id,
+                Change.target_type == target_type,
+                Change.target_id == target_id,
+                Change.created_at > since,
+                Change.kind.not_in(NOTE_KINDS),
+                Change.status.in_(HAPPENED),
+            )
+            .order_by(Change.created_at.desc())
+            .limit(1)
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def undone_by_each(self, change_ids: Collection[str]) -> dict[str, Change]:
         """the change that undid each of these, in one query."""
         if not change_ids:
             return {}
         stmt = select(Change).where(
-            Change.tenant_id == self._tenant_id, Change.undoes_id.in_(change_ids)
+            Change.tenant_id == self._tenant_id,
+            Change.undoes_id.in_(change_ids),
+            Change.status.in_(HAPPENED),
         )
         result = await self._session.execute(stmt)
         return {change.undoes_id: change for change in result.scalars().all()}
@@ -304,6 +498,7 @@ class ChangeRepository:
                 Change.tenant_id == self._tenant_id,
                 Change.target_type == target_type,
                 Change.target_id.in_(target_ids),
+                Change.status.in_(HAPPENED),
             )
             .subquery()
         )
