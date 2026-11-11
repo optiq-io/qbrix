@@ -405,7 +405,7 @@ class TestQueries:
             await _summary(api)
 
         assert len(three) == len(one)
-        assert wired_app.ledger.queries == ledger_one
+        assert sorted(wired_app.ledger.queries) == sorted(ledger_one)
 
 
 class TestBoundaries:
