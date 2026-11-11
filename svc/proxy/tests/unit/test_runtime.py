@@ -112,3 +112,10 @@ def test_without_next_the_secret_box_key_can_wait():
     ProxyRuntime(
         _production(next_enabled=True, secret_box_key="s" * 64)
     )._verify_secrets()
+
+
+def test_a_short_secret_box_key_is_refused_with_next_on():
+    with pytest.raises(RuntimeError, match="at least 32 characters"):
+        ProxyRuntime(
+            _production(next_enabled=True, secret_box_key="hunter2")
+        )._verify_secrets()

@@ -17,6 +17,8 @@ from proxysvc.service import ProxyService
 
 logger = get_logger(__name__)
 
+SECRET_BOX_KEY_MIN_LENGTH = 32
+
 
 class ProxyRuntime:
     """owns every long-lived component of a proxy process.
@@ -128,6 +130,14 @@ class ProxyRuntime:
             "change-me-in-production",
         ):
             raise RuntimeError("PROXY_SECRET_BOX_KEY must be set when next is on")
+        if (
+            self._settings.next_enabled
+            and len(self._settings.secret_box_key) < SECRET_BOX_KEY_MIN_LENGTH
+        ):
+            raise RuntimeError(
+                f"PROXY_SECRET_BOX_KEY must be at least {SECRET_BOX_KEY_MIN_LENGTH} "
+                f"characters; generate one with openssl rand -hex 32"
+            )
 
     def _verify_stores(self) -> None:
         if not self._settings.clickhouse_host:
