@@ -35,6 +35,7 @@ The first time the client calls qbrix, it opens your browser to sign in and appr
 | `change_get` | One change by its id, with its status: applied, undone, waiting for approval, or declined, with who answered, where and why. |
 | `loop_history` | A loop's changes and notes, newest first, declined changes included with their reasons. |
 | `milestones_list` | What the workspace's loops reached, newest first: a draft's first call, a cycle's first window sealing, and a new option taking the lead. Filter by loop, metric, kind and time. |
+| `workspace_summary` | The workspace since a date, 7 days back by default and 30 at most, in one call: for each live, paused and committed loop, each option's share of decisions then and now, lift over an even split, [safety pauses](/docs/alerts) and who resumed them, milestones, and its changes grouped by who made them and through which client; the drafts, naming those older than a week; and the workspace's change counts. Facts only: it ranks nothing and calls no option better. `GET /api/v1/summary` returns the same. |
 | `loop_create` | Creates a draft loop with its options and metric. |
 | `loop_rename` | Renames a loop, in any state. Its key stays, so the code that calls it keeps working. |
 | `loop_launch` | Takes a draft live: its first cycle starts. |

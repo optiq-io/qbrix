@@ -478,12 +478,42 @@ class ChangeRepository:
         result = await self._session.execute(stmt)
         return {change.undoes_id: change for change in result.scalars().all()}
 
+    async def in_range(
+        self, target_type: str, target_ids: Collection[str], since: datetime
+    ) -> list[Change]:
+        """every change that happened to these targets since then, oldest
+        first, in one query."""
+        if not target_ids:
+            return []
+        stmt = (
+            select(Change)
+            .where(
+                Change.tenant_id == self._tenant_id,
+                Change.target_type == target_type,
+                Change.target_id.in_(target_ids),
+                Change.created_at >= since,
+                Change.status.in_(HAPPENED),
+            )
+            .order_by(Change.created_at, Change.id)
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
     async def latest_for_each(
-        self, target_type: str, target_ids: Collection[str]
+        self,
+        target_type: str,
+        target_ids: Collection[str],
+        *,
+        kinds: Collection[str] = (),
+        before: datetime | None = None,
     ) -> dict[str, Change]:
-        """the newest change of each target, in one query."""
+        """the newest change of each target, of these kinds and from before
+        then when given, in one query."""
         if not target_ids:
             return {}
+        filters = _kind_filters(kinds, ())
+        if before is not None:
+            filters.append(Change.created_at < before)
         newest = (
             select(
                 Change.id,
@@ -499,6 +529,7 @@ class ChangeRepository:
                 Change.target_type == target_type,
                 Change.target_id.in_(target_ids),
                 Change.status.in_(HAPPENED),
+                *filters,
             )
             .subquery()
         )

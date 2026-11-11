@@ -164,6 +164,10 @@ class InvalidCursorError(BaseAPIError):
     """raised when a page cursor isn't one a previous page returned."""
 
 
+class SummaryRangeError(BaseAPIError):
+    """raised when a summary's since is in the future or further back than it reaches."""
+
+
 class SignupClosedError(BaseAPIError):
     """raised when public registration is closed by the deployment's signup mode."""
 

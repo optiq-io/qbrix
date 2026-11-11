@@ -11,7 +11,9 @@ invariants verified:
   within the window changes nothing twice. change_get reads one change of
   this workspace, by anyone, with its status, and no other workspace's. a
   viewer's connection reads and can't change. a loop paused by qbrix says who paused it, when and why, in
-  loop_get and loops_list. every refusal says what to do next.
+  loop_get and loops_list. workspace_summary reads the same as the service,
+  in product words, an open safety pause first. every refusal says what to do
+  next.
 """
 
 from __future__ import annotations
@@ -60,6 +62,7 @@ TOOLS = [
     "change_get",
     "loop_history",
     "milestones_list",
+    "workspace_summary",
     "loop_create",
     "loop_rename",
     "loop_launch",
@@ -1941,3 +1944,72 @@ class TestChangeGetAndRename:
             result = await _call(client, "loop_rename", {**RENAME, "name": "  "})
 
         assert _error(result).endswith("Fix it and call again.")
+
+
+FORBIDDEN = (
+    "winner",
+    "significant",
+    "ready to commit",
+    "arm",
+    "bandit",
+    "policy",
+    "reward",
+    "regret",
+    "explore",
+    "exploit",
+    "experiment",
+)
+
+
+class TestWorkspaceSummary:
+
+    async def test_reads_the_same_as_the_service(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            result = await _call(client, "workspace_summary")
+
+        week = await wired_app.svc.workspace_summary(TENANT)
+        assert [loop["id"] for loop in result.structured_content["loops"]] == [
+            loop["id"] for loop in week["loops"]
+        ]
+        assert result.structured_content["changes"]["total"] == (
+            week["changes"]["total"]
+        )
+
+    async def test_says_the_week_in_product_words(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await _call(client, "loop_create", {**LOOP, "name": "Search ranking"})
+            await _call(
+                client, "loop_launch", {"loop": "search-ranking", "reason": "go"}
+            )
+            await wired_app.svc.loops.pause_loop(
+                TENANT,
+                "search-ranking",
+                actor=Actor.qbrix(),
+                reason="decision errors",
+                evidence=EVIDENCE,
+            )
+            result = await _call(client, "workspace_summary")
+
+        text = result.content[0].text
+        lines = text.splitlines()
+        assert lines[0].startswith("Since ")
+        assert "1 live, 1 paused, 0 committed loops" in lines[0]
+        assert lines[1].startswith("Search ranking (search-ranking) · paused")
+        assert "qbrix paused it" in text
+        assert "23.8% of 629 calls failed; still paused" in text
+        assert "Mustafa via Claude Code (" in text
+        assert "Checkout headline (checkout-headline) · live" in text
+        for word in FORBIDDEN:
+            assert word not in text.lower(), word
+
+    async def test_refuses_since_further_back_than_thirty_days(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            result = await _call(
+                client, "workspace_summary", {"since": "2020-01-01T00:00:00Z"}
+            )
+
+        assert result.is_error
+        assert "30 days" in _error(result)
+        assert "on or after" in _error(result)

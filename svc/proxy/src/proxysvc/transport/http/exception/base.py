@@ -496,6 +496,13 @@ class InvalidCursorException(BadRequestException):
     code = "INVALID_CURSOR"
 
 
+class SummaryRangeException(BadRequestException):
+    """a summary's since that is in the future or further back than it reaches."""
+
+    detail = "invalid summary range"
+    code = "INVALID_SUMMARY_RANGE"
+
+
 class ConnectionNotFoundException(NotFoundException):
     """a connection that doesn't exist or isn't the caller's to see."""
 

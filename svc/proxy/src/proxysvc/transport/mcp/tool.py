@@ -42,6 +42,7 @@ from proxysvc.mod.safety.rule import DECISION_ERRORS
 from proxysvc.service import ProxyService
 from proxysvc.transport.http.router.change import ChangePage
 from proxysvc.transport.http.router.milestone import MilestoneList
+from proxysvc.transport.http.router.summary import WeekSummary
 from proxysvc.transport.mcp import error
 from proxysvc.transport.mcp.error import Refusal
 from proxysvc.transport.mcp.error import refusals
@@ -66,6 +67,7 @@ from proxysvc.transport.mcp.wire import wiring
 
 LIMIT_DEFAULT = 20
 DECLINES_SHOWN = 3
+CHANGES_LISTED = 5
 LIMIT_MAX = 100
 
 _READ = ToolAnnotations(read_only_hint=True, open_world_hint=False)
@@ -271,6 +273,150 @@ def _milestone_line(milestone: dict) -> str:
         piece.get("text") or piece.get("name") or "" for piece in milestone["pieces"]
     )
     return f"{milestone['at']} · {sentence}"
+
+
+def _moment(iso: str, *, time: bool = False) -> str:
+    at = datetime.fromisoformat(iso)
+    at = at.astimezone(timezone.utc) if at.tzinfo else at
+    return f"{at.day} {at:%b %H:%M} UTC" if time else f"{at.day} {at:%b}"
+
+
+def _percent(share: float | None) -> str:
+    return "-" if share is None else f"{share:.0%}"
+
+
+def _shares(options: list[dict]) -> dict[str, float]:
+    return {option["key"]: option["share"] or 0.0 for option in options}
+
+
+def _moved(loop: dict) -> float:
+    """the largest change in any option's share between then and now."""
+    then, now = loop["share"]["then"], loop["share"]["now"]
+    if not then or not now:
+        return 0.0
+    before, after = _shares(then["options"]), _shares(now["options"])
+    return max(
+        (abs(after.get(key, 0.0) - before.get(key, 0.0)) for key in before | after),
+        default=0.0,
+    )
+
+
+def _open_alert(loop: dict) -> bool:
+    return any(alert["recovered"] is None for alert in loop["alerts"])
+
+
+def _options_share(at: dict) -> str:
+    if all(o["share"] is None for o in at["options"]):
+        return "no decisions in the day before"
+    return ", ".join(f"{o['name']} {_percent(o['share'])}" for o in at["options"])
+
+
+def _week_share(loop: dict, since: str) -> str:
+    then, now = loop["share"]["then"], loop["share"]["now"]
+    if then and now and then["cycle"] == now["cycle"]:
+        before = {o["key"]: o["share"] for o in then["options"]}
+        return (
+            ", ".join(
+                f"{o['name']} {_percent(before.get(o['key']))} → {_percent(o['share'])}"
+                for o in now["options"]
+            )
+            + f" since {_moment(since)}"
+        )
+    parts = []
+    if then:
+        parts.append(
+            f"cycle {then['cycle']} at {_moment(since)}: {_options_share(then)}"
+        )
+    if now:
+        parts.append(f"cycle {now['cycle']} now: {_options_share(now)}")
+    return "; ".join(parts) or "no decisions yet"
+
+
+def _alert_line(alert: dict) -> str:
+    line = f"qbrix paused it {_moment(alert['opened_at'], time=True)}"
+    evidence = _decision_errors(alert)
+    if evidence:
+        line += f": {_failed(evidence)} failed"
+    recovered = alert["recovered"]
+    if recovered is None:
+        return f"{line}; still paused, everyone gets the fallback until a person resumes it"
+    who = recovered["who"]["name"] or "qbrix"
+    if recovered["via"]:
+        who += f" via {recovered['via']}"
+    return f"{line}; resumed by {who} {_moment(recovered['at'], time=True)}"
+
+
+def _group_line(group: dict) -> str:
+    who = group["who"]["name"] or "qbrix"
+    if group["via"]:
+        who += f" via {group['via']}"
+    shown = []
+    for entry in group["changes"][:CHANGES_LISTED]:
+        part = f"{entry['kind']} {_moment(entry['at'])}"
+        if entry["note"] is not None:
+            part += f" {json.dumps(entry['note'], ensure_ascii=False)}"
+        elif entry["reason"]:
+            part += f' "{entry["reason"]}"'
+        shown.append(part)
+    more = group["count"] - len(shown)
+    return (
+        f"{who} ({group['count']}): "
+        + "; ".join(shown)
+        + (f"; and {more} more" if more > 0 else "")
+    )
+
+
+def _week_lines(week: dict) -> list[str]:
+    """the week in product words: a header, then each loop with an open safety
+    pause first and the others by how far their share moved."""
+    states = {state: 0 for state in ("live", "paused", "committed")}
+    for loop in week["loops"]:
+        states[loop["state"]] += 1
+    drafts = week["drafts"]
+    counts = week["changes"]
+    header = (
+        f"Since {_moment(week['since'], time=True)}: "
+        + ", ".join(f"{n} {state}" for state, n in states.items())
+        + f" loops; {drafts['count']} drafts"
+    )
+    if drafts["older_than_7_days"]:
+        header += ", created over 7 days ago: " + ", ".join(
+            draft["key"] for draft in drafts["older_than_7_days"]
+        )
+    who = counts["who"]
+    header += (
+        f". {counts['total']} changes: {who['member']} by people, "
+        f"{who['connection']} through connections, {who['qbrix']} by qbrix; "
+        f"{counts['undone']} undone."
+    )
+    lines = [header]
+    ordered = sorted(
+        week["loops"], key=lambda loop: (not _open_alert(loop), -_moved(loop))
+    )
+    for loop in ordered:
+        state = loop["state"]
+        if loop["committed"]:
+            state += f" to {loop['committed']}"
+        lift = (
+            f"lift over an even split {loop['lift']:+.1%}"
+            + (" (early)" if loop["early"] else "")
+            if loop["lift"] is not None
+            else "lift not yet"
+        )
+        lines.append(
+            f"{loop['name']} ({loop['key']}) · {state} · {loop['metric']['name']}: "
+            f"{_week_share(loop, week['since'])}; {lift}"
+        )
+        lines += [f"  {_alert_line(alert)}" for alert in loop["alerts"]]
+        lines += [
+            f"  {_moment(m['at'])} · "
+            + "".join(p.get("text") or p.get("name") or "" for p in m["pieces"])
+            for m in loop["milestones"]
+        ]
+        lines += [f"  {_group_line(group)}" for group in loop["changes"]]
+    if not week["loops"]:
+        lines.append("No live, paused or committed loops.")
+    return lines
 
 
 def _share_line(share: list[dict]) -> str:
@@ -752,6 +898,25 @@ def register(
             "No milestones match."
         ]
         return _result("\n".join(lines), MilestoneList(**found))
+
+    async def workspace_summary(
+        since: Annotated[
+            Optional[datetime],
+            Field(
+                description="Where the range starts, at most 30 days back; "
+                "7 days ago when left out."
+            ),
+        ] = None,
+    ) -> Annotated[CallToolResult, WeekSummary]:
+        """Read the workspace since a date, 7 days by default, in one call: for each live, paused and committed loop, each option's share of decisions then and now, lift over an even split, safety pauses and who resumed them, milestones, and its changes grouped by who made them and through which client; the drafts; and the workspace's change counts. Facts only: it ranks nothing and calls no option better."""
+        principal = current_principal()
+        try:
+            _require(principal, "loop:read", "read loops")
+            with refusals():
+                week = await service().workspace_summary(principal.tenant_id, since)
+        except Refusal as refusal:
+            return _refused(refusal)
+        return _result("\n".join(_week_lines(week)), WeekSummary(**week))
 
     async def loop_create(
         name: Annotated[str, Field(description="What people call the loop.")],
@@ -1369,6 +1534,7 @@ def register(
         (change_get, _READ),
         (loop_history, _READ),
         (milestones_list, _READ),
+        (workspace_summary, _READ),
         (loop_create, _CREATE),
         (loop_rename, _DESTRUCTIVE),
         (loop_launch, _DESTRUCTIVE),

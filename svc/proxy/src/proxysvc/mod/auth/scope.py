@@ -106,6 +106,7 @@ ENDPOINT_SCOPES = {
     # changes: undoing also takes what writing to the change's target takes
     ("GET", "/api/v1/changes*"): "loop:read",
     ("POST", "/api/v1/changes/*"): "loop:write",
+    ("GET", "/api/v1/summary"): "loop:read",
     # insight
     ("POST", "/api/v1/insight/*"): "insight:read",
     ("GET", "/api/v1/insight/*"): "insight:read",

@@ -327,6 +327,7 @@ async def wired_app(
     from proxysvc.transport.http.router.pool import set_proxy_service as set_pool
     from proxysvc.transport.http.router.runtime import set_proxy_service as set_runtime
     from proxysvc.transport.http.router.select import set_proxy_service as set_select
+    from proxysvc.transport.http.router.summary import set_proxy_service as set_summary
     from proxysvc.transport.mcp.server import set_proxy_service as set_mcp
 
     test_settings = _make_test_settings()
@@ -392,6 +393,7 @@ async def wired_app(
     set_loop(svc)
     set_change(svc)
     set_milestone(svc)
+    set_summary(svc)
     set_select(svc)
     set_outcome(svc)
     set_connection(svc)
@@ -426,6 +428,7 @@ async def wired_app(
     set_loop(None)  # type: ignore[arg-type]
     set_change(None)  # type: ignore[arg-type]
     set_milestone(None)  # type: ignore[arg-type]
+    set_summary(None)  # type: ignore[arg-type]
     set_select(None)  # type: ignore[arg-type]
     set_outcome(None)  # type: ignore[arg-type]
     set_connection(None)  # type: ignore[arg-type]
