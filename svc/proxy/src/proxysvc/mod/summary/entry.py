@@ -15,7 +15,7 @@ SAFETY_PAUSE = "safety_pause"
 CHANGES_SHOWN = 20
 
 
-def _safety_pause(change: Change | None) -> bool:
+def is_safety_pause(change: Change | None) -> bool:
     return change is not None and change.kind == PAUSE and change.actor_kind == "qbrix"
 
 
@@ -23,7 +23,7 @@ def _via(change: Change) -> str | None:
     return (change.client_name or "a client") if change.connection_id else None
 
 
-def _opened(change: Change) -> dict:
+def opened(change: Change) -> dict:
     evidence = change.evidence or {}
     return {
         "kind": SAFETY_PAUSE,
@@ -42,12 +42,12 @@ def alerts(
     each qbrix opened in it. a person resuming the loop is its recovery.
     changes run oldest first."""
     found: list[dict] = []
-    current = _opened(at_since) if _safety_pause(at_since) else None
+    current = opened(at_since) if is_safety_pause(at_since) else None
     if current:
         found.append(current)
     for change in changes:
-        if _safety_pause(change):
-            current = _opened(change)
+        if is_safety_pause(change):
+            current = opened(change)
             found.append(current)
         elif change.kind == RESUME and current is not None:
             current["recovered"] = {

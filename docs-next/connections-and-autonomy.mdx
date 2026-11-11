@@ -31,6 +31,8 @@ A change that asks first is stored, waiting, with the client's reason and what i
 - **Approve:** the change applies, and history records that you approved it and where, for example "approved by Mustafa in qbrix". You can also let the connection act and notify for that kind from now on; that is recorded as a change of its own.
 - **Decline:** the change stays in history with your reason, if you give one. Agents read a loop's declined changes before proposing again.
 
+Your inbox holds what your connections asked for, oldest first, each with what it would change and how often that connection asked for the same kind lately and you approved; the changes your connections made at act and notify in the last seven days, with undo; and every loop qbrix paused that no one has resumed, which every member of the workspace sees. Nothing waits on a viewer, so a viewer's inbox holds alerts only. Nobody else sees your waiting changes, admins included. The count beside Inbox in the navigation is what waits on you. The same read is `GET /api/v1/inbox`, and the count is `GET /api/v1/inbox/count`.
+
 A waiting change never expires, and one change of each kind waits on a loop at a time. When you approve, it runs against the loop as it is then. If the loop has moved so that the change no longer applies, for example the loop was committed while a new cycle waited, nothing applies, qbrix names the change that moved it, and the change keeps waiting until you decline it. A change in between that doesn't stop it, such as a rename, doesn't block it.
 
 ## Signing a client in
