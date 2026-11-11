@@ -51,6 +51,7 @@ from proxysvc.transport.mcp.link import history_url
 from proxysvc.transport.mcp.repeat import RepeatGuard
 from proxysvc.transport.mcp.repeat import repeat_key
 from proxysvc.transport.mcp.schema import ChangeUndone
+from proxysvc.transport.mcp.schema import ChangeView
 from proxysvc.transport.mcp.schema import Detail
 from proxysvc.transport.mcp.schema import HistoryPage
 from proxysvc.transport.mcp.schema import LoopChanged
@@ -370,7 +371,7 @@ def register(
         return _result(
             f"Waiting for approval: {_sentence(entry)} Nothing has changed yet. "
             f"{entry['who']['name']} approves or declines it in qbrix; find its "
-            f"answer with changes_list. Change {change['id']}: {url}",
+            f"answer with change_get. Change {change['id']}: {url}",
             result(change, entry),
         )
 
@@ -639,6 +640,24 @@ def register(
             lines.append(f"More changes: call again with cursor {page['next_cursor']}.")
         return _result("\n".join(lines), ChangePage(**page))
 
+    async def change_get(
+        change: Annotated[str, Field(description="The change's id.")],
+    ) -> Annotated[CallToolResult, ChangeView]:
+        """Read one change by its id: who made it and through which client, what it touched, each changed field before and after, why, whether it can be undone, and its status: applied, undone, waiting for approval, or declined, with who answered, where and why. Check a waiting change here."""
+        principal = current_principal()
+        try:
+            _require(principal, "loop:read", "read changes")
+            entry = await service().get_change_entry(principal.tenant_id, change)
+            if entry is None:
+                raise error.unknown_change(change)
+        except Refusal as refusal:
+            return _refused(refusal)
+        url = changes_url(settings.console_origin, entry["id"])
+        return _result(
+            f"{_change_line(entry)}\nIn the console: {url}",
+            ChangeView(**entry, url=url),
+        )
+
     async def loop_history(
         loop: LoopRef,
         show: Annotated[
@@ -808,6 +827,44 @@ def register(
             )
 
         return await once("loop_create", arguments, call)
+
+    async def loop_rename(
+        loop: LoopRef,
+        name: Annotated[
+            str, Field(description="What people call the loop from now on.")
+        ],
+        reason: Reason,
+    ) -> Annotated[CallToolResult, LoopChanged]:
+        """Rename a loop, in any state. Its key stays, so the code that calls it keeps working."""
+
+        async def call(principal: ConnectionPrincipal) -> CallToolResult:
+            _require(principal, "loop:write", "rename loops")
+            with refusals():
+                renamed = await make(
+                    principal, "loop.rename", loop, {"name": name}, reason=reason
+                )
+            if renamed is None:
+                raise await refused_loop(principal, loop)
+            if isinstance(renamed, Waiting):
+                return await asked(
+                    principal,
+                    renamed.change,
+                    lambda change, _: LoopChanged(
+                        status="waiting", change=change, loop=renamed.value
+                    ),
+                )
+            value = renamed.value
+            change = changed(renamed, "loop", value["key"])
+            return _result(
+                f"Renamed {value['key']} to {value['name']}; its key stays, so the "
+                f"code that calls it keeps working. Change {change['id']}, can be "
+                f"undone: {change['url']}",
+                LoopChanged(status="applied", change=change, loop=value),
+            )
+
+        return await once(
+            "loop_rename", {"loop": loop, "name": name, "reason": reason}, call
+        )
 
     async def loop_launch(
         loop: LoopRef, reason: Reason
@@ -1309,9 +1366,11 @@ def register(
         (loop_results, _READ),
         (metrics_list, _READ),
         (changes_list, _READ),
+        (change_get, _READ),
         (loop_history, _READ),
         (milestones_list, _READ),
         (loop_create, _CREATE),
+        (loop_rename, _DESTRUCTIVE),
         (loop_launch, _DESTRUCTIVE),
         (loop_commit, _DESTRUCTIVE),
         (loop_reopen, _DESTRUCTIVE),

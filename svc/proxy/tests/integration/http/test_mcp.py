@@ -8,8 +8,9 @@ invariants verified:
   call the tools, in a fixed order, and any replica answers any call. a
   change records who, via which client and why, and its result names the
   change, whether it can be undone and its console link. a repeated change
-  within the window changes nothing twice. a viewer's connection reads and
-  can't change. a loop paused by qbrix says who paused it, when and why, in
+  within the window changes nothing twice. change_get reads one change of
+  this workspace, by anyone, with its status, and no other workspace's. a
+  viewer's connection reads and can't change. a loop paused by qbrix says who paused it, when and why, in
   loop_get and loops_list. every refusal says what to do next.
 """
 
@@ -56,9 +57,11 @@ TOOLS = [
     "loop_results",
     "metrics_list",
     "changes_list",
+    "change_get",
     "loop_history",
     "milestones_list",
     "loop_create",
+    "loop_rename",
     "loop_launch",
     "loop_commit",
     "loop_reopen",
@@ -334,9 +337,16 @@ class TestProtocol:
         async with _session(mcp, wired_app) as client:
             tools = {tool.name: tool for tool in (await client.list_tools()).tools}
 
-        for name in ("loops_list", "loop_get", "loop_results", "metrics_list"):
+        for name in (
+            "loops_list",
+            "loop_get",
+            "loop_results",
+            "metrics_list",
+            "change_get",
+        ):
             assert tools[name].annotations.read_only_hint is True
         assert tools["loop_launch"].annotations.destructive_hint is True
+        assert tools["loop_rename"].annotations.destructive_hint is True
         assert tools["loop_create"].annotations.destructive_hint is False
         assert tools["loop_create"].output_schema is not None
 
@@ -1309,7 +1319,7 @@ class TestViewer:
 
     async def test_a_viewer_reads_every_read_tool(self, mcp, wired_app):
         async with _session(mcp, wired_app) as member:
-            await _draft(member)
+            draft = await _draft(member)
         async with _session(mcp, wired_app, user="user-viewer") as viewer:
             results = [
                 await _call(viewer, "loops_list"),
@@ -1317,6 +1327,7 @@ class TestViewer:
                 await _call(viewer, "loop_results", {"loop": "checkout-headline"}),
                 await _call(viewer, "metrics_list"),
                 await _call(viewer, "changes_list"),
+                await _call(viewer, "change_get", {"change": draft["change"]["id"]}),
                 await _call(viewer, "loop_history", {"loop": "checkout-headline"}),
             ]
 
@@ -1326,6 +1337,7 @@ class TestViewer:
         "tool, arguments, verb",
         [
             ("loop_create", LOOP, "create loops"),
+            ("loop_rename", {"loop": "x", "name": "y", "reason": "go"}, "rename loops"),
             ("loop_launch", {"loop": "x", "reason": "go"}, "launch loops"),
             (
                 "loop_commit",
@@ -1692,7 +1704,7 @@ class TestAskingFirst:
 
         waiting = first.structured_content["change"]["id"]
         assert f"({waiting})" in _error(again)
-        assert "find its answer with changes_list" in _error(again)
+        assert "find its answer with change_get" in _error(again)
 
     async def test_an_approved_launch_reads_who_approved_where(self, mcp, wired_app):
         async with _session(mcp, wired_app, levels=None) as client:
@@ -1784,3 +1796,148 @@ class TestAskingFirst:
         [raised] = levels.structured_content["changes"]
         assert raised["who"]["user_id"] == "user-member"
         assert raised["via"] is None
+
+
+RENAME = {
+    "loop": "checkout-headline",
+    "name": "Checkout title",
+    "reason": "support calls it the title",
+}
+
+
+class TestChangeGetAndRename:
+
+    async def test_change_get_reads_a_persons_console_change(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as member:
+            await _draft(member)
+        renamed = await wired_app.svc.act(
+            TENANT,
+            "loop.rename",
+            "checkout-headline",
+            {"name": "Checkout title"},
+            actor=Actor.member("user-member"),
+            reason="support calls it the title",
+        )
+        change_id = renamed.change["id"]
+        async with _session(mcp, wired_app, user="user-viewer") as viewer:
+            result = await _call(viewer, "change_get", {"change": change_id})
+
+        assert not result.is_error, result
+        entry = result.structured_content
+        assert entry["id"] == change_id
+        assert entry["status"] == "applied"
+        assert entry["who"]["user_id"] == "user-member"
+        assert entry["via"] is None
+        assert entry["reason"] == "support calls it the title"
+        assert entry["url"] == (
+            f"{proxysvc.config.settings.console_origin}/changes?change={change_id}"
+        )
+        text = result.content[0].text
+        assert "Mustafa renamed" in text
+        assert "name Checkout headline -> Checkout title" in text
+        assert '"support calls it the title"' in text
+        assert "can be undone" in text
+        assert text.endswith(f"In the console: {entry['url']}")
+
+    async def test_change_get_follows_a_waiting_change_to_its_answer(
+        self, mcp, wired_app
+    ):
+        async with _session(mcp, wired_app, levels=None) as client:
+            await _draft(client)
+            launched = await _call(client, "loop_launch", LAUNCH)
+            change_id = launched.structured_content["change"]["id"]
+            waiting = await _call(client, "change_get", {"change": change_id})
+            await _approve(wired_app, change_id)
+            approved = await _call(client, "change_get", {"change": change_id})
+
+        assert waiting.structured_content["status"] == "waiting"
+        assert "waiting for approval" in waiting.content[0].text
+        assert approved.structured_content["status"] == "applied"
+        assert approved.structured_content["decision"]["answer"] == "approved"
+        assert "approved by Mustafa in qbrix" in approved.content[0].text
+
+    async def test_another_workspaces_change_is_unknown(self, mcp, wired_app):
+        async with session_module.get_session() as session:
+            session.add(Tenant(id="tenant-b", name="tenant-b", slug="tenant-b"))
+            session.add(
+                User(
+                    id="user-b",
+                    tenant_id="tenant-b",
+                    email="user-b@example.com",
+                    password_hash="x",
+                    name="Bo",
+                    role="member",
+                )
+            )
+        created = await wired_app.svc.act(
+            "tenant-b",
+            "metric.create",
+            None,
+            {
+                "name": "purchase",
+                "semantic": "a completed checkout",
+                "metric_type": "conversion",
+                "score_range": None,
+                "window_seconds": 86400,
+            },
+            actor=Actor.member("user-b"),
+        )
+        change_id = created.change["id"]
+        async with _session(mcp, wired_app) as client:
+            result = await _call(client, "change_get", {"change": change_id})
+
+        assert _error(result) == (
+            f"No change with id {change_id}. "
+            f"Call changes_list to see this workspace's changes."
+        )
+
+    async def test_loop_rename_is_recorded_via_the_client_and_undoes(
+        self, mcp, wired_app
+    ):
+        async with _session(mcp, wired_app) as client:
+            await _draft(client)
+            renamed = await _call(client, "loop_rename", RENAME)
+            change_id = renamed.structured_content["change"]["id"]
+            got = await _call(client, "change_get", {"change": change_id})
+            undo = await _call(
+                client,
+                "change_undo",
+                {"change": change_id, "reason": "support changed its mind"},
+            )
+
+        assert not renamed.is_error, renamed
+        structured = renamed.structured_content
+        assert structured["status"] == "applied"
+        assert structured["change"]["kind"] == "loop.rename"
+        assert structured["change"]["undoable"] is True
+        assert structured["loop"]["name"] == "Checkout title"
+        assert structured["loop"]["key"] == "checkout-headline"
+        assert renamed.content[0].text.startswith(
+            "Renamed checkout-headline to Checkout title; its key stays"
+        )
+        entry = got.structured_content
+        assert entry["who"]["user_id"] == "user-member"
+        assert entry["via"]["client"] == "Claude Code"
+        assert entry["reason"] == RENAME["reason"]
+        assert "Mustafa via Claude Code" in got.content[0].text
+        assert not undo.is_error, undo
+        loop = await wired_app.svc.get_loop(TENANT, "checkout-headline")
+        assert loop["name"] == "Checkout headline"
+
+    async def test_renaming_an_unknown_loop_suggests_the_close_one(
+        self, mcp, wired_app
+    ):
+        async with _session(mcp, wired_app) as client:
+            await _draft(client)
+            result = await _call(
+                client, "loop_rename", {**RENAME, "loop": "checkout-hedline"}
+            )
+
+        assert "Did you mean checkout-headline?" in _error(result)
+
+    async def test_a_blank_name_is_refused_with_the_fix(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _draft(client)
+            result = await _call(client, "loop_rename", {**RENAME, "name": "  "})
+
+        assert _error(result).endswith("Fix it and call again.")
