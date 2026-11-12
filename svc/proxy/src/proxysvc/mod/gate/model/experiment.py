@@ -1,9 +1,10 @@
-import hashlib
 from typing import Optional
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field
+
+from proxysvc.core.targeting import bucket
 
 from .base import BaseConfig
 from .base import ArmConfig
@@ -15,11 +16,7 @@ class RolloutConfig(BaseModel):
     )
 
     def is_in_rollout(self, identifier: str) -> bool:
-        # builtin hash() is salted per-process, so the same identifier buckets
-        # differently on every proxy replica and after every restart; blake2b
-        # is stable across processes and python versions
-        digest = hashlib.blake2b(identifier.encode(), digest_size=8).digest()
-        return (int.from_bytes(digest, "big") % 100) < self.percentage
+        return bucket(identifier) < self.percentage
 
 
 class ActiveHoursConfig(BaseModel):

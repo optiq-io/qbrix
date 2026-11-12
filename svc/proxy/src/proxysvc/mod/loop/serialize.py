@@ -5,6 +5,7 @@ from qbrixstore.postgres.models import Cycle
 from qbrixstore.postgres.models import Loop
 from qbrixstore.postgres.models import LoopOption
 
+from proxysvc.mod.loop.delivery import delivery_of
 from proxysvc.mod.people import People
 
 
@@ -57,6 +58,7 @@ def loop_to_dict(loop: Loop, people: People) -> dict:
             "name": people.name(loop.owner_user_id),
         },
         "fallback": loop.fallback_key,
+        "delivery": delivery_of(loop.delivery).model_dump(mode="json"),
         "options": [option_to_dict(option) for option in loop.options],
         "cycle": cycle_to_dict(loop.cycles[-1]) if loop.cycles else None,
         "created_at": _stamp(loop.created_at),

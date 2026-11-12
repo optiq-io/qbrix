@@ -431,6 +431,13 @@ class LoopNotCyclableException(ConflictException):
     code = "LOOP_NOT_CYCLABLE"
 
 
+class LoopRetiredException(ConflictException):
+    """a retired loop's choice has left the product, so it can't change."""
+
+    detail = "the loop is retired"
+    code = "LOOP_RETIRED"
+
+
 class ChangeNotFoundException(NotFoundException):
     """change not found in this workspace."""
 

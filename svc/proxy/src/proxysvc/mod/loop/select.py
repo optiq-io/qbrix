@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import time
 import uuid
+from datetime import datetime
+from datetime import timezone
 from typing import Any
 
 from qbrixlog import get_logger
@@ -73,7 +75,8 @@ _DECIDING = frozenset({"live", "committed"})
 class LoopSelectService:
     """select(loop, context): the fallback for a draft or paused loop, the
     engine's choice from the current cycle for a live one, and the committed
-    option for a committed one, without asking motor.
+    option for a committed one, without asking motor. a live or committed
+    loop answers the fallback to a request outside its delivery.
 
     only a live or committed answer is a decision: it carries a request_id,
     enters the ledger and counts as a selection. every answer is counted by
@@ -118,6 +121,11 @@ class LoopSelectService:
             if reason is LoopSelectReason.DRAFT:
                 self._events.dispatch(self._first_call(tenant_id, route.id, source))
             return _answer(route.fallback, None, reason)
+        if not route.delivery.everyone and not route.delivery.decide(
+            route.id, unit, properties, datetime.now(timezone.utc)
+        ):
+            self._count_reason(tenant_id, route.id, LoopSelectReason.OUTSIDE_DELIVERY)
+            return _answer(route.fallback, None, LoopSelectReason.OUTSIDE_DELIVERY)
 
         try:
             answer = await self._decide(tenant_id, route, unit, properties, reason)

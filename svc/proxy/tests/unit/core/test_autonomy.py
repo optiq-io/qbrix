@@ -15,7 +15,7 @@ from proxysvc.mod.change.undo import UNDOABLE_KINDS
 pytestmark = pytest.mark.unit
 
 _KIND = re.compile(
-    r"^(loop|cycle|metric|note|experiment|pool|gate|connection)\.[a-z]+$"
+    r"^(loop|cycle|delivery|metric|note|experiment|pool|gate|connection)\.[a-z]+$"
 )
 
 
@@ -62,6 +62,7 @@ def test_the_defaults_are_the_definitions():
             "loop.commit",
             "loop.reopen",
             "cycle.reset",
+            "delivery.update",
             "metric.delete",
         ],
         "ask": ["loop.launch", "cycle.start", "loop.retire"],

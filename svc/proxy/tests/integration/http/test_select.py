@@ -16,10 +16,17 @@ invariants verified:
   its reason, and a live loop's failures by outcome per cycle. loop writes
   keep the route select reads current. a draft's first call is a milestone
   once, naming the key it came from; a failed publish is tried again by the
-  next call, and a live loop's calls are never one.
+  next call, and a live loop's calls are never one. a live or committed
+  loop decides only for requests inside its delivery (schedule, audience,
+  rollout); outside it, it answers the fallback as outside_delivery, without
+  a decision, and counts the call. a route written before loops had a
+  delivery decides for everyone.
 """
 
 from __future__ import annotations
+
+from datetime import datetime
+from datetime import timezone
 
 import grpc
 import pytest
@@ -204,6 +211,7 @@ class TestDraft:
         assert counts == {
             "live": 0,
             "committed": 0,
+            "outside_delivery": 0,
             "draft": 2,
             "paused": 0,
             "retired": 0,
@@ -610,3 +618,155 @@ class TestRoute:
 
         assert (await _select(api, loop["key"])).status_code == 404
         assert (await _select(api, loop["id"])).status_code == 404
+
+
+MOBILE_NL = [
+    {"property": "device", "operator": "is", "value": "mobile"},
+    {"property": "country", "operator": "in", "value": ["NL", "BE"]},
+]
+MOBILE_IN_NL = {"unit": "user-42", "properties": {"device": "mobile", "country": "NL"}}
+DESKTOP_IN_NL = {
+    "unit": "user-42",
+    "properties": {"device": "desktop", "country": "NL"},
+}
+
+
+async def _deliver(wired_app, loop: dict, **delivery) -> dict:
+    return (
+        await wired_app.svc.update_delivery(
+            TENANT, loop["key"], actor=ACTOR, **delivery
+        )
+    ).value
+
+
+def _at(monkeypatch, moment: datetime) -> None:
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return moment.astimezone(tz)
+
+    monkeypatch.setattr("proxysvc.mod.loop.select.datetime", Clock)
+
+
+class TestDelivery:
+    async def test_a_live_loop_decides_inside_its_audience_only(self, wired_app, api):
+        loop = await _loop(wired_app, launch=True, fallback="urgency")
+        await _deliver(wired_app, loop, audience=MOBILE_NL)
+        _motor_chooses(wired_app, 0)
+
+        inside = (await _select(api, loop["key"], MOBILE_IN_NL)).json()
+        outside = (await _select(api, loop["key"], DESKTOP_IN_NL)).json()
+        missing = (await _select(api, loop["key"], {"unit": "user-42"})).json()
+
+        assert (inside["reason"], inside["option"]["key"]) == ("live", "control")
+        assert inside["request_id"]
+        for answer in (outside, missing):
+            assert answer["reason"] == "outside_delivery"
+            assert answer["option"]["key"] == "urgency"
+            assert answer["request_id"] is None
+        assert wired_app.motor_mock.select.call_count == 1
+
+    async def test_a_committed_loop_serves_its_option_only_inside(self, wired_app, api):
+        loop = await _committed(wired_app, "urgency")
+        await _deliver(wired_app, loop, audience=MOBILE_NL, fallback="control")
+
+        inside = (await _select(api, loop["key"], MOBILE_IN_NL)).json()
+        outside = (await _select(api, loop["key"], DESKTOP_IN_NL)).json()
+
+        assert (inside["reason"], inside["option"]["key"]) == ("committed", "urgency")
+        assert (outside["reason"], outside["option"]["key"]) == (
+            "outside_delivery",
+            "control",
+        )
+        assert outside["request_id"] is None
+
+    async def test_outside_is_not_a_decision_and_is_counted(self, wired_app, api):
+        loop = await _loop(wired_app, launch=True)
+        await _deliver(wired_app, loop, rollout=0)
+        wired_app.motor_mock.select.reset_mock()
+
+        await _select(api, loop["key"])
+        await _select(api, loop["key"], {"unit": "user-7"})
+        await _settled(wired_app)
+
+        wired_app.motor_mock.select.assert_not_called()
+        assert wired_app.selection_spy.events == []
+        counts = await wired_app.svc._redis.loop_selects(TENANT, loop["id"], 5)
+        assert counts["outside_delivery"] == 2
+        assert counts["live"] == 0
+
+    async def test_rollout_holds_a_units_answer(self, wired_app, api):
+        loop = await _loop(wired_app, launch=True)
+        await _deliver(wired_app, loop, rollout=50)
+        _motor_chooses(wired_app, 0)
+
+        first = [
+            (await _select(api, loop["key"], {"unit": f"u-{n}"})).json()["reason"]
+            for n in range(40)
+        ]
+        again = [
+            (await _select(api, loop["key"], {"unit": f"u-{n}"})).json()["reason"]
+            for n in range(40)
+        ]
+
+        assert first == again
+        assert {"live", "outside_delivery"} == set(first)
+
+    async def test_outside_its_hours_and_before_its_start(
+        self, wired_app, api, monkeypatch
+    ):
+        loop = await _loop(wired_app, launch=True)
+        await _deliver(
+            wired_app,
+            loop,
+            schedule={
+                "hours": {"start": "09:00", "end": "18:00"},
+                "starts_on": "2026-12-01",
+                "timezone": "Europe/Amsterdam",
+            },
+        )
+        _motor_chooses(wired_app, 0)
+
+        _at(monkeypatch, datetime(2026, 11, 30, 10, 0, tzinfo=timezone.utc))
+        before_start = (await _select(api, loop["key"])).json()["reason"]
+        _at(monkeypatch, datetime(2026, 12, 1, 10, 0, tzinfo=timezone.utc))
+        in_hours = (await _select(api, loop["key"])).json()["reason"]
+        _at(monkeypatch, datetime(2026, 12, 1, 17, 0, tzinfo=timezone.utc))
+        after_hours = (await _select(api, loop["key"])).json()["reason"]
+
+        assert (before_start, in_hours, after_hours) == (
+            "outside_delivery",
+            "live",
+            "outside_delivery",
+        )
+
+    async def test_a_draft_answers_its_state_first(self, wired_app, api):
+        draft = await _loop(wired_app)
+        await _deliver(wired_app, draft, rollout=0)
+
+        assert (await _select(api, draft["key"])).json()["reason"] == "draft"
+
+    async def test_a_route_written_before_delivery_decides_for_everyone(
+        self, wired_app, api
+    ):
+        loop = await _loop(wired_app, launch=True)
+        routes = wired_app.svc._loop_select_service._routes
+        route = await routes.get(TENANT, loop["id"])
+        raw = route.model_dump_json(exclude={"delivery"})
+        for kind, ref in (("id", route.id), ("key", route.key)):
+            await wired_app.fake_redis.set(
+                f"qbrix:tenant:{TENANT}:loop:{kind}:{ref}", raw
+            )
+        routes._forget(TENANT, route.id, route.key)
+        _motor_chooses(wired_app, 0)
+
+        assert (await _select(api, loop["key"])).json()["reason"] == "live"
+
+    async def test_a_delivery_change_moves_the_route(self, wired_app, api):
+        loop = await _loop(wired_app, launch=True)
+        _motor_chooses(wired_app, 0)
+        assert (await _select(api, loop["key"])).json()["reason"] == "live"
+
+        await _deliver(wired_app, loop, rollout=0)
+
+        assert (await _select(api, loop["key"])).json()["reason"] == "outside_delivery"

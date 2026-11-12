@@ -7,6 +7,8 @@ from typing import Optional
 from pydantic import BaseModel
 from pydantic import Field
 
+from proxysvc.core.targeting import holds
+
 from .base import ArmConfig
 
 OperatorType = Literal[
@@ -33,6 +35,31 @@ OperatorType = Literal[
     "in",
     "not_in",
 ]
+
+_OPERATORS = {
+    "equals": "is",
+    "==": "is",
+    "eq": "is",
+    "not_equals": "is_not",
+    "!=": "is_not",
+    "ne": "is_not",
+    "greater_than": "gt",
+    ">": "gt",
+    "gt": "gt",
+    "less_than": "lt",
+    "<": "lt",
+    "lt": "lt",
+    "greater_or_equal": "gte",
+    ">=": "gte",
+    "gte": "gte",
+    "less_or_equal": "lte",
+    "<=": "lte",
+    "lte": "lte",
+    "contains": "contains",
+    "not_contains": "not_contains",
+    "in": "in",
+    "not_in": "not_in",
+}
 
 
 class Rule(BaseModel):
@@ -83,34 +110,7 @@ class Rule(BaseModel):
         if self.key not in metadata:
             return False
 
-        actual = metadata[self.key]
-        expected = self.value
-
-        op = self.operator.lower()
-
-        try:
-            match op:
-                case "equals" | "==" | "eq":
-                    return actual == expected
-                case "not_equals" | "!=" | "ne":
-                    return actual != expected
-                case "greater_than" | ">" | "gt":
-                    return actual > expected
-                case "less_than" | "<" | "lt":
-                    return actual < expected
-                case "greater_or_equal" | ">=" | "gte":
-                    return actual >= expected
-                case "less_or_equal" | "<=" | "lte":
-                    return actual <= expected
-                case "contains":
-                    return expected in actual
-                case "not_contains":
-                    return expected not in actual
-                case "in":
-                    return actual in expected
-                case "not_in":
-                    return actual not in expected
-                case _:
-                    raise ValueError(f"Unknown operator: {self.operator}")
-        except (TypeError, AttributeError):
-            return False
+        operator = _OPERATORS.get(self.operator.lower())
+        if operator is None:
+            raise ValueError(f"Unknown operator: {self.operator}")
+        return holds(operator, metadata[self.key], self.value)

@@ -646,10 +646,46 @@ export interface Loop {
   paused_from: string | null;
   live_since: string | null;
   owner: { id: string; name: string };
-  /** an option's key */
+  /** an option's key: what everyone the loop isn't deciding for gets */
   fallback: string;
+  /** who the loop decides for */
+  delivery: LoopDelivery;
   options: { id: string; key: string; name: string; config: Record<string, unknown> }[];
   cycle: LoopCycle | null;
+}
+
+export type DeliveryOperator =
+  | "is"
+  | "is_not"
+  | "in"
+  | "not_in"
+  | "contains"
+  | "not_contains"
+  | "gt"
+  | "gte"
+  | "lt"
+  | "lte";
+
+type DeliveryValue = string | number | boolean;
+
+/** all conditions must hold; a request without the property never holds one */
+export interface DeliveryCondition {
+  property: string;
+  operator: DeliveryOperator;
+  value: DeliveryValue | DeliveryValue[];
+}
+
+export interface LoopDelivery {
+  audience: DeliveryCondition[];
+  /** 0 to 100 */
+  rollout: number;
+  schedule: {
+    /** "HH:MM", from start until end */
+    hours: { start: string; end: string } | null;
+    /** "YYYY-MM-DD" */
+    starts_on: string | null;
+    timezone: string | null;
+  };
 }
 
 /** POST /v1/loops */
@@ -743,7 +779,14 @@ export interface LoopResults {
   } | null;
   lift: { value: number | null; early: boolean; since: string; until: string } | null;
   /** the last hour's calls by reason */
-  calls: { live: number; committed: number; draft: number; paused: number; retired: number };
+  calls: {
+    live: number;
+    committed: number;
+    outside_delivery: number;
+    draft: number;
+    paused: number;
+    retired: number;
+  };
   /** over the last few minutes */
   decisions_per_second: number;
   health: {

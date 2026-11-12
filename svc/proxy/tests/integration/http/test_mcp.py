@@ -16,7 +16,9 @@ invariants verified:
   call and connection, and doesn't count as a second change. a
   viewer's connection reads and can't change. a loop paused by qbrix says who paused it, when and why, in
   loop_get and loops_list. workspace_summary reads the same as the service,
-  in product words, an open safety pause first. every refusal says what to do
+  in product words, an open safety pause first. delivery_update changes who
+  a loop decides for, says so in one line that loop_get repeats, waits when
+  it asks first and applies when approved. every refusal says what to do
   next.
 """
 
@@ -79,6 +81,7 @@ TOOLS = [
     "loop_resume",
     "cycle_start",
     "cycle_reset",
+    "delivery_update",
     "metric_create",
     "note_add",
     "change_undo",
@@ -1363,6 +1366,11 @@ class TestViewer:
             ("loop_resume", {"loop": "x", "reason": "go"}, "resume loops"),
             ("cycle_start", {**CYCLE, "loop": "x"}, "start cycles"),
             ("cycle_reset", {"loop": "x", "reason": "go"}, "reset cycles"),
+            (
+                "delivery_update",
+                {"loop": "x", "reason": "go", "rollout": 50},
+                "change delivery",
+            ),
             ("metric_create", METRIC, "create metrics"),
             ("note_add", {"loop": "x", "text": "hello"}, "add notes"),
         ],
@@ -2287,3 +2295,132 @@ class TestWorkspaceSummary:
         assert result.is_error
         assert "30 days" in _error(result)
         assert "on or after" in _error(result)
+
+
+MOBILE_NL = [
+    {"property": "device", "operator": "is", "value": "mobile"},
+    {"property": "country", "operator": "in", "value": ["NL", "BE"]},
+]
+DELIVERY = {
+    "loop": "checkout-headline",
+    "reason": "only mobile visitors in NL and BE see it",
+    "audience": MOBILE_NL,
+    "rollout": 50,
+}
+
+
+class TestDelivery:
+
+    async def test_a_new_loop_reads_as_deciding_for_everyone(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            got = await _call(client, "loop_get", {"loop": "checkout-headline"})
+
+        text = got.content[0].text
+        assert "Decides for: everyone, always. Everyone else gets control." in text
+        assert got.structured_content["delivery"]["rollout"] == 100
+
+    async def test_update_says_who_it_decides_for_and_can_be_undone(
+        self, mcp, wired_app
+    ):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            result = await _call(client, "delivery_update", DELIVERY)
+            got = await _call(client, "loop_get", {"loop": "checkout-headline"})
+
+        assert not result.is_error, result
+        structured = result.structured_content
+        assert structured["status"] == "applied"
+        assert structured["change"]["kind"] == "delivery.update"
+        assert structured["change"]["undoable"] is True
+        assert structured["loop"]["delivery"]["audience"] == MOBILE_NL
+        line = (
+            "Decides for: device is mobile and country in NL, BE · 50% of them. "
+            "Everyone else gets control."
+        )
+        assert line in result.content[0].text
+        assert "can be undone" in result.content[0].text
+        assert line in got.content[0].text
+
+    async def test_outside_its_hours_it_says_everyone_gets_the_fallback(
+        self, mcp, wired_app
+    ):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            result = await _call(
+                client,
+                "delivery_update",
+                {
+                    "loop": "checkout-headline",
+                    "reason": "launch in the new year",
+                    "schedule": {"starts_on": "2999-01-01", "timezone": "UTC"},
+                },
+            )
+
+        assert not result.is_error, result
+        assert (
+            "Right now everyone gets control: it starts on 2999-01-01."
+            in result.content[0].text
+        )
+
+    async def test_a_change_that_cant_apply_says_why(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            result = await _call(
+                client,
+                "delivery_update",
+                {
+                    "loop": "checkout-headline",
+                    "reason": "office hours",
+                    "schedule": {"hours": {"start": "09:00", "end": "18:00"}},
+                },
+            )
+
+        assert "needs its timezone" in _error(result)
+        assert "Fix it and call again." in _error(result)
+
+    async def test_a_retired_loop_is_refused_with_what_to_do(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await _call(
+                client, "loop_retire", {"loop": "checkout-headline", "reason": "gone"}
+            )
+            result = await _call(client, "delivery_update", DELIVERY)
+
+        assert _error(result).startswith(
+            "The loop checkout-headline is retired; nothing was changed."
+        )
+
+    async def test_acting_and_notifying_is_the_default(self, mcp, wired_app):
+        async with _session(mcp, wired_app, levels=None) as client:
+            await _live_by_approval(client, wired_app)
+            result = await _call(client, "delivery_update", DELIVERY)
+
+        assert result.structured_content["status"] == "applied"
+
+    async def test_at_ask_it_waits_and_applies_when_approved(self, mcp, wired_app):
+        async with _session(
+            mcp, wired_app, levels={**ON_ITS_OWN, "delivery.update": "ask"}
+        ) as client:
+            await _live(client)
+            asked = await _call(client, "delivery_update", DELIVERY)
+
+        assert asked.structured_content["status"] == "waiting"
+        assert asked.content[0].text.startswith(
+            "Waiting for approval: Claude Code asks to change the delivery of "
+            "Checkout headline."
+        )
+        waiting = await wired_app.svc.get_loop(TENANT, "checkout-headline")
+        assert waiting["delivery"]["rollout"] == 100
+
+        await _approve(wired_app, asked.structured_content["change"]["id"])
+
+        applied = await wired_app.svc.get_loop(TENANT, "checkout-headline")
+        assert applied["delivery"]["audience"] == MOBILE_NL
+        assert applied["delivery"]["rollout"] == 50
+
+
+async def _live_by_approval(client: Client, wired_app) -> None:
+    await _draft(client)
+    asked = await _call(client, "loop_launch", LAUNCH)
+    await _approve(wired_app, asked.structured_content["change"]["id"])

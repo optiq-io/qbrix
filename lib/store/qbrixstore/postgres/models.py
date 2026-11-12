@@ -591,6 +591,7 @@ class Loop(Base):
     )
     owner_user_id: Mapped[str] = mapped_column(String(64), nullable=False)
     fallback_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    delivery: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

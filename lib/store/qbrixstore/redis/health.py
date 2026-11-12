@@ -35,6 +35,7 @@ class LoopSelectReason(str, Enum):
 
     LIVE = "live"
     COMMITTED = "committed"
+    OUTSIDE_DELIVERY = "outside_delivery"
     DRAFT = "draft"
     PAUSED = "paused"
     RETIRED = "retired"

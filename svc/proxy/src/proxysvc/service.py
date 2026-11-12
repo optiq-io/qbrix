@@ -722,6 +722,29 @@ class ProxyService:
             reason=reason,
         )
 
+    async def update_delivery(
+        self,
+        tenant_id: str,
+        ref: str,
+        *,
+        audience: list[dict[str, Any]] | None = None,
+        rollout: int | None = None,
+        schedule: dict[str, Any] | None = None,
+        fallback: str | None = None,
+        actor: Actor,
+        reason: str | None = None,
+    ) -> Applied | None:
+        return await self._loop_service.update_delivery(
+            tenant_id,
+            ref,
+            audience=audience,
+            rollout=rollout,
+            schedule=schedule,
+            fallback=fallback,
+            actor=actor,
+            reason=reason,
+        )
+
     async def reset_cycle(
         self, tenant_id: str, ref: str, *, actor: Actor, reason: str | None = None
     ) -> Applied | None:

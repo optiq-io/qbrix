@@ -103,6 +103,7 @@ ENDPOINT_SCOPES = {
     ("GET", "/api/v1/loops*"): "loop:read",
     ("POST", "/api/v1/loops*"): "loop:write",
     ("PATCH", "/api/v1/loops/*"): "loop:write",
+    ("PUT", "/api/v1/loops/*"): "loop:write",
     # changes: undoing also takes what writing to the change's target takes
     ("GET", "/api/v1/changes*"): "loop:read",
     ("POST", "/api/v1/changes/*"): "loop:write",

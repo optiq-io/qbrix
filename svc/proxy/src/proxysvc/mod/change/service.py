@@ -74,7 +74,14 @@ if TYPE_CHECKING:
 _RESTORABLE_EXPERIMENT_FIELDS = ("name", "enabled", "policy_params")
 _LEARNING_KINDS = ("experiment.reset", "experiment.restore")
 _UNVERSIONED = ("version", "updated_at")
-_RESTORABLE_LOOP_FIELDS = ("name", "key", "state", "committed")
+_RESTORABLE_LOOP_FIELDS = (
+    "name",
+    "key",
+    "state",
+    "committed",
+    "fallback",
+    "delivery",
+)
 _REFUSED_NOW = (
     ChangeConflictError,
     ChangeNotUndoableError,
@@ -100,7 +107,7 @@ def _restored_loop_fields(change: Change) -> tuple[str, ...]:
     so anything changed since refuses it. a key locks at launch, so undoing a
     key's change also needs the loop still in that state."""
     if change.before is None:
-        return _RESTORABLE_LOOP_FIELDS
+        return tuple(name for name in _RESTORABLE_LOOP_FIELDS if name in change.after)
     moved = {
         name
         for name in _RESTORABLE_LOOP_FIELDS
@@ -669,6 +676,17 @@ class ChangeService:
             )
         if kind == "cycle.reset":
             return await loops.reset_cycle(tenant_id, ref, actor=actor, reason=reason)
+        if kind == "delivery.update":
+            return await loops.update_delivery(
+                tenant_id,
+                ref,
+                audience=args.get("audience"),
+                rollout=args.get("rollout"),
+                schedule=args.get("schedule"),
+                fallback=args.get("fallback"),
+                actor=actor,
+                reason=reason,
+            )
         raise ValueError(f"a connection doesn't make {kind} changes directly")
 
     @staticmethod
@@ -794,6 +812,20 @@ class ChangeService:
                 target_id,
                 name=before["name"],
                 key=before["key"],
+                actor=actor,
+                undoing=undoing,
+            )
+            return restored is not None
+
+        if change.kind == "delivery.update":
+            delivery = before["delivery"]
+            restored = await self._loops.update_delivery(
+                tenant_id,
+                target_id,
+                audience=delivery["audience"],
+                rollout=delivery["rollout"],
+                schedule=delivery["schedule"],
+                fallback=before["fallback"],
                 actor=actor,
                 undoing=undoing,
             )
