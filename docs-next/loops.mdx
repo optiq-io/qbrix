@@ -63,3 +63,38 @@ Rollout places each unit in one of 100 buckets, from its id and the loop's. A un
 `delivery_update` over MCP, or `PUT /api/v1/loops/{loop}/delivery`, changes any of the audience, rollout, schedule and fallback. A part you leave out keeps its value. A part you give replaces the whole part. It is one change, recorded with what it was before, and it can be undone. Every replica serves the new delivery within 30 seconds.
 
 There is no end date. A temporary stop is a pause; when the choice leaves the product, retire the loop.
+
+## What a loop learns from
+
+A loop's **context** is the list of properties its engine learns from. Every property a request sends is recorded with its decision and can be used in the audience; the context says which of them the engine weighs when it chooses. Leibniz learns from context and needs one. Spinoza and Buridan don't use it.
+
+```json
+[
+  { "name": "plan", "type": "categorical", "values": ["free", "pro"] },
+  { "name": "seats", "type": "numeric", "min": 1, "max": 500 },
+  { "name": "returning", "type": "boolean" }
+]
+```
+
+| Type | Takes | Any other value |
+|---|---|---|
+| `categorical` | one of a few values worth telling apart | counts as `other` |
+| `numeric` | a number, scaled between `min` and `max` and held at either end | |
+| `boolean` | `true` or `false` | |
+
+### Wire it first, then declare it
+
+Change your app to send the properties with `select`, deploy it, then declare them. Until then nothing breaks:
+
+- **A property you send but haven't declared** is recorded and usable in the audience; the engine ignores it.
+- **A property you declare but don't send yet** is learned as its default, so it tells the engine nothing.
+- **A value of the wrong type**, such as `3.5` for a categorical `plan`, is learned as the property's default too. `select` never fails over the context.
+
+`GET /api/v1/loops/{loop}/context` shows which is happening. For the last day's decisions, it gives each declared property's count of decisions that carried it and of values that could be read, with the latest value. It also lists the properties sent but not declared. `context_update` answers with the same read.
+
+### Changing the context
+
+`context_update` over MCP, or `PUT /api/v1/loops/{loop}/context`, replaces the whole context; `null` clears it. It is one change, recorded with what it was before.
+
+- **On a draft, or on Spinoza or Buridan,** it applies at once and can be undone.
+- **On Leibniz, once launched,** it starts a new cycle, because what the loop learned no longer fits. Like any new cycle, it asks first by default and can't be undone. A committed loop is reopened first. Leibniz can't have its context cleared; start a cycle on another engine instead.
