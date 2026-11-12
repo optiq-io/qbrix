@@ -24,6 +24,7 @@ from proxysvc.core.error import LoopKeyTakenError
 from proxysvc.core.error import LoopStateError
 from proxysvc.mod.change.note import NOTE_MAX_LENGTH
 from proxysvc.mod.change.note import HistoryShow
+from proxysvc.mod.loop.delivery import Delivery
 from proxysvc.service import ProxyService
 from proxysvc.transport.http.auth.dependencies import get_actor
 from proxysvc.transport.http.auth.dependencies import get_current_tenant_id
@@ -41,6 +42,7 @@ from proxysvc.transport.http.exception import LoopNotLiveException
 from proxysvc.transport.http.exception import LoopNotPausableException
 from proxysvc.transport.http.exception import LoopNotPausedException
 from proxysvc.transport.http.exception import LoopNotRetirableException
+from proxysvc.transport.http.exception import LoopRetiredException
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +119,41 @@ class CycleStartRequest(BaseModel):
 
 
 class CycleResetRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+class DeliveryRequest(BaseModel):
+    audience: Optional[list[dict[str, Any]]] = Field(
+        default=None,
+        description=(
+            "Conditions on context properties, all of which must hold: "
+            '[{"property": "device", "operator": "is", "value": "mobile"}]. '
+            "Operators: is, is_not, in, not_in, contains, not_contains, gt, gte, "
+            "lt, lte. A request without the property never holds its condition. "
+            "An empty list means everyone. Replaces the whole audience."
+        ),
+    )
+    rollout: Optional[int] = Field(
+        default=None,
+        description=(
+            "The share of the audience the loop decides for, 0 to 100. A unit "
+            "keeps its place, so raising it only adds units."
+        ),
+    )
+    schedule: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            'When the loop decides: {"hours": {"start": "09:00", "end": "18:00"}, '
+            '"starts_on": "2026-12-01", "timezone": "Europe/Amsterdam"}. Hours run '
+            "from start until end, past midnight if the start is later. The "
+            "timezone is required with hours or a start date. Replaces the "
+            "whole schedule."
+        ),
+    )
+    fallback: Optional[str] = Field(
+        default=None,
+        description="The option everyone the loop isn't deciding for gets.",
+    )
     reason: Optional[str] = None
 
 
@@ -214,6 +251,7 @@ class LoopSummary(BaseModel):
     live_since: Optional[str] = None
     owner: Person
     fallback: str
+    delivery: Delivery
     options: list[OptionSummary]
     cycle: Optional[CycleSummary] = None
     created_at: Optional[str] = None
@@ -306,6 +344,7 @@ class Lift(BaseModel):
 class Calls(BaseModel):
     live: int
     committed: int
+    outside_delivery: int
     draft: int
     paused: int
     retired: int
@@ -734,6 +773,43 @@ async def reset_cycle(
         raise _not_found(loop)
     logger.info(f"cycle reset: {reset.value['id']} by user {actor.user_id}")
     return _serving(reset.value)
+
+
+@router.put(
+    "/{loop}/delivery",
+    status_code=status.HTTP_200_OK,
+    response_model=ServingResponse,
+)
+async def update_delivery(
+    loop: str,
+    body: DeliveryRequest,
+    tenant_id: str = Depends(get_current_tenant_id),
+    actor: Actor = Depends(get_person),
+    _scoped=Depends(require_scopes(["loop:write"])),
+):
+    """change who the loop decides for, and what everyone else gets: its
+    audience, rollout, schedule and fallback. a part left out keeps its
+    value. it can be undone. serving moves on every replica within
+    serving_within_seconds."""
+    try:
+        updated = await get_proxy_service().update_delivery(
+            tenant_id,
+            loop,
+            audience=body.audience,
+            rollout=body.rollout,
+            schedule=body.schedule,
+            fallback=body.fallback,
+            actor=actor,
+            reason=body.reason,
+        )
+    except LoopInvalidError as e:
+        raise InvalidLoopException(str(e))
+    except LoopStateError as e:
+        raise LoopRetiredException(str(e))
+    if updated is None:
+        raise _not_found(loop)
+    logger.info(f"delivery changed: {updated.value['id']} by user {actor.user_id}")
+    return _serving(updated.value)
 
 
 @router.post(

@@ -27,7 +27,11 @@ invariants verified:
   otherwise, the route serves the new cycle, the earlier cycle's record and
   results stay, a paused loop stays paused, and neither can be undone. a
   draft, committed, paused-from-committed or retired loop is refused with
-  what to do instead.
+  what to do instead. a loop decides for everyone until its delivery
+  changes; a delivery change sets the parts it names and keeps the rest,
+  can set the fallback, is one change with before and after, writes the
+  route, and undoes. any state but retired can change it, and a change that
+  can't apply is refused with why.
 """
 
 from __future__ import annotations
@@ -1845,3 +1849,154 @@ class TestEarlierCycles:
         assert {"field": "option", "before": None, "after": "Social proof"} in latest[
             "diff"
         ]
+
+
+MOBILE = [{"property": "device", "operator": "is", "value": "mobile"}]
+OFFICE_HOURS = {
+    "hours": {"start": "09:00", "end": "18:00"},
+    "timezone": "Europe/Amsterdam",
+}
+EVERYONE = {
+    "audience": [],
+    "rollout": 100,
+    "schedule": {"hours": None, "starts_on": None, "timezone": None},
+}
+
+
+async def _deliver(client, ref: str, **body):
+    return await client.put(f"/api/v1/loops/{ref}/delivery", json=body)
+
+
+class TestDelivery:
+    async def test_a_new_loop_decides_for_everyone(self, loops):
+        loop = await _create(loops)
+
+        assert loop["delivery"] == EVERYONE
+
+    async def test_a_change_sets_what_it_names_and_keeps_the_rest(
+        self, wired_app, loops
+    ):
+        loop = await _launched(loops)
+
+        first = await _deliver(loops, loop["key"], audience=MOBILE, reason="mobile")
+        second = await _deliver(loops, loop["key"], rollout=25, fallback="urgency")
+
+        assert first.status_code == 200, first.text
+        assert second.status_code == 200, second.text
+        assert second.json()["serving_within_seconds"] == math.ceil(
+            proxysvc.config.settings.experiment_cache_ttl
+        )
+        read = await wired_app.svc.get_loop(TENANT, loop["id"])
+        assert read["delivery"] == {**EVERYONE, "audience": MOBILE, "rollout": 25}
+        assert read["fallback"] == "urgency"
+
+    async def test_it_is_one_change_with_before_and_after(self, wired_app, loops):
+        loop = await _launched(loops)
+
+        await _deliver(loops, loop["key"], schedule=OFFICE_HOURS, reason="office")
+        change, *_ = await _changes(wired_app, loop["id"])
+
+        assert change["kind"] == "delivery.update"
+        assert change["reason"] == "office"
+        assert change["before"]["delivery"] == EVERYONE
+        assert change["after"]["delivery"]["schedule"] == {
+            **OFFICE_HOURS,
+            "starts_on": None,
+        }
+
+    async def test_it_writes_the_route(self, wired_app, loops):
+        loop = await _launched(loops)
+
+        await _deliver(loops, loop["key"], audience=MOBILE, rollout=40)
+        route = await _route(wired_app, loop["key"])
+
+        assert route.delivery.rollout == 40
+        assert route.delivery.audience[0].property == "device"
+
+    async def test_undo_restores_the_delivery_and_fallback(self, wired_app, loops):
+        loop = await _launched(loops)
+        await _deliver(loops, loop["key"], audience=MOBILE, fallback="urgency")
+        change, *_ = await _changes(wired_app, loop["id"])
+
+        undo = await wired_app.svc.undo_change(TENANT, change["id"], actor=UNDOER)
+        read = await wired_app.svc.get_loop(TENANT, loop["id"])
+        route = await _route(wired_app, loop["key"])
+
+        assert undo["kind"] == "delivery.update"
+        assert undo["undoes_id"] == change["id"]
+        assert read["delivery"] == EVERYONE
+        assert read["fallback"] == "control"
+        assert route.delivery.everyone
+
+    async def test_undo_after_a_later_delivery_change_is_refused(
+        self, wired_app, loops
+    ):
+        loop = await _launched(loops)
+        await _deliver(loops, loop["key"], rollout=50)
+        earlier, *_ = await _changes(wired_app, loop["id"])
+        await _deliver(loops, loop["key"], rollout=80)
+
+        with pytest.raises(ChangeConflictError, match="delivery.update"):
+            await wired_app.svc.undo_change(TENANT, earlier["id"], actor=UNDOER)
+
+    async def test_a_draft_paused_or_committed_loop_can_change_it(
+        self, wired_app, loops
+    ):
+        draft = await _create(loops, name="Draft")
+        committed = await _committed(loops)
+        paused = await _pause_by_hand(
+            loops,
+            (await _launch(loops, (await _create(loops, name="Paused"))["key"]))["key"],
+        )
+
+        for loop in (draft, committed, paused):
+            resp = await _deliver(loops, loop["key"], rollout=10)
+            assert resp.status_code == 200, resp.text
+
+    async def test_a_retired_loop_is_refused(self, loops):
+        retired = await _retired(loops)
+
+        resp = await _deliver(loops, retired["key"], rollout=10)
+
+        assert resp.status_code == 409
+        assert resp.json()["code"] == "LOOP_RETIRED"
+        assert "create a new loop" in resp.json()["detail"]
+
+    @pytest.mark.parametrize(
+        "body, message",
+        [
+            ({}, "needs an audience, a rollout, a schedule, a fallback"),
+            ({"rollout": 100}, "nothing changes"),
+            ({"fallback": "social"}, "not one of the loop's options"),
+            ({"rollout": 101}, "rollout"),
+            (
+                {"schedule": {"hours": {"start": "09:00", "end": "18:00"}}},
+                "needs its timezone",
+            ),
+            (
+                {"audience": [{"property": "c", "operator": "eq", "value": "NL"}]},
+                "audience.0.operator",
+            ),
+        ],
+    )
+    async def test_a_change_that_cant_apply_is_refused(self, loops, body, message):
+        loop = await _launched(loops)
+
+        resp = await _deliver(loops, loop["key"], **body)
+
+        assert resp.status_code == 400, resp.text
+        assert resp.json()["code"] == "INVALID_LOOP"
+        assert message in resp.json()["detail"]
+
+    async def test_an_unknown_loop_is_not_found(self, loops):
+        resp = await _deliver(loops, "nope", rollout=10)
+
+        assert resp.status_code == 404
+
+    async def test_a_viewer_is_refused(self, wired_app, loops):
+        loop = await _launched(loops)
+
+        with as_tenant(wired_app.app, tenant_id=TENANT, role="viewer"):
+            resp = await _deliver(loops, loop["key"], rollout=10)
+
+        assert resp.status_code == 403

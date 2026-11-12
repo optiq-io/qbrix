@@ -3,3 +3,63 @@ title: Loops
 description: A loop is a place in your product where qbrix decides on every request and learns from each outcome.
 order: 1
 ---
+
+## Who gets what
+
+Every answer from `select` is one of two things:
+
+- **A decision**, with a `request_id`. The loop chose an option, and an outcome for it teaches the loop.
+- **The fallback**, with no `request_id`. The loop wasn't deciding for this request, and the `reason` says why.
+
+Two separate things decide which one a request gets.
+
+**Delivery decides who the loop serves.** A request is in the loop's delivery when it passes all three parts:
+
+| Part | What it says | Left out |
+|---|---|---|
+| Schedule | Daily hours, from start until end (`09:00` to `18:00` decides from nine and stops at six; a start after the end runs past midnight), and a date it starts on, both in a named timezone | Always |
+| Audience | Conditions on the request's context properties, all of which must hold | Everyone |
+| Rollout | The share of the audience, 0 to 100 | 100 |
+
+**The loop's state decides what they get.** Inside its delivery, a live loop gives the engine's choice, and a committed loop gives its committed option. A draft, paused or retired loop gives everyone the fallback, whatever its delivery says.
+
+Delivery never picks an option. To give different people different options, tell the engine about them through context, and it learns who each option suits.
+
+Everyone else gets the fallback, with the reason `outside_delivery`. Fallback answers are counted per loop by their reason, and never billed.
+
+### An example
+
+A loop is committed to `urgency`. Its audience is `device is mobile` and `country in NL, BE`, its rollout is 100, and its fallback is `control`.
+
+- A phone in Amsterdam gets `urgency`, reason `committed`, with a `request_id`.
+- A laptop in Amsterdam gets `control`, reason `outside_delivery`, with no `request_id`. Committing to an option never widens who the loop reaches.
+- If the loop is paused, everyone gets `control`, reason `paused`.
+
+### Conditions
+
+A condition is a property, an operator and a value:
+
+```json
+{ "property": "country", "operator": "in", "value": ["NL", "BE"] }
+```
+
+| Operator | Holds when the property |
+|---|---|
+| `is`, `is_not` | equals, or doesn't equal, the value |
+| `in`, `not_in` | is one of, or none of, a list of values |
+| `contains`, `not_contains` | contains, or doesn't contain, the value, such as a word in a string |
+| `gt`, `gte`, `lt`, `lte` | is greater than, at least, less than, or at most the value |
+
+- **A request without the property never holds a condition about it**, whatever the operator. `country is_not NL` leaves out a request that sends no country. To include those requests, send the property.
+- **A comparison the values can't make doesn't hold.** `orders gte 3` doesn't hold for the string `"4"`; send numbers as numbers.
+- An audience takes up to 20 conditions, and `in` and `not_in` up to 100 values.
+
+### Rollout
+
+Rollout places each unit in one of 100 buckets, from its id and the loop's. A unit keeps its bucket on a loop, so it gets a steady answer, and raising the rollout only adds units: everyone in at 10 is still in at 50. Each loop places units independently, so the same people aren't always first in.
+
+### Changing a delivery
+
+`delivery_update` over MCP, or `PUT /api/v1/loops/{loop}/delivery`, changes any of the audience, rollout, schedule and fallback. A part you leave out keeps its value. A part you give replaces the whole part. It is one change, recorded with what it was before, and it can be undone. Every replica serves the new delivery within 30 seconds.
+
+There is no end date. A temporary stop is a pause; when the choice leaves the product, retire the loop.

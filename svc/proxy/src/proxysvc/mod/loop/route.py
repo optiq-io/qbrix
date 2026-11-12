@@ -8,6 +8,9 @@ from qbrixstore.postgres.models import Loop
 
 from proxysvc.config import ProxySettings
 from proxysvc.core.cache.layered import TwoTierCache
+from proxysvc.mod.loop.delivery import EVERYONE
+from proxysvc.mod.loop.delivery import Delivery
+from proxysvc.mod.loop.delivery import delivery_of
 from proxysvc.mod.loop.serialize import option_to_dict
 
 _NAMESPACE = "qbrix:tenant"
@@ -39,7 +42,8 @@ class LoopRoute(BaseModel):
 
     the options are the current cycle's, in the order its arms are served,
     or the loop's own while it is a draft. committed is the index of the
-    option a committed loop serves.
+    option a committed loop serves. a route written before loops had a
+    delivery reads as deciding for everyone.
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -52,6 +56,7 @@ class LoopRoute(BaseModel):
     fallback: RouteOption
     metric: RouteMetric
     committed: int | None = None
+    delivery: Delivery = EVERYONE
 
 
 def route_of(loop: Loop) -> LoopRoute:
@@ -71,6 +76,7 @@ def route_of(loop: Loop) -> LoopRoute:
             keys.index(loop.committed_key) if loop.committed_key is not None else None
         ),
         fallback=next(o for o in options if o["key"] == loop.fallback_key),
+        delivery=delivery_of(loop.delivery),
         metric=RouteMetric(
             id=loop.metric.id,
             version=f"{version.major}.{version.minor}",

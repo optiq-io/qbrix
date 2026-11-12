@@ -7,6 +7,7 @@ from collections.abc import Callable
 from datetime import datetime
 from datetime import timezone
 from typing import Annotated
+from zoneinfo import ZoneInfo
 from typing import Any
 from typing import Literal
 from typing import Optional
@@ -32,6 +33,7 @@ from proxysvc.core.error import LoopInvalidError
 from proxysvc.core.error import LoopNotFoundError
 from proxysvc.core.error import LoopStateError
 from proxysvc.core.error import MetricNotFoundError
+from proxysvc.core.targeting import Operator
 from proxysvc.mod.auth.scope import ROLE_SCOPES
 from proxysvc.mod.change.applied import Applied
 from proxysvc.mod.change.note import HISTORY_SHOW
@@ -42,6 +44,7 @@ from proxysvc.mod.change.proposal import STATUSES
 from proxysvc.mod.change.proposal import Waiting
 from proxysvc.mod.change.undo import undo_scope
 from proxysvc.mod.connection.service import ConnectionPrincipal
+from proxysvc.mod.loop.delivery import delivery_of
 from proxysvc.mod.metric.serialize import window_label
 from proxysvc.mod.safety.rule import DECISION_ERRORS
 from proxysvc.service import ProxyService
@@ -121,6 +124,34 @@ class OptionInput(BaseModel):
     )
 
 
+class ConditionInput(BaseModel):
+    property: str = Field(description="A context property, such as device.")
+    operator: Operator = Field(
+        description="in and not_in take a list; the others take one value."
+    )
+    value: str | int | float | bool | list[str | int | float | bool]
+
+
+class HoursInput(BaseModel):
+    start: str = Field(description='Like "09:00": the loop decides from then.')
+    end: str = Field(description='Like "18:00": the loop stops deciding then.')
+
+
+class ScheduleInput(BaseModel):
+    hours: Optional[HoursInput] = Field(
+        default=None,
+        description="Daily hours; past midnight if the start is later. All day when left out.",
+    )
+    starts_on: Optional[str] = Field(
+        default=None,
+        description='A date like "2026-12-01" the loop starts deciding on.',
+    )
+    timezone: Optional[str] = Field(
+        default=None,
+        description='Like "Europe/Amsterdam"; required with hours or a start date.',
+    )
+
+
 class ScoreRange(BaseModel):
     lo: float
     hi: float
@@ -190,6 +221,59 @@ def _loop_line(loop: dict) -> str:
     line = f"{loop['key']} · {loop['name']} · {state} · metric {loop['metric']['name']}"
     if loop.get("cycle"):
         line += f" · cycle {loop['cycle']['number']}"
+    return line
+
+
+_OPERATOR_PHRASES = {
+    "is": "is",
+    "is_not": "is not",
+    "in": "in",
+    "not_in": "not in",
+    "contains": "contains",
+    "not_contains": "doesn't contain",
+    "gt": ">",
+    "gte": "≥",
+    "lt": "<",
+    "lte": "≤",
+}
+
+
+def _value_phrase(value: Any) -> str:
+    if isinstance(value, list):
+        return ", ".join(_value_phrase(item) for item in value)
+    return json.dumps(value) if isinstance(value, bool) else str(value)
+
+
+def _delivery_line(loop: dict, now: datetime) -> str:
+    """who the loop decides for and what everyone else gets, in one line, with
+    why it isn't deciding right now if its schedule says so."""
+    delivery = delivery_of(loop["delivery"])
+    fallback = f"Everyone else gets {loop['fallback']}."
+    if delivery.everyone:
+        return f"Decides for: everyone, always. {fallback}"
+    parts = [
+        " and ".join(
+            f"{c.property} {_OPERATOR_PHRASES[c.operator]} {_value_phrase(c.value)}"
+            for c in delivery.audience
+        )
+        or "everyone"
+    ]
+    if delivery.rollout < 100:
+        parts.append(f"{delivery.rollout}% of them")
+    schedule = delivery.schedule
+    if schedule.hours is not None:
+        parts.append(f"{schedule.hours.start}–{schedule.hours.end} {schedule.timezone}")
+    if schedule.starts_on is not None:
+        parts.append(f"from {schedule.starts_on.isoformat()}")
+    line = f"Decides for: {' · '.join(parts)}. {fallback}"
+    if loop["state"] in ("live", "committed") and not schedule.open(now):
+        local = now.astimezone(ZoneInfo(schedule.timezone))
+        waiting = (
+            f"it starts on {schedule.starts_on.isoformat()}"
+            if schedule.starts_on is not None and local.date() < schedule.starts_on
+            else "it is outside its hours"
+        )
+        line += f" Right now everyone gets {loop['fallback']}: {waiting}."
     return line
 
 
@@ -750,7 +834,7 @@ def register(
     async def loop_get(
         loop: LoopRef, detail: DetailArg = "concise"
     ) -> Annotated[CallToolResult, LoopView]:
-        """Read one loop: its purpose, options, metric, owner, fallback, state (and the option it is committed to, if committed) and current cycle, its latest change, who paused it, when and why if it is paused, this connection's autonomy for each change to the loop, its most recent declined changes with the reasons given, and how to wire it: the select and outcome calls for this loop in Python and JavaScript."""
+        """Read one loop: its purpose, options, metric, owner, who it decides for (its delivery) and what everyone else gets (its fallback), state (and the option it is committed to, if committed) and current cycle, its latest change, who paused it, when and why if it is paused, this connection's autonomy for each change to the loop, its most recent declined changes with the reasons given, and how to wire it: the select and outcome calls for this loop in Python and JavaScript."""
         principal = current_principal()
         try:
             _require(principal, "loop:read", "read loops")
@@ -787,8 +871,8 @@ def register(
             f"{_loop_line(found)}\n"
             + (f"{paused}\n" if paused else "")
             + f"Purpose: {found['purpose'] or '(none)'}\n"
-            f"Owner: {found['owner']['name']} · fallback {found['fallback']} · "
-            f"engine {found['engine']}\n"
+            f"{_delivery_line(found, datetime.now(timezone.utc))}\n"
+            f"Owner: {found['owner']['name']} · engine {found['engine']}\n"
             f"{_autonomy_line(levels)}\n"
             + (
                 "Declined recently, read before proposing again:\n"
@@ -1420,7 +1504,7 @@ def register(
         fallback: Annotated[
             Optional[str],
             Field(
-                description="The option's key served when qbrix can't decide; kept when left out, and needed if its option is gone."
+                description="The option's key everyone the loop isn't deciding for gets; kept when left out, and needed if its option is gone."
             ),
         ] = None,
     ) -> Annotated[CallToolResult, LoopChanged] | InputRequiredResult:
@@ -1518,6 +1602,91 @@ def register(
         return await once(
             "cycle_reset", {"loop": loop, "reason": reason}, call, ctx, loop_answered
         )
+
+    async def delivery_update(
+        ctx: Context,
+        loop: LoopRef,
+        reason: Reason,
+        audience: Annotated[
+            Optional[list[ConditionInput]],
+            Field(
+                description="Conditions on context properties, all of which must hold, such as device is mobile. A request without the property never holds its condition. An empty list means everyone. Replaces the whole audience; kept when left out."
+            ),
+        ] = None,
+        rollout: Annotated[
+            Optional[int],
+            Field(
+                ge=0,
+                le=100,
+                description="The share of the audience the loop decides for, 0 to 100. A unit keeps its place, so raising it only adds units. Kept when left out.",
+            ),
+        ] = None,
+        schedule: Annotated[
+            Optional[ScheduleInput],
+            Field(
+                description="When the loop decides: daily hours and a start date, in a timezone. There is no end date: pause or retire the loop instead. Replaces the whole schedule; kept when left out."
+            ),
+        ] = None,
+        fallback: Annotated[
+            Optional[str],
+            Field(
+                description="The option's key everyone the loop isn't deciding for gets. Kept when left out."
+            ),
+        ] = None,
+    ) -> Annotated[CallToolResult, LoopChanged] | InputRequiredResult:
+        """Change who a loop decides for: its audience, rollout and schedule, and the fallback everyone else gets. Delivery never picks an option: inside it a live loop's engine chooses and a committed loop serves its committed option; outside it, the fallback, with reason outside_delivery. Any state but retired. This can be undone."""
+        arguments = {
+            "loop": loop,
+            "reason": reason,
+            "audience": (
+                [condition.model_dump() for condition in audience]
+                if audience is not None
+                else None
+            ),
+            "rollout": rollout,
+            "schedule": (
+                schedule.model_dump(exclude_none=True) if schedule is not None else None
+            ),
+            "fallback": fallback,
+        }
+
+        async def call(principal: ConnectionPrincipal) -> CallToolResult:
+            _require(principal, "loop:write", "change delivery")
+            try:
+                with refusals():
+                    updated = await make(
+                        principal,
+                        "delivery.update",
+                        loop,
+                        {
+                            name: arguments[name]
+                            for name in ("audience", "rollout", "schedule", "fallback")
+                        },
+                        reason=reason,
+                    )
+            except LoopStateError as e:
+                raise error.retired(loop) from e
+            if updated is None:
+                raise await refused_loop(principal, loop)
+            if isinstance(updated, Waiting):
+                return await asked(
+                    principal,
+                    updated.change,
+                    lambda change, _: LoopChanged(
+                        status="waiting", change=change, loop=updated.value
+                    ),
+                )
+            value = updated.value
+            change = changed(updated, "loop", value["key"])
+            return _result(
+                f"Changed the delivery of {value['key']}. "
+                f"{_delivery_line(value, datetime.now(timezone.utc))} "
+                f"Serving moves within {math.ceil(settings.experiment_cache_ttl)} "
+                f"seconds. Change {change['id']}, can be undone: {change['url']}",
+                LoopChanged(status="applied", change=change, loop=value),
+            )
+
+        return await once("delivery_update", arguments, call, ctx, loop_answered)
 
     async def loop_resume(
         ctx: Context, loop: LoopRef, reason: Reason
@@ -1750,6 +1919,7 @@ def register(
         (loop_resume, _DESTRUCTIVE),
         (cycle_start, _DESTRUCTIVE),
         (cycle_reset, _DESTRUCTIVE),
+        (delivery_update, _DESTRUCTIVE),
         (metric_create, _CREATE),
         (note_add, _CREATE),
         (change_undo, _DESTRUCTIVE),

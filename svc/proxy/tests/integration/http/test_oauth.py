@@ -305,6 +305,7 @@ class TestSignIn:
                 "loop.commit",
                 "loop.reopen",
                 "cycle.reset",
+                "delivery.update",
                 "metric.delete",
             ],
             "ask": ["loop.launch", "cycle.start", "loop.retire"],

@@ -63,6 +63,7 @@ markers = [
     "unit: Unit tests",
     "integration: Integration tests",
     "slow: Slow running tests",
+    "performance: Performance tests",
 ]
 
 [tool.coverage.report]

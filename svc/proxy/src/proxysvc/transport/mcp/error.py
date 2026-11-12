@@ -145,6 +145,10 @@ def not_cyclable(key: str, state: str, paused_from: str | None) -> Refusal:
     return Refusal(f"The loop {key} is {state}; no cycle was started. {fix}")
 
 
+def retired(key: str) -> Refusal:
+    return Refusal(f"The loop {key} is retired; nothing was changed. {_SERVE_AGAIN}")
+
+
 def not_paused(key: str, state: str) -> Refusal:
     if state == "retired":
         fix = _SERVE_AGAIN

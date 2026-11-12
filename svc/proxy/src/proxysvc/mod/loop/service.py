@@ -6,6 +6,7 @@ from datetime import datetime
 from datetime import timezone
 from typing import Any
 
+from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,6 +32,8 @@ from proxysvc.mod.change.note import NOTE
 from proxysvc.mod.change.note import NOTE_MAX_LENGTH
 from proxysvc.mod.change.repository import ChangeRepository
 from proxysvc.mod.change.undo import Undoing
+from proxysvc.mod.loop.delivery import Delivery
+from proxysvc.mod.loop.delivery import delivery_of
 from proxysvc.mod.loop.repository import LoopRepository
 from proxysvc.mod.loop.route import LoopRouteCache
 from proxysvc.mod.loop.route import route_of
@@ -139,6 +142,26 @@ def _cyclable(refused: str) -> Callable[[Loop], None]:
             )
 
     return check
+
+
+_DELIVERY_FIXES = {
+    "retired": "create a new loop to serve the choice again",
+}
+
+
+def _delivery(raw: dict[str, Any]) -> Delivery:
+    try:
+        return Delivery.model_validate(raw)
+    except ValidationError as e:
+        raise LoopInvalidError(
+            "; ".join(_problem(error) for error in e.errors())
+        ) from e
+
+
+def _problem(error: dict[str, Any]) -> str:
+    message = error["msg"].removeprefix("Value error, ")
+    where = ".".join(str(part) for part in error["loc"])
+    return f"{where}: {message}" if where else message
 
 
 def _moved(loop_key: str, state: str, refused: str) -> LoopStateError:
@@ -410,6 +433,71 @@ class LoopService:
                 undoing=undoing,
             )
         await self._routes.put(tenant_id, route, old_key=old_key)
+        return Applied.of(loop_dict, change)
+
+    async def update_delivery(
+        self,
+        tenant_id: str,
+        ref: str,
+        *,
+        audience: list[dict[str, Any]] | None = None,
+        rollout: int | None = None,
+        schedule: dict[str, Any] | None = None,
+        fallback: str | None = None,
+        actor: Actor,
+        reason: str | None = None,
+        undoing: Undoing | None = None,
+    ) -> Applied | None:
+        """who the loop decides for, and what everyone else gets. a part left
+        out keeps its value; a part given replaces it whole."""
+        given = {
+            name: value
+            for name, value in (
+                ("audience", audience),
+                ("rollout", rollout),
+                ("schedule", schedule),
+            )
+            if value is not None
+        }
+        if not given and fallback is None:
+            raise LoopInvalidError(
+                "a delivery change needs an audience, a rollout, a schedule, "
+                "a fallback or several"
+            )
+        async with get_session() as session:
+            repo = LoopRepository(session, tenant_id)
+            loop = await repo.resolve(ref)
+            if loop is None:
+                return None
+            _refusing("its delivery can't change", _DELIVERY_FIXES)(loop)
+            current = delivery_of(loop.delivery)
+            delivery = _delivery({**current.model_dump(mode="json"), **given})
+            if fallback is not None:
+                _fallback_among(fallback, [o.key for o in loop.options])
+            else:
+                fallback = loop.fallback_key
+            if delivery == current and fallback == loop.fallback_key:
+                raise LoopInvalidError(
+                    "nothing changes: the delivery and fallback are the loop's own"
+                )
+            people = await _owner(session, tenant_id, loop)
+            before = loop_to_dict(loop, people)
+            loop.delivery = delivery.model_dump(mode="json")
+            loop.fallback_key = fallback
+            loop = await repo.reload(loop)
+            loop_dict = loop_to_dict(loop, people)
+            route = route_of(loop)
+            change = await ChangeRepository(session, tenant_id).record(
+                "delivery.update",
+                "loop",
+                loop.id,
+                actor,
+                before=before,
+                after=loop_dict,
+                reason=reason,
+                undoing=undoing,
+            )
+        await self._routes.put(tenant_id, route)
         return Applied.of(loop_dict, change)
 
     async def add_note(

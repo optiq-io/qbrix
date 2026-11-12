@@ -135,6 +135,7 @@ class TestDraft:
         assert results["calls"] == {
             "live": 0,
             "committed": 0,
+            "outside_delivery": 0,
             "draft": 3,
             "paused": 0,
             "retired": 0,
