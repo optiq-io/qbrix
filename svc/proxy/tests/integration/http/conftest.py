@@ -21,6 +21,7 @@ import qbrixstore.postgres.session as _session_module
 from qbrixstore.clickhouse.ledger import CycleSpan
 from qbrixstore.clickhouse.ledger import DecisionBucket
 from qbrixstore.clickhouse.ledger import DecisionCount
+from qbrixstore.clickhouse.ledger import PropertyArrival
 from qbrixstore.clickhouse.ledger import SealedStats
 from qbrixstore.event import MilestoneEvent
 from qbrixstore.postgres.models import Base
@@ -168,6 +169,7 @@ class FakeLedger:
         self.decisions: list[LedgerRow] = []
         self.sealed: list[SealedRow] = []
         self.milestones: dict[str, MilestoneEvent] = {}
+        self.arrivals: dict[str, tuple[int, list[PropertyArrival]]] = {}
         self.queries: list[str] = []
         self.delay = 0.0
 
@@ -205,6 +207,10 @@ class FakeLedger:
             and (since_ms is None or event.at_ms >= since_ms)
         ]
         return sorted(found, key=lambda event: -event.at_ms)[:limit]
+
+    def property_arrivals(self, tenant_id, loop_id, since_ms, limit=200):
+        self._ran("property_arrivals")
+        return self.arrivals.get(loop_id, (0, []))
 
     def _ran(self, name: str) -> None:
         self.queries.append(name)

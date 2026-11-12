@@ -30,6 +30,7 @@ def cycle_to_dict(cycle: Cycle) -> dict:
         "engine": cycle.engine,
         "engine_version": cycle.engine_version,
         "metric_version": f"{version.major}.{version.minor}",
+        "context": cycle.context_schema,
         "started_at": _stamp(cycle.started_at),
         "ended_at": _stamp(cycle.ended_at),
     }
@@ -59,6 +60,7 @@ def loop_to_dict(loop: Loop, people: People) -> dict:
         },
         "fallback": loop.fallback_key,
         "delivery": delivery_of(loop.delivery).model_dump(mode="json"),
+        "context": loop.context_schema,
         "options": [option_to_dict(option) for option in loop.options],
         "cycle": cycle_to_dict(loop.cycles[-1]) if loop.cycles else None,
         "created_at": _stamp(loop.created_at),

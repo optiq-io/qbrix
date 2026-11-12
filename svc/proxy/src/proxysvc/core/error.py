@@ -144,6 +144,10 @@ class LoopStateError(BaseAPIError):
     """raised when a change needs the loop in a state it isn't in."""
 
 
+class LoopRetiredError(LoopStateError):
+    """raised when a change that any other state allows meets a retired loop."""
+
+
 class LoopNotFoundError(BaseAPIError):
     """raised when a request names a loop the workspace doesn't have."""
 

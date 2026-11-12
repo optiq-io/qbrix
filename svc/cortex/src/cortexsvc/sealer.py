@@ -6,6 +6,7 @@ from collections import defaultdict
 from typing import Callable
 from typing import TypeVar
 
+import numpy as np
 from redis.asyncio.client import Pipeline
 
 from qbrixcore.context import Context
@@ -249,7 +250,10 @@ class Sealer:
                 for decision in fresh:
                     state = policy_cls.train(
                         ps=state,
-                        context=Context(id=decision.unit),
+                        context=Context(
+                            id=decision.unit,
+                            vector=np.array(decision.context_vector, dtype=np.float64),
+                        ),
                         choice=decision.option_index,
                         reward=decision.value,
                     )

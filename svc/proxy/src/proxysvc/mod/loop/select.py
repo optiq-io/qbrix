@@ -146,11 +146,15 @@ class LoopSelectService:
     ) -> dict:
         await self._entitlements.on_selection(tenant_id)
         cycle_id = route.cycle.id
+        context = route.cycle.context
+        vector = context.encode_lenient(properties) if context is not None else []
         if reason is LoopSelectReason.COMMITTED:
             index = route.committed
             policy = reason.value
         else:
-            choice = await self._motor_client.select(tenant_id, cycle_id, unit, [], {})
+            choice = await self._motor_client.select(
+                tenant_id, cycle_id, unit, vector, {}
+            )
             index = choice["arm"]["index"]
             policy = choice["policy"]
         option = route.options[index]
@@ -177,7 +181,7 @@ class LoopSelectService:
                 arm_index=index,
                 is_default=False,
                 context_id=unit,
-                context_vector=[],
+                context_vector=vector,
                 context_metadata={},
                 timestamp_ms=now_ms,
                 policy=policy,

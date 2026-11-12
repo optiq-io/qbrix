@@ -770,3 +770,96 @@ class TestDelivery:
         await _deliver(wired_app, loop, rollout=0)
 
         assert (await _select(api, loop["key"])).json()["reason"] == "outside_delivery"
+
+
+PLAN = {"name": "plan", "type": "categorical", "values": ["free", "pro"]}
+SEATS = {"name": "seats", "type": "numeric", "min": 0.0, "max": 100.0}
+
+
+async def _on_leibniz(wired_app) -> dict:
+    loop = await _loop(wired_app)
+    await wired_app.svc.update_context(
+        TENANT, loop["key"], context=[PLAN, SEATS], actor=ACTOR
+    )
+    await wired_app.svc.launch_loop(TENANT, loop["key"], actor=ACTOR)
+    return (
+        await wired_app.svc.start_cycle(
+            TENANT, loop["key"], engine="leibniz", actor=ACTOR
+        )
+    ).value
+
+
+def _sent_vector(wired_app) -> list[float]:
+    args = wired_app.motor_mock.select.call_args.args
+    return list(args[3])
+
+
+class TestContext:
+    async def test_leibniz_sends_the_declared_properties_to_motor(self, wired_app, api):
+        loop = await _on_leibniz(wired_app)
+        _motor_chooses(wired_app, 1)
+        wired_app.selection_spy.events.clear()
+
+        resp = await _select(
+            api,
+            loop["key"],
+            {"unit": "u", "properties": {"plan": "pro", "seats": 25, "country": "NL"}},
+        )
+        await _settled(wired_app)
+
+        assert resp.status_code == 200, resp.text
+        assert _sent_vector(wired_app) == [1.0, 0.0, 1.0, 0.0, 0.25]
+        (event,) = wired_app.selection_spy.events
+        assert event.context_vector == [1.0, 0.0, 1.0, 0.0, 0.25]
+        assert event.properties == {"plan": "pro", "seats": 25, "country": "NL"}
+
+    async def test_a_wrong_type_is_learned_as_its_default_and_never_refused(
+        self, wired_app, api
+    ):
+        loop = await _on_leibniz(wired_app)
+        _motor_chooses(wired_app, 0)
+
+        resp = await _select(
+            api,
+            loop["key"],
+            {"unit": "u", "properties": {"plan": 3.5, "seats": "many"}},
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["reason"] == "live"
+        assert _sent_vector(wired_app) == [1.0, 0.0, 0.0, 1.0, 0.5]
+
+    async def test_missing_properties_are_their_defaults(self, wired_app, api):
+        loop = await _on_leibniz(wired_app)
+        _motor_chooses(wired_app, 0)
+
+        await _select(api, loop["key"])
+
+        assert _sent_vector(wired_app) == [1.0, 0.0, 0.0, 1.0, 0.5]
+
+    async def test_a_committed_leibniz_loop_records_the_vector_it_learns_with(
+        self, wired_app, api
+    ):
+        loop = await _on_leibniz(wired_app)
+        await wired_app.svc.commit_loop(
+            TENANT, loop["key"], option="urgency", actor=ACTOR
+        )
+        wired_app.selection_spy.events.clear()
+
+        await _select(api, loop["key"], {"unit": "u", "properties": {"plan": "free"}})
+        await _settled(wired_app)
+
+        (event,) = wired_app.selection_spy.events
+        assert event.reason == "committed"
+        assert event.context_vector == [1.0, 1.0, 0.0, 0.0, 0.5]
+
+    async def test_spinoza_sends_no_vector_even_with_a_context(self, wired_app, api):
+        loop = await _loop(wired_app, launch=True)
+        await wired_app.svc.update_context(
+            TENANT, loop["key"], context=[PLAN], actor=ACTOR
+        )
+        _motor_chooses(wired_app, 0)
+
+        await _select(api, loop["key"], {"unit": "u", "properties": {"plan": "pro"}})
+
+        assert _sent_vector(wired_app) == []

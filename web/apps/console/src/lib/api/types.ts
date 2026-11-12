@@ -630,8 +630,26 @@ export interface LoopCycle {
   engine: string;
   engine_version: string;
   metric_version: string;
+  /** the context this cycle's engine learns from, if it learns from any */
+  context: ContextSchema | null;
   started_at: string | null;
   ended_at: string | null;
+}
+
+/** GET /v1/loops/{loop}/context */
+export interface LoopContextRead {
+  context: ContextSchema | null;
+  learns_from_context: boolean;
+  since: string;
+  decisions: number;
+  properties: {
+    name: string;
+    type: ContextProperty["type"];
+    arrived: number;
+    readable: number;
+    last_value: unknown;
+  }[];
+  undeclared: { name: string; arrived: number }[];
 }
 
 /** GET /v1/loops/{loop} */
@@ -650,6 +668,8 @@ export interface Loop {
   fallback: string;
   /** who the loop decides for */
   delivery: LoopDelivery;
+  /** the context properties the engine learns from */
+  context: ContextSchema | null;
   options: { id: string; key: string; name: string; config: Record<string, unknown> }[];
   cycle: LoopCycle | null;
 }

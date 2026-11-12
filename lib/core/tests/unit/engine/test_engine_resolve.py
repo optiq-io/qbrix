@@ -95,7 +95,7 @@ class TestEveryPair:
 
 class TestRefusals:
     def test_leibniz_without_context_asks_for_a_schema(self):
-        with pytest.raises(EngineError, match="declare a context schema"):
+        with pytest.raises(EngineError, match="declare the context first"):
             Leibniz.resolve(MetricType.CONVERSION)
 
     @pytest.mark.parametrize("engine", [Spinoza, Buridan])

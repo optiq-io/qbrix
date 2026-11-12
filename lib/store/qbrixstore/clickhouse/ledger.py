@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from dataclasses import field
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,7 @@ class LedgerDecision:
     opened_ms: int
     window_ms: int
     ledger_ms: int
+    context_vector: tuple[float, ...] = field(default=(), hash=False)
 
     @property
     def closes_ms(self) -> int:
@@ -69,6 +71,7 @@ class SealedDecision:
     sealed_by: str
     value: float | None
     outcomes: int
+    context_vector: tuple[float, ...] = field(default=(), hash=False)
 
 
 @dataclass(frozen=True)
@@ -126,3 +129,15 @@ class TrailingCount:
     decisions: int
     first_ms: int
     window_ms: int
+
+
+@dataclass(frozen=True)
+class PropertyArrival:
+    """one context property as decisions carried it, by the json type its
+    value had: how many carried it and the latest value, as raw json."""
+
+    name: str
+    type: str
+    arrived: int
+    last_ms: int
+    last: str

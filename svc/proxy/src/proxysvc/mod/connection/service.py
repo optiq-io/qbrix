@@ -83,9 +83,11 @@ class ConnectionPrincipal:
     def level(self, kind: str) -> autonomy.Level:
         return autonomy.level_of(kind, self.levels)
 
-    def acting(self, kind: str) -> Actor:
-        """the connection's actor for one change, at its level for the kind."""
-        return replace(self.actor, level=self.level(kind))
+    def acting(self, kind: str, *also: str) -> Actor:
+        """the connection's actor for one change, at its level for the kind,
+        or the strictest of the kinds a change is also."""
+        level = max((self.level(k) for k in (kind, *also)), key=autonomy.LEVELS.index)
+        return replace(self.actor, level=level)
 
 
 class ConnectionService:

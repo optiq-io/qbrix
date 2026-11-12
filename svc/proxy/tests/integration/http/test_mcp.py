@@ -82,6 +82,7 @@ TOOLS = [
     "cycle_start",
     "cycle_reset",
     "delivery_update",
+    "context_update",
     "metric_create",
     "note_add",
     "change_undo",
@@ -1371,6 +1372,11 @@ class TestViewer:
                 {"loop": "x", "reason": "go", "rollout": 50},
                 "change delivery",
             ),
+            (
+                "context_update",
+                {"loop": "x", "reason": "go", "context": None},
+                "change a loop's context",
+            ),
             ("metric_create", METRIC, "create metrics"),
             ("note_add", {"loop": "x", "text": "hello"}, "add notes"),
         ],
@@ -2424,3 +2430,145 @@ async def _live_by_approval(client: Client, wired_app) -> None:
     await _draft(client)
     asked = await _call(client, "loop_launch", LAUNCH)
     await _approve(wired_app, asked.structured_content["change"]["id"])
+
+
+PLAN = {"name": "plan", "type": "categorical", "values": ["free", "pro"]}
+CONTEXT = {
+    "loop": "checkout-headline",
+    "reason": "pro accounts may want something else",
+    "context": [PLAN],
+}
+
+
+async def _on_leibniz(client: Client) -> None:
+    await _draft(client)
+    declared = await _call(client, "context_update", CONTEXT)
+    assert not declared.is_error, declared
+    launched = await _call(
+        client, "loop_launch", {"loop": "checkout-headline", "reason": "go"}
+    )
+    assert not launched.is_error, launched
+    started = await _call(
+        client,
+        "cycle_start",
+        {"loop": "checkout-headline", "reason": "personalise", "engine": "leibniz"},
+    )
+    assert not started.is_error, started
+
+
+class TestContext:
+    async def test_on_spinoza_it_applies_says_what_arrives_and_can_be_undone(
+        self, mcp, wired_app
+    ):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            result = await _call(client, "context_update", CONTEXT)
+            got = await _call(client, "loop_get", {"loop": "checkout-headline"})
+
+        assert not result.is_error, result
+        structured = result.structured_content
+        assert structured["status"] == "applied"
+        assert structured["change"]["kind"] == "context.update"
+        assert structured["change"]["undoable"] is True
+        assert structured["loop"]["context"] == [PLAN]
+        text = result.content[0].text
+        assert text.startswith(
+            "Changed the context of checkout-headline. Learns from: plan."
+        )
+        assert "Of 0 decisions in the last day: plan not arriving yet." in text
+        assert "can be undone" in text
+        assert "Learns from: plan." in got.content[0].text
+        assert got.structured_content["context"] == [PLAN]
+
+    async def test_on_leibniz_it_starts_a_cycle_that_cant_be_undone(
+        self, mcp, wired_app
+    ):
+        async with _session(mcp, wired_app) as client:
+            await _on_leibniz(client)
+            result = await _call(
+                client,
+                "context_update",
+                {
+                    **CONTEXT,
+                    "context": [PLAN, {"name": "returning", "type": "boolean"}],
+                },
+            )
+
+        assert not result.is_error, result
+        assert result.structured_content["change"]["undoable"] is False
+        assert "Started cycle 3, which learns afresh." in result.content[0].text
+        assert "can't be undone" in result.content[0].text
+
+    async def test_on_leibniz_it_asks_first_when_starting_a_cycle_does(
+        self, mcp, wired_app
+    ):
+        levels = {**ON_ITS_OWN, "context.update": "own"}
+        async with _session(mcp, wired_app, levels=levels) as client:
+            await _on_leibniz(client)
+        async with _session(
+            mcp, wired_app, levels={**levels, "cycle.start": "ask"}
+        ) as client:
+            asked = await _call(
+                client,
+                "context_update",
+                {**CONTEXT, "context": [{"name": "returning", "type": "boolean"}]},
+            )
+
+        assert asked.structured_content["status"] == "waiting"
+        assert asked.content[0].text.startswith(
+            "Waiting for approval: Claude Code asks to change the context of "
+            "Checkout headline."
+        )
+        waiting = await wired_app.svc.get_loop(TENANT, "checkout-headline")
+        assert waiting["context"] == [PLAN]
+
+        await _approve(wired_app, asked.structured_content["change"]["id"])
+
+        applied = await wired_app.svc.get_loop(TENANT, "checkout-headline")
+        assert applied["context"] == [{"name": "returning", "type": "boolean"}]
+        assert applied["cycle"]["number"] == 3
+
+    async def test_acting_and_notifying_is_the_default_on_spinoza(self, mcp, wired_app):
+        async with _session(mcp, wired_app, levels=None) as client:
+            await _live_by_approval(client, wired_app)
+            result = await _call(client, "context_update", CONTEXT)
+
+        assert result.structured_content["status"] == "applied"
+
+    async def test_a_committed_leibniz_loop_says_to_reopen_it(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _on_leibniz(client)
+            await _call(client, "loop_commit", COMMIT)
+            result = await _call(
+                client,
+                "context_update",
+                {**CONTEXT, "context": [{"name": "returning", "type": "boolean"}]},
+            )
+
+        assert "reopen it with loop_reopen first" in _error(result)
+
+    async def test_a_retired_loop_is_refused_with_what_to_do(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await _call(
+                client, "loop_retire", {"loop": "checkout-headline", "reason": "gone"}
+            )
+            result = await _call(client, "context_update", CONTEXT)
+
+        assert _error(result).startswith(
+            "The loop checkout-headline is retired; nothing was changed."
+        )
+
+    async def test_an_invalid_context_says_why(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            result = await _call(
+                client,
+                "context_update",
+                {
+                    **CONTEXT,
+                    "context": [{"name": "plan", "type": "categorical", "values": []}],
+                },
+            )
+
+        assert "context.0.values" in _error(result).lower()

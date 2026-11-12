@@ -57,7 +57,7 @@ class BaseEngine(ABC):
             )
         if cls.needs_context and context_dim is None:
             raise EngineError(
-                f"{cls.name} learns from context; declare a context schema"
+                f"{cls.name} learns from context; declare the context first"
             )
         return cls._resolve(metric_type, score_range, context_dim)
 

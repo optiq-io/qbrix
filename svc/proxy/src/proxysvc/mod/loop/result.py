@@ -25,6 +25,8 @@ from qbrixstore.redis.health import OutcomeHealth
 from qbrixstore.redis.health import SelectHealth
 
 from proxysvc.core.error import CycleNotFoundError
+from proxysvc.mod.loop.context import ARRIVALS_MS
+from proxysvc.mod.loop.context import context_read
 from proxysvc.mod.loop.repository import LoopRepository
 from proxysvc.mod.loop.serialize import cycle_to_dict
 from proxysvc.mod.loop.stat import DAY_MS
@@ -207,6 +209,19 @@ class LoopResultService:
             "decisions_per_second": _rate(_decisions(recent), cycle, now),
             "health": health,
         }
+
+    async def context(self, tenant_id: str, ref: str) -> dict | None:
+        """the loop's declared context against what its decisions carried in
+        the last day."""
+        async with get_session() as session:
+            loop = await LoopRepository(session, tenant_id).resolve(ref)
+        if loop is None:
+            return None
+        since = self._clock() - ARRIVALS_MS
+        decisions, arrivals = await self.read(
+            lambda ch: ch.property_arrivals(tenant_id, loop.id, since)
+        )
+        return context_read(loop, decisions, arrivals, since)
 
     async def _cycle_results(
         self,

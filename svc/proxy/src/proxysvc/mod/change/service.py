@@ -44,7 +44,7 @@ from proxysvc.mod.change.repository import ChangeRepository
 from proxysvc.mod.change.repository import moved_since
 from proxysvc.mod.change.serialize import change_to_dict
 from proxysvc.mod.change.serialize import snapshot
-from proxysvc.mod.change.undo import NOT_UNDOABLE
+from proxysvc.mod.change.undo import not_undoable_reason
 from proxysvc.mod.change.undo import Undoing
 from proxysvc.mod.change.undo import is_undoable
 from proxysvc.mod.connection.repository import ConnectionRepository
@@ -81,6 +81,7 @@ _RESTORABLE_LOOP_FIELDS = (
     "committed",
     "fallback",
     "delivery",
+    "context",
 )
 _REFUSED_NOW = (
     ChangeConflictError,
@@ -173,7 +174,7 @@ def _ref(change: Change) -> dict:
     return {
         "id": change.id,
         "kind": change.kind,
-        "undoable": is_undoable(change.kind),
+        "undoable": is_undoable(change.kind, change.before, change.after),
     }
 
 
@@ -437,9 +438,10 @@ class ChangeService:
                 f"change {change.id} is {change.status}: it never applied, so "
                 f"there is nothing to undo"
             )
-        if not is_undoable(change.kind):
+        if not is_undoable(change.kind, change.before, change.after):
             raise ChangeNotUndoableError(
-                NOT_UNDOABLE.get(change.kind, f"{change.kind} cannot be undone")
+                not_undoable_reason(change.kind, change.before, change.after)
+                or f"{change.kind} cannot be undone"
             )
         if change.status == "undone":
             undo = await repo.undone_by(change.id)
@@ -676,6 +678,14 @@ class ChangeService:
             )
         if kind == "cycle.reset":
             return await loops.reset_cycle(tenant_id, ref, actor=actor, reason=reason)
+        if kind == "context.update":
+            return await loops.update_context(
+                tenant_id,
+                ref,
+                context=args.get("context"),
+                actor=actor,
+                reason=reason,
+            )
         if kind == "delivery.update":
             return await loops.update_delivery(
                 tenant_id,
@@ -826,6 +836,16 @@ class ChangeService:
                 rollout=delivery["rollout"],
                 schedule=delivery["schedule"],
                 fallback=before["fallback"],
+                actor=actor,
+                undoing=undoing,
+            )
+            return restored is not None
+
+        if change.kind == "context.update":
+            restored = await self._loops.update_context(
+                tenant_id,
+                target_id,
+                context=before["context"],
                 actor=actor,
                 undoing=undoing,
             )

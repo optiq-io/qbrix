@@ -24,6 +24,7 @@ VERBS = {
     "cycle.start": "started a new cycle of",
     "cycle.reset": "reset",
     "delivery.update": "changed the delivery of",
+    "context.update": "changed the context of",
     "metric.create": "created",
     "metric.delete": "deleted",
     "note.add": "added a note to",
@@ -55,6 +56,7 @@ ASKING = {
     "cycle.start": "start a new cycle of",
     "cycle.reset": "reset",
     "delivery.update": "change the delivery of",
+    "context.update": "change the context of",
     "metric.create": "create",
     "metric.delete": "delete",
     "note.add": "add a note to",
@@ -173,7 +175,8 @@ def change_to_dict(change: Change) -> dict:
         "after": change.after,
         "learning": change.learning,
         "status": change.status,
-        "undoable": is_undoable(change.kind) and change.status == "applied",
+        "undoable": is_undoable(change.kind, change.before, change.after)
+        and change.status == "applied",
         "undoes_id": change.undoes_id,
         "created_at": change.created_at.isoformat() if change.created_at else None,
     }

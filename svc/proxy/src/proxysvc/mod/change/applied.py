@@ -21,6 +21,6 @@ class Applied:
             change={
                 "id": change.id,
                 "kind": change.kind,
-                "undoable": is_undoable(change.kind),
+                "undoable": is_undoable(change.kind, change.before, change.after),
             },
         )
