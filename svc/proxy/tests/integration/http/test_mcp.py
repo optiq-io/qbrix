@@ -27,8 +27,10 @@ from __future__ import annotations
 import asyncio
 import itertools
 import re
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from typing import Any
 
 import httpx2
@@ -491,6 +493,13 @@ class TestChanges:
 
 
 class TestChangeLimit:
+    @pytest.fixture(autouse=True)
+    def mid_minute(self, monkeypatch):
+        """caps count per clock minute; a test straddling one would reset."""
+        now = int(time.time()) // 60 * 60 + 30
+        monkeypatch.setattr(
+            "proxysvc.mod.connection.service.time", SimpleNamespace(time=lambda: now)
+        )
 
     async def test_a_change_over_the_cap_applies_nothing_and_reads_still_work(
         self, mcp, wired_app, monkeypatch
