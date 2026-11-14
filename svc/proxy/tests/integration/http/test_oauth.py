@@ -300,6 +300,7 @@ class TestSignIn:
             "own": ["loop.create", "metric.create", "note.add"],
             "notify": [
                 "loop.rename",
+                "brief.update",
                 "loop.pause",
                 "loop.resume",
                 "loop.commit",

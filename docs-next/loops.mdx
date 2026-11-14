@@ -98,3 +98,37 @@ Change your app to send the properties with `select`, deploy it, then declare th
 
 - **On a draft, or on Spinoza or Buridan,** it applies at once and can be undone.
 - **On Leibniz, once launched,** it starts a new cycle, because what the loop learned no longer fits. Like any new cycle, it asks first by default and can't be undone. A committed loop is reopened first. Leibniz can't have its context cleared; start a cycle on another engine instead.
+
+## Changing a loop
+
+### Its brief
+
+A loop's brief is what it is for and who owns it. Any member can change either, in any state, with `brief_update` over MCP or the `brief` part of an apply below. The owner must be a member of the workspace. It is one change, `brief.update`, and it can be undone.
+
+On a draft, the brief also holds the options, the engine and the metric, and changing them changes nothing else. Once a loop is launched, they change with a new cycle instead.
+
+### A new cycle
+
+`cycle_start` over MCP, or `POST /api/v1/loops/{loop}/cycles`, starts a new cycle of a live or paused loop with new options, a new engine, a new metric, a new context, or any of them together. The new cycle pins the metric's newest version, and a metric of any type works: the engine is chosen again for it. The current cycle ends and stays readable. A new cycle can't be undone.
+
+### Several edits at once
+
+`POST /api/v1/loops/{loop}/edits` applies edits to a loop's brief, cycle, delivery and context together, in one go:
+
+```json
+{
+  "brief": {"purpose": "lift checkout", "owner": "ana@example.com"},
+  "cycle": {"options": [...], "engine": "leibniz", "metric": "purchase"},
+  "delivery": {"rollout": 50, "fallback": "control"},
+  "context": {"context": [{"name": "plan", "type": "categorical", "values": ["free", "pro"]}]},
+  "reason": "what we learned this week"
+}
+```
+
+- **One change per kind.** The brief, delivery and context are a change each, with the same request id, so history shows them as one apply.
+- **At most one new cycle.** Once launched, the options, the engine and the metric start one `cycle.start`. It also takes the fallback, and the context when the new cycle's engine learns from it. A context change alone on Leibniz stays `context.update` and starts the cycle itself.
+- **On a draft nothing starts a cycle.** The cycle part changes the draft's brief.
+- **All or nothing.** If any part is refused, nothing applies, and the message starts with the part: `delivery: rollout: …`.
+
+`POST /api/v1/loops/{loop}/edits/check` takes the same body and applies nothing. It answers with the changes the apply would make, the parts each carries, whether each can be undone, and the number of the cycle it would start.
+

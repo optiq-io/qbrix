@@ -5,6 +5,7 @@ from dataclasses import replace
 from datetime import datetime
 from datetime import timezone
 from typing import TYPE_CHECKING
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -54,6 +55,7 @@ from proxysvc.mod.experiment.repository import ExperimentRepository
 from proxysvc.mod.experiment.serialize import experiment_to_dict
 from proxysvc.mod.gate.repository import FeatureGateRepository
 from proxysvc.mod.gate.schema import GateConfigRequest
+from proxysvc.mod.loop.edit import UNSET
 from proxysvc.mod.loop.repository import LoopRepository
 from proxysvc.mod.loop.serialize import loop_to_dict
 from proxysvc.mod.people import People
@@ -77,6 +79,11 @@ _UNVERSIONED = ("version", "updated_at")
 _RESTORABLE_LOOP_FIELDS = (
     "name",
     "key",
+    "purpose",
+    "owner",
+    "options",
+    "engine",
+    "metric",
     "state",
     "committed",
     "fallback",
@@ -119,6 +126,43 @@ def _restored_loop_fields(change: Change) -> tuple[str, ...]:
     return tuple(moved)
 
 
+def _restorable_loop_field(state: dict, name: str) -> Any:
+    """a loop field as an undo compares it: the owner and metric by id, since
+    their names can change on their own, and options by what a brief sets."""
+    value = state.get(name)
+    if value is None:
+        return None
+    if name in ("owner", "metric"):
+        return value["id"]
+    if name == "options":
+        return [(o["key"], o["name"], o["config"]) for o in value]
+    return value
+
+
+def _brief_restored(change: Change) -> dict:
+    """the brief fields an undo of this change writes back, as update_brief
+    takes them."""
+    before = change.before
+    moved = _restored_loop_fields(change)
+    restored: dict[str, Any] = {}
+    if "purpose" in moved:
+        restored["purpose"] = before["purpose"]
+    if "owner" in moved:
+        restored["owner"] = before["owner"]["id"]
+    if "options" in moved:
+        restored["options"] = [
+            {"key": o["key"], "name": o["name"], "config": o["config"]}
+            for o in before["options"]
+        ]
+    if "engine" in moved:
+        restored["engine"] = before["engine"]
+    if "metric" in moved:
+        restored["metric"] = before["metric"]["id"]
+    if "fallback" in moved:
+        restored["fallback"] = before["fallback"]
+    return restored
+
+
 def _unversioned_gate(config: dict | None) -> dict | None:
     """a gate as an undo compares it. a period keeps the offset it was written
     with but reads back in utc, so it compares as an instant."""
@@ -152,7 +196,10 @@ def _restored_part(change: Change, state: dict | None) -> dict | None:
     if change.kind == "experiment.update":
         return {name: state[name] for name in _changed_fields(change)}
     if change.target_type == "loop":
-        return {name: state.get(name) for name in _restored_loop_fields(change)}
+        return {
+            name: _restorable_loop_field(state, name)
+            for name in _restored_loop_fields(change)
+        }
     return {"name": state["name"]}
 
 
@@ -672,7 +719,18 @@ class ChangeService:
                 ref,
                 options=args.get("options"),
                 engine=args.get("engine"),
+                metric=args.get("metric"),
+                context=args["context"] if "context" in args else UNSET,
                 fallback=args.get("fallback"),
+                actor=actor,
+                reason=reason,
+            )
+        if kind == "brief.update":
+            return await loops.update_brief(
+                tenant_id,
+                ref,
+                purpose=args.get("purpose"),
+                owner=args.get("owner"),
                 actor=actor,
                 reason=reason,
             )
@@ -836,6 +894,16 @@ class ChangeService:
                 rollout=delivery["rollout"],
                 schedule=delivery["schedule"],
                 fallback=before["fallback"],
+                actor=actor,
+                undoing=undoing,
+            )
+            return restored is not None
+
+        if change.kind == "brief.update":
+            restored = await self._loops.update_brief(
+                tenant_id,
+                target_id,
+                **_brief_restored(change),
                 actor=actor,
                 undoing=undoing,
             )

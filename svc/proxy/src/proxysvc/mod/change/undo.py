@@ -15,6 +15,7 @@ UNDOABLE_KINDS = frozenset(
         "metric.create",
         "loop.create",
         "loop.rename",
+        "brief.update",
         "loop.commit",
         "loop.reopen",
         "loop.pause",

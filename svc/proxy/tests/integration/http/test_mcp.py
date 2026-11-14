@@ -85,6 +85,7 @@ TOOLS = [
     "cycle_reset",
     "delivery_update",
     "context_update",
+    "brief_update",
     "metric_create",
     "note_add",
     "change_undo",
@@ -2581,3 +2582,132 @@ class TestContext:
             )
 
         assert "context.0.values" in _error(result).lower()
+
+
+SIGNUP = {
+    "name": "signup",
+    "semantic": "a new account",
+    "type": "conversion",
+    "reason": "the headline may drive signups",
+}
+
+
+class TestBrief:
+    async def test_update_changes_purpose_and_owner_and_can_be_undone(
+        self, mcp, wired_app
+    ):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            result = await _call(
+                client,
+                "brief_update",
+                {
+                    "loop": "checkout-headline",
+                    "reason": "vera runs checkout now",
+                    "purpose": "lift checkout",
+                    "owner": "user-viewer@example.com",
+                },
+            )
+
+        assert not result.is_error, result
+        structured = result.structured_content
+        assert structured["status"] == "applied"
+        assert structured["change"]["kind"] == "brief.update"
+        assert structured["change"]["undoable"] is True
+        assert structured["loop"]["purpose"] == "lift checkout"
+        assert structured["loop"]["owner"] == {"id": "user-viewer", "name": "Vera"}
+        assert result.content[0].text.startswith(
+            "Changed the brief of checkout-headline."
+        )
+        assert "can be undone" in result.content[0].text
+
+    async def test_an_owner_outside_the_workspace_says_why(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            result = await _call(
+                client,
+                "brief_update",
+                {"loop": "checkout-headline", "reason": "x", "owner": "no@one.io"},
+            )
+
+        assert "must be a member of this workspace" in _error(result)
+        assert "Fix it and call again." in _error(result)
+
+    async def test_acting_and_notifying_is_the_default(self, mcp, wired_app):
+        async with _session(mcp, wired_app, levels=None) as client:
+            await _draft(client)
+            result = await _call(
+                client,
+                "brief_update",
+                {"loop": "checkout-headline", "reason": "x", "purpose": "lift"},
+            )
+
+        assert result.structured_content["status"] == "applied"
+
+
+class TestCycleStartCarriesEverything:
+    async def test_a_new_metric_starts_a_cycle(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await _call(client, "metric_create", SIGNUP)
+            result = await _call(
+                client,
+                "cycle_start",
+                {"loop": "checkout-headline", "reason": "signups", "metric": "signup"},
+            )
+
+        assert not result.is_error, result
+        loop = result.structured_content["loop"]
+        assert loop["metric"]["name"] == "signup"
+        assert loop["cycle"]["number"] == 2
+
+    async def test_leibniz_and_its_context_start_one_cycle(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            result = await _call(
+                client,
+                "cycle_start",
+                {
+                    "loop": "checkout-headline",
+                    "reason": "personalise",
+                    "engine": "leibniz",
+                    "context": [PLAN],
+                },
+            )
+
+        assert not result.is_error, result
+        loop = result.structured_content["loop"]
+        assert loop["engine"].startswith("leibniz")
+        assert loop["context"] == [PLAN]
+        assert loop["cycle"]["context"] == [PLAN]
+        assert loop["cycle"]["number"] == 2
+
+    async def test_with_a_context_it_asks_when_context_update_does(
+        self, mcp, wired_app
+    ):
+        levels = {**ON_ITS_OWN, "context.update": "ask"}
+        async with _session(mcp, wired_app, levels=levels) as client:
+            await _live(client)
+            await _call(client, "metric_create", SIGNUP)
+            asked = await _call(
+                client,
+                "cycle_start",
+                {
+                    "loop": "checkout-headline",
+                    "reason": "personalise",
+                    "engine": "leibniz",
+                    "metric": "signup",
+                    "context": [PLAN],
+                },
+            )
+
+        assert asked.structured_content["status"] == "waiting"
+        waiting = await wired_app.svc.get_loop(TENANT, "checkout-headline")
+        assert waiting["cycle"]["number"] == 1
+
+        await _approve(wired_app, asked.structured_content["change"]["id"])
+
+        applied = await wired_app.svc.get_loop(TENANT, "checkout-headline")
+        assert applied["cycle"]["number"] == 2
+        assert applied["metric"]["name"] == "signup"
+        assert applied["context"] == [PLAN]
