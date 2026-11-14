@@ -26,6 +26,11 @@ from proxysvc.core.error import LoopStateError
 from proxysvc.mod.change.note import NOTE_MAX_LENGTH
 from proxysvc.mod.change.note import HistoryShow
 from proxysvc.mod.loop.delivery import Delivery
+from proxysvc.mod.loop.edit import UNSET
+from proxysvc.mod.loop.edit import BriefEdit
+from proxysvc.mod.loop.edit import CycleEdit
+from proxysvc.mod.loop.edit import DeliveryEdit
+from proxysvc.mod.loop.edit import Edits
 from proxysvc.service import ProxyService
 from proxysvc.transport.http.auth.dependencies import get_actor
 from proxysvc.transport.http.auth.dependencies import get_current_tenant_id
@@ -112,6 +117,14 @@ class CycleStartRequest(BaseModel):
     engine: Optional[str] = Field(
         default=None, description="The new cycle's engine, such as spinoza:1."
     )
+    metric: Optional[str] = Field(
+        default=None,
+        description="The new cycle's metric, by name or id; its newest version is pinned.",
+    )
+    context: Optional[list[dict[str, Any]]] = Field(
+        default=None,
+        description="The new cycle's context, as for PUT /context; kept when left out.",
+    )
     fallback: Optional[str] = Field(
         default=None,
         description="Kept if its option stays; needed when it doesn't.",
@@ -160,7 +173,7 @@ class ContextResponse(BaseModel):
     undeclared: list[UndeclaredArrival]
 
 
-class DeliveryRequest(BaseModel):
+class DeliveryPart(BaseModel):
     audience: Optional[list[dict[str, Any]]] = Field(
         default=None,
         description=(
@@ -192,7 +205,89 @@ class DeliveryRequest(BaseModel):
         default=None,
         description="The option everyone the loop isn't deciding for gets.",
     )
+
+
+class DeliveryRequest(DeliveryPart):
     reason: Optional[str] = None
+
+
+class BriefPart(BaseModel):
+    purpose: Optional[str] = Field(default=None, description="What the loop is for.")
+    owner: Optional[str] = Field(
+        default=None, description="The id or email of a member of the workspace."
+    )
+
+
+class CyclePart(BaseModel):
+    options: Optional[list[OptionBody]] = Field(
+        default=None, description="All of the loop's options, as at create."
+    )
+    engine: Optional[str] = Field(default=None, description="Such as leibniz:1.")
+    metric: Optional[str] = Field(
+        default=None, description="The metric the loop improves, by name or id."
+    )
+
+
+class ContextPart(BaseModel):
+    context: Optional[list[dict[str, Any]]] = Field(
+        ..., description="As for PUT /context; null clears it."
+    )
+
+
+class EditsRequest(BaseModel):
+    brief: Optional[BriefPart] = None
+    cycle: Optional[CyclePart] = Field(
+        default=None,
+        description=(
+            "Options, engine and metric. Past draft they start one new cycle, "
+            "which also takes the delivery's fallback and, when the new engine "
+            "learns from context, the context. On a draft they edit the brief."
+        ),
+    )
+    delivery: Optional[DeliveryPart] = None
+    context: Optional[ContextPart] = None
+    reason: Optional[str] = None
+
+    def edits(self) -> Edits:
+        return Edits(
+            brief=BriefEdit(**self.brief.model_dump()) if self.brief else None,
+            cycle=(
+                CycleEdit(
+                    options=(
+                        [option.model_dump() for option in self.cycle.options]
+                        if self.cycle.options is not None
+                        else None
+                    ),
+                    engine=self.cycle.engine,
+                    metric=self.cycle.metric,
+                )
+                if self.cycle
+                else None
+            ),
+            delivery=(
+                DeliveryEdit(**self.delivery.model_dump()) if self.delivery else None
+            ),
+            context=self.context.context if self.context else UNSET,
+        )
+
+
+EditPart = Literal["brief", "cycle", "delivery", "context"]
+
+
+class PlannedChange(BaseModel):
+    id: Optional[str] = Field(
+        default=None, description="The change's id; none in a check."
+    )
+    kind: str
+    parts: list[EditPart] = Field(description="The parts of the edits it carries.")
+    undoable: bool
+
+
+class EditsPlan(BaseModel):
+    changes: list[PlannedChange]
+    cycle: Optional[int] = Field(
+        default=None, description="The number of the cycle it starts, if any."
+    )
 
 
 class NoteRequest(BaseModel):
@@ -319,6 +414,11 @@ class LoopResults(BaseModel):
 
 
 class ServingResponse(BaseModel):
+    loop: LoopResponse
+    serving_within_seconds: int
+
+
+class EditsResponse(EditsPlan):
     loop: LoopResponse
     serving_within_seconds: int
 
@@ -773,6 +873,8 @@ async def start_cycle(
                 else None
             ),
             engine=body.engine,
+            metric=body.metric,
+            context=body.context if "context" in body.model_fields_set else UNSET,
             fallback=body.fallback,
             actor=actor,
             reason=body.reason,
@@ -785,6 +887,79 @@ async def start_cycle(
         raise _not_found(loop)
     logger.info(f"cycle started: {started.value['id']} by user {actor.user_id}")
     return _serving(started.value)
+
+
+async def _apply_edits(
+    tenant_id: str, loop: str, body: EditsRequest, actor: Actor, *, check: bool
+):
+    try:
+        edited = await get_proxy_service().apply_edits(
+            tenant_id,
+            loop,
+            body.edits(),
+            actor=actor,
+            reason=body.reason,
+            check=check,
+        )
+    except LoopInvalidError as e:
+        raise InvalidLoopException(str(e))
+    except LoopRetiredError as e:
+        raise LoopRetiredException(str(e))
+    except LoopStateError as e:
+        raise LoopNotCyclableException(str(e))
+    if edited is None:
+        raise _not_found(loop)
+    return edited
+
+
+@router.post(
+    "/{loop}/edits",
+    status_code=status.HTTP_200_OK,
+    response_model=EditsResponse,
+)
+async def apply_edits(
+    loop: str,
+    body: EditsRequest,
+    tenant_id: str = Depends(get_current_tenant_id),
+    actor: Actor = Depends(get_person),
+    _scoped=Depends(require_scopes(["loop:write"])),
+):
+    """apply edits staged across a loop's tabs together, in one transaction:
+    one change per kind, sharing the request id, and at most one new cycle,
+    carrying every edit that needs one. a refused part refuses them all, and
+    its message starts with the part. serving moves on every replica within
+    serving_within_seconds."""
+    edited = await _apply_edits(tenant_id, loop, body, actor, check=False)
+    logger.info(
+        f"edits applied: {edited.loop['id']} by user {actor.user_id}: "
+        f"{', '.join(change['kind'] for change in edited.changes)}"
+    )
+    return EditsResponse(
+        loop=LoopResponse(**edited.loop),
+        changes=edited.changes,
+        cycle=edited.cycle,
+        serving_within_seconds=math.ceil(settings.experiment_cache_ttl),
+    )
+
+
+@router.post(
+    "/{loop}/edits/check",
+    status_code=status.HTTP_200_OK,
+    response_model=EditsPlan,
+)
+async def check_edits(
+    loop: str,
+    body: EditsRequest,
+    tenant_id: str = Depends(get_current_tenant_id),
+    actor: Actor = Depends(get_person),
+    _scoped=Depends(require_scopes(["loop:write"])),
+):
+    """what applying these edits would do, without applying them: the
+    changes it would make, the parts each carries, whether each can be
+    undone, and the number of the cycle it would start. it refuses what the
+    apply would refuse."""
+    edited = await _apply_edits(tenant_id, loop, body, actor, check=True)
+    return EditsPlan(changes=edited.changes, cycle=edited.cycle)
 
 
 @router.post(

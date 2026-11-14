@@ -25,6 +25,7 @@ COUNTS_WITHIN = timedelta(days=7)
 
 _PLAIN_FIELDS = (
     "name",
+    "purpose",
     "key",
     "state",
     "committed",
@@ -128,6 +129,11 @@ def _metric_name(snapshot: dict) -> str | None:
     return metric["name"] if metric else None
 
 
+def _owner_name(snapshot: dict) -> str | None:
+    owner = snapshot.get("owner")
+    return owner["name"] if owner else None
+
+
 def _cycle(snapshot: dict) -> str | None:
     cycle = snapshot.get("cycle")
     return str(cycle["number"]) if cycle else None
@@ -148,6 +154,7 @@ def diff(before: dict | None, after: dict | None) -> list[dict]:
     if before is None or after is None:
         return []
     pairs = [(field, before.get(field), after.get(field)) for field in _PLAIN_FIELDS]
+    pairs.append(("owner", _owner_name(before), _owner_name(after)))
     pairs.append(("metric", _metric_name(before), _metric_name(after)))
     pairs.append(("window", _window(before), _window(after)))
     pairs.append(("cycle", _cycle(before), _cycle(after)))

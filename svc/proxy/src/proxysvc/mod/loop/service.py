@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from datetime import timezone
 from typing import Any
 
 from pydantic import ValidationError
+from sqlalchemy import or_
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +27,7 @@ from qbrixstore.postgres.models import Cycle
 from qbrixstore.postgres.models import Loop
 from qbrixstore.postgres.models import LoopOption
 from qbrixstore.postgres.models import Metric
+from qbrixstore.postgres.models import User
 from qbrixstore.postgres.session import get_session
 from qbrixstore.redis.client import RedisClient
 
@@ -36,8 +41,14 @@ from proxysvc.mod.change.note import NOTE
 from proxysvc.mod.change.note import NOTE_MAX_LENGTH
 from proxysvc.mod.change.repository import ChangeRepository
 from proxysvc.mod.change.undo import Undoing
+from proxysvc.mod.change.undo import is_undoable
 from proxysvc.mod.loop.delivery import Delivery
 from proxysvc.mod.loop.delivery import delivery_of
+from proxysvc.mod.loop.edit import UNSET
+from proxysvc.mod.loop.edit import StagedContext
+from proxysvc.mod.loop.edit import Checked
+from proxysvc.mod.loop.edit import Edited
+from proxysvc.mod.loop.edit import Edits
 from proxysvc.mod.loop.repository import LoopRepository
 from proxysvc.mod.loop.route import LoopRoute
 from proxysvc.mod.loop.route import LoopRouteCache
@@ -276,6 +287,18 @@ def _context(raw: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
         ) from e
 
 
+def _check_context(
+    loop: Loop, context: list[dict[str, Any]] | None, engine: str
+) -> None:
+    if context == loop.context_schema:
+        raise LoopInvalidError("nothing changes: the context is the loop's own")
+    if context is None and _learns_from_context(engine):
+        raise LoopInvalidError(
+            f"{ENGINES.get(engine).name} learns from context, so the context "
+            f"can't be cleared; start a cycle on another engine first"
+        )
+
+
 def _engine(engine: str) -> str:
     try:
         return str(EngineSpec.parse(engine))
@@ -306,8 +329,63 @@ def _resolve(
         raise LoopInvalidError(str(e)) from e
 
 
+async def _metric(session: AsyncSession, tenant_id: str, ref: str) -> Metric:
+    found = await MetricRepository(session, tenant_id).resolve(ref)
+    if found is None:
+        raise LoopInvalidError(f"no metric named or with id {ref!r}")
+    return found
+
+
+async def _member(session: AsyncSession, tenant_id: str, ref: str) -> str:
+    """a member of the workspace by id or email, as their id."""
+    stmt = select(User.id).where(
+        User.tenant_id == tenant_id,
+        User.is_active.is_(True),
+        or_(User.id == ref, User.email == ref),
+    )
+    found = (await session.execute(stmt)).scalar_one_or_none()
+    if found is None:
+        raise LoopInvalidError(
+            f"the owner must be a member of this workspace; no member {ref!r}"
+        )
+    return found
+
+
+def _brief_of(loop: dict[str, Any]) -> tuple:
+    return (
+        loop["purpose"],
+        loop["owner"]["id"],
+        [(o["key"], o["name"], o["config"]) for o in loop["options"]],
+        loop["engine"],
+        loop["metric"]["id"],
+        loop["fallback"],
+    )
+
+
+@contextmanager
+def _part(name: str) -> Iterator[None]:
+    """a refusal names the part of the edits it refused."""
+    try:
+        yield
+    except (LoopInvalidError, LoopStateError) as e:
+        raise type(e)(f"{name}: {e}") from e
+
+
+def _planned(written: _Written, parts: tuple[str, ...], kept: bool) -> dict[str, Any]:
+    change = written.change
+    return {
+        "id": change.id if kept else None,
+        "kind": change.kind,
+        "parts": list(parts),
+        "undoable": is_undoable(change.kind, change.before, change.after),
+    }
+
+
 @dataclass(frozen=True, slots=True)
-class _Cycled:
+class _Written:
+    """a write done in the caller's session: the caller puts its cycle record
+    and route once the session commits."""
+
     loop: dict[str, Any]
     change: Change
     route: LoopRoute
@@ -497,6 +575,38 @@ class LoopService:
     ) -> Applied | None:
         """who the loop decides for, and what everyone else gets. a part left
         out keeps its value; a part given replaces it whole."""
+        async with get_session() as session:
+            loop = await LoopRepository(session, tenant_id).resolve(ref)
+            if loop is None:
+                return None
+            written = await self._write_delivery(
+                session,
+                tenant_id,
+                loop,
+                audience=audience,
+                rollout=rollout,
+                schedule=schedule,
+                fallback=fallback,
+                actor=actor,
+                reason=reason,
+                undoing=undoing,
+            )
+        return await self._publish(tenant_id, written)
+
+    async def _write_delivery(
+        self,
+        session: AsyncSession,
+        tenant_id: str,
+        loop: Loop,
+        *,
+        audience: list[dict[str, Any]] | None,
+        rollout: int | None,
+        schedule: dict[str, Any] | None,
+        fallback: str | None,
+        actor: Actor,
+        reason: str | None,
+        undoing: Undoing | None = None,
+    ) -> _Written:
         given = {
             name: value
             for name, value in (
@@ -511,41 +621,151 @@ class LoopService:
                 "a delivery change needs an audience, a rollout, a schedule, "
                 "a fallback or several"
             )
+        if loop.state == "retired":
+            raise LoopRetiredError(
+                f"its delivery can't change: the loop {loop.key!r} is retired; "
+                f"{_DELIVERY_FIXES['retired']}"
+            )
+        current = delivery_of(loop.delivery)
+        delivery = _delivery({**current.model_dump(mode="json"), **given})
+        if fallback is not None:
+            _fallback_among(fallback, [o.key for o in loop.options])
+        else:
+            fallback = loop.fallback_key
+        if delivery == current and fallback == loop.fallback_key:
+            raise LoopInvalidError(
+                "nothing changes: the delivery and fallback are the loop's own"
+            )
+        people = await _owner(session, tenant_id, loop)
+        before = loop_to_dict(loop, people)
+        loop.delivery = delivery.model_dump(mode="json")
+        loop.fallback_key = fallback
+        loop = await LoopRepository(session, tenant_id).reload(loop)
+        loop_dict = loop_to_dict(loop, people)
+        change = await ChangeRepository(session, tenant_id).record(
+            "delivery.update",
+            "loop",
+            loop.id,
+            actor,
+            before=before,
+            after=loop_dict,
+            reason=reason,
+            undoing=undoing,
+        )
+        return _Written(loop_dict, change, route_of(loop), None)
+
+    async def update_brief(
+        self,
+        tenant_id: str,
+        ref: str,
+        *,
+        purpose: str | None = None,
+        owner: str | None = None,
+        options: list[dict[str, Any]] | None = None,
+        engine: str | None = None,
+        metric: str | None = None,
+        fallback: str | None = None,
+        actor: Actor,
+        reason: str | None = None,
+        undoing: Undoing | None = None,
+    ) -> Applied | None:
+        """the loop's purpose and owner, in any state. a draft's options,
+        engine, metric and fallback too, since nothing on a draft starts a
+        cycle; past draft those start a new cycle instead."""
         async with get_session() as session:
-            repo = LoopRepository(session, tenant_id)
-            loop = await repo.resolve(ref)
+            loop = await LoopRepository(session, tenant_id).resolve(ref)
             if loop is None:
                 return None
-            _refusing("its delivery can't change", _DELIVERY_FIXES)(loop)
-            current = delivery_of(loop.delivery)
-            delivery = _delivery({**current.model_dump(mode="json"), **given})
-            if fallback is not None:
-                _fallback_among(fallback, [o.key for o in loop.options])
-            else:
-                fallback = loop.fallback_key
-            if delivery == current and fallback == loop.fallback_key:
-                raise LoopInvalidError(
-                    "nothing changes: the delivery and fallback are the loop's own"
-                )
-            people = await _owner(session, tenant_id, loop)
-            before = loop_to_dict(loop, people)
-            loop.delivery = delivery.model_dump(mode="json")
-            loop.fallback_key = fallback
-            loop = await repo.reload(loop)
-            loop_dict = loop_to_dict(loop, people)
-            route = route_of(loop)
-            change = await ChangeRepository(session, tenant_id).record(
-                "delivery.update",
-                "loop",
-                loop.id,
-                actor,
-                before=before,
-                after=loop_dict,
+            written = await self._write_brief(
+                session,
+                tenant_id,
+                loop,
+                purpose=purpose,
+                owner=owner,
+                options=options,
+                engine=engine,
+                metric=metric,
+                fallback=fallback,
+                actor=actor,
                 reason=reason,
                 undoing=undoing,
             )
-        await self._routes.put(tenant_id, route)
-        return Applied.of(loop_dict, change)
+        return await self._publish(tenant_id, written)
+
+    async def _write_brief(
+        self,
+        session: AsyncSession,
+        tenant_id: str,
+        loop: Loop,
+        *,
+        purpose: str | None,
+        owner: str | None,
+        options: list[dict[str, Any]] | None,
+        engine: str | None,
+        metric: str | None,
+        fallback: str | None,
+        actor: Actor,
+        reason: str | None,
+        undoing: Undoing | None = None,
+    ) -> _Written:
+        drafting = any(v is not None for v in (options, engine, metric, fallback))
+        if purpose is None and owner is None and not drafting:
+            raise LoopInvalidError(
+                "a brief change needs a purpose or an owner, and on a draft it "
+                "can also take options, an engine, a metric or a fallback"
+            )
+        if drafting and loop.state != "draft":
+            raise LoopStateError(
+                f"options, the engine and the metric change with a new cycle once "
+                f"a loop is launched: the loop {loop.key!r} is {loop.state}; "
+                f"start a new cycle instead"
+            )
+        built = _options(options) if options is not None else None
+        engine = _engine(engine) if engine is not None else loop.engine
+        found = await _metric(session, tenant_id, metric) if metric else loop.metric
+        owner_id = await _member(session, tenant_id, owner) if owner else None
+        if drafting:
+            _resolve(engine, found, loop.context_schema)
+            keys = [o.key for o in (built if built is not None else loop.options)]
+            if fallback is not None:
+                _fallback_among(fallback, keys)
+            elif loop.fallback_key in keys:
+                fallback = loop.fallback_key
+            else:
+                raise LoopInvalidError(
+                    f"the fallback {loop.fallback_key!r} is not one of the new "
+                    f"options; name one of them as the fallback ({', '.join(keys)})"
+                )
+
+        people = await People.load(
+            session, tenant_id, [loop.owner_user_id, owner_id or ""]
+        )
+        before = loop_to_dict(loop, people)
+        if purpose is not None:
+            loop.purpose = purpose.strip()
+        if owner_id is not None:
+            loop.owner_user_id = owner_id
+        if drafting:
+            if built is not None:
+                _replace_options(loop, built)
+            loop.engine = engine
+            loop.metric = found
+            loop.fallback_key = fallback
+        loop = await LoopRepository(session, tenant_id).reload(loop)
+        loop_dict = loop_to_dict(loop, people)
+        if _brief_of(loop_dict) == _brief_of(before):
+            raise LoopInvalidError("nothing changes: the brief is the loop's own")
+        change = await ChangeRepository(session, tenant_id).record(
+            "brief.update",
+            "loop",
+            loop.id,
+            actor,
+            before=before,
+            after=loop_dict,
+            reason=reason,
+            undoing=undoing,
+        )
+        return _Written(loop_dict, change, route_of(loop), None)
 
     async def update_context(
         self,
@@ -562,58 +782,301 @@ class LoopService:
         starts a cycle with it, since what it learned no longer fits."""
         context = _context(context)
         async with get_session() as session:
-            repo = LoopRepository(session, tenant_id)
-            loop = await repo.resolve(ref)
+            loop = await LoopRepository(session, tenant_id).resolve(ref)
             if loop is None:
                 return None
-            if loop.state == "retired":
-                raise LoopRetiredError(
-                    f"its context can't change: the loop {loop.key!r} is retired; "
-                    f"{_DELIVERY_FIXES['retired']}"
+            written = await self._write_context(
+                session,
+                tenant_id,
+                loop,
+                context=context,
+                actor=actor,
+                reason=reason,
+                undoing=undoing,
+            )
+        return await self._publish(tenant_id, written)
+
+    async def _write_context(
+        self,
+        session: AsyncSession,
+        tenant_id: str,
+        loop: Loop,
+        *,
+        context: list[dict[str, Any]] | None,
+        actor: Actor,
+        reason: str | None,
+        undoing: Undoing | None = None,
+    ) -> _Written:
+        if loop.state == "retired":
+            raise LoopRetiredError(
+                f"its context can't change: the loop {loop.key!r} is retired; "
+                f"{_DELIVERY_FIXES['retired']}"
+            )
+        _check_context(loop, context, loop.engine)
+        if starts_cycle(loop.state, loop.engine):
+            return await self._next_cycle(
+                session,
+                tenant_id,
+                loop,
+                "context.update",
+                options=None,
+                engine=None,
+                metric=None,
+                fallback=None,
+                context=context,
+                actor=actor,
+                reason=reason,
+            )
+        people = await _owner(session, tenant_id, loop)
+        before = loop_to_dict(loop, people)
+        loop.context_schema = context
+        loop = await LoopRepository(session, tenant_id).reload(loop)
+        loop_dict = loop_to_dict(loop, people)
+        change = await ChangeRepository(session, tenant_id).record(
+            "context.update",
+            "loop",
+            loop.id,
+            actor,
+            before=before,
+            after=loop_dict,
+            reason=reason,
+            undoing=undoing,
+        )
+        return _Written(loop_dict, change, route_of(loop), None)
+
+    async def apply_edits(
+        self,
+        tenant_id: str,
+        ref: str,
+        edits: Edits,
+        *,
+        actor: Actor,
+        reason: str | None = None,
+        check: bool = False,
+    ) -> Edited | None:
+        """edits staged across a loop's tabs, in one transaction: one change
+        per kind, and at most one new cycle carrying every edit that needs
+        one. a refused part refuses them all. a check runs the same apply and
+        keeps nothing, so it says exactly what the apply would do."""
+        if edits.empty:
+            raise LoopInvalidError(
+                "an apply needs at least one edit: brief, cycle, delivery or context"
+            )
+        context = edits.context
+        if context is not UNSET:
+            with _part("context"):
+                context = _context(context)
+        try:
+            async with get_session() as session:
+                repo = LoopRepository(session, tenant_id)
+                loop = await repo.resolve(ref)
+                if loop is None:
+                    return None
+                steps = await self._apply(
+                    session, tenant_id, loop, edits, context, actor, reason
                 )
-            if context == loop.context_schema:
-                raise LoopInvalidError("nothing changes: the context is the loop's own")
-            if context is None and _learns_from_context(loop.engine):
-                raise LoopInvalidError(
-                    f"{ENGINES.get(loop.engine).name} learns from context, so the "
-                    f"context can't be cleared; start a cycle on another engine first"
+                written = [step for step, _ in steps]
+                cycled = next((w for w in written if w.record is not None), None)
+                edited = Edited(
+                    loop=written[-1].loop,
+                    changes=[_planned(w, parts, not check) for w, parts in steps],
+                    cycle=cycled.loop["cycle"]["number"] if cycled else None,
                 )
-            if starts_cycle(loop.state, loop.engine):
-                cycled = await self._next_cycle(
-                    session,
-                    tenant_id,
-                    loop,
-                    "context.update",
-                    options=None,
-                    engine=None,
-                    fallback=None,
-                    context=context,
-                    actor=actor,
-                    reason=reason,
-                )
-            else:
-                people = await _owner(session, tenant_id, loop)
-                before = loop_to_dict(loop, people)
-                loop.context_schema = context
-                loop = await repo.reload(loop)
-                loop_dict = loop_to_dict(loop, people)
-                change = await ChangeRepository(session, tenant_id).record(
-                    "context.update",
-                    "loop",
-                    loop.id,
-                    actor,
-                    before=before,
-                    after=loop_dict,
-                    reason=reason,
-                    undoing=undoing,
-                )
-                cycled = _Cycled(loop_dict, change, route_of(loop), None)
-        if cycled.record is not None:
+                if check:
+                    raise Checked(edited)
+        except Checked as checked:
+            return checked.edited
+        if cycled is not None:
             await self._redis.set_experiment(
                 tenant_id, cycled.record["id"], cycled.record
             )
-        await self._routes.put(tenant_id, cycled.route)
-        return Applied.of(cycled.loop, cycled.change)
+        await self._routes.put(tenant_id, written[-1].route)
+        return edited
+
+    async def _apply(
+        self,
+        session: AsyncSession,
+        tenant_id: str,
+        loop: Loop,
+        edits: Edits,
+        context: StagedContext,
+        actor: Actor,
+        reason: str | None,
+    ) -> list[tuple[_Written, tuple[str, ...]]]:
+        """the steps of an apply, in order. on a draft the cycle's edits are
+        the brief's; past draft they start one cycle, which also takes the
+        fallback, and the context when the new cycle's engine learns from it."""
+        repo = LoopRepository(session, tenant_id)
+        loop_id = loop.id
+        brief, cycle, delivery = edits.brief, edits.cycle, edits.delivery
+        fallback = delivery.fallback if delivery else None
+        staged_context = context is not UNSET
+        steps: list[tuple[_Written, tuple[str, ...]]] = []
+
+        async def fresh() -> Loop:
+            return await repo.get(loop_id)
+
+        if loop.state == "draft":
+            if staged_context:
+                with _part("context"):
+                    steps.append(
+                        (
+                            await self._write_context(
+                                session,
+                                tenant_id,
+                                loop,
+                                context=context,
+                                actor=actor,
+                                reason=reason,
+                            ),
+                            ("context",),
+                        )
+                    )
+                loop = await fresh()
+            if brief is not None or cycle is not None:
+                parts = tuple(
+                    name
+                    for name, given in (
+                        ("brief", brief is not None),
+                        ("cycle", cycle is not None),
+                        ("delivery", cycle is not None and fallback is not None),
+                    )
+                    if given
+                )
+                with _part(parts[0]):
+                    steps.append(
+                        (
+                            await self._write_brief(
+                                session,
+                                tenant_id,
+                                loop,
+                                purpose=brief.purpose if brief else None,
+                                owner=brief.owner if brief else None,
+                                options=cycle.options if cycle else None,
+                                engine=cycle.engine if cycle else None,
+                                metric=cycle.metric if cycle else None,
+                                fallback=fallback if cycle else None,
+                                actor=actor,
+                                reason=reason,
+                            ),
+                            parts,
+                        )
+                    )
+                loop = await fresh()
+                if cycle is not None:
+                    fallback = None
+        else:
+            if brief is not None:
+                with _part("brief"):
+                    steps.append(
+                        (
+                            await self._write_brief(
+                                session,
+                                tenant_id,
+                                loop,
+                                purpose=brief.purpose,
+                                owner=brief.owner,
+                                options=None,
+                                engine=None,
+                                metric=None,
+                                fallback=None,
+                                actor=actor,
+                                reason=reason,
+                            ),
+                            ("brief",),
+                        )
+                    )
+                loop = await fresh()
+            if cycle is not None:
+                with _part("cycle"):
+                    engine = _engine(cycle.engine) if cycle.engine else loop.engine
+                rides = staged_context and _learns_from_context(engine)
+                if rides:
+                    with _part("context"):
+                        _check_context(loop, context, engine)
+                with _part("cycle"):
+                    parts = ("cycle",)
+                    if fallback is not None:
+                        parts += ("delivery",)
+                    if rides:
+                        parts += ("context",)
+                    steps.append(
+                        (
+                            await self._next_cycle(
+                                session,
+                                tenant_id,
+                                loop,
+                                "cycle.start",
+                                options=(
+                                    _options(cycle.options)
+                                    if cycle.options is not None
+                                    else None
+                                ),
+                                engine=engine,
+                                metric=(
+                                    await _metric(session, tenant_id, cycle.metric)
+                                    if cycle.metric
+                                    else None
+                                ),
+                                fallback=fallback,
+                                context=context if rides else loop.context_schema,
+                                actor=actor,
+                                reason=reason,
+                            ),
+                            parts,
+                        )
+                    )
+                loop = await fresh()
+                fallback = None
+                if rides:
+                    staged_context = False
+            if staged_context:
+                with _part("context"):
+                    steps.append(
+                        (
+                            await self._write_context(
+                                session,
+                                tenant_id,
+                                loop,
+                                context=context,
+                                actor=actor,
+                                reason=reason,
+                            ),
+                            ("context",),
+                        )
+                    )
+                loop = await fresh()
+
+        rode = (
+            delivery is not None and delivery.fallback is not None and fallback is None
+        )
+        if delivery is not None and (delivery.placing or not rode):
+            with _part("delivery"):
+                steps.append(
+                    (
+                        await self._write_delivery(
+                            session,
+                            tenant_id,
+                            loop,
+                            audience=delivery.audience,
+                            rollout=delivery.rollout,
+                            schedule=delivery.schedule,
+                            fallback=fallback,
+                            actor=actor,
+                            reason=reason,
+                        ),
+                        ("delivery",),
+                    )
+                )
+        return steps
+
+    async def _publish(self, tenant_id: str, written: _Written) -> Applied:
+        if written.record is not None:
+            await self._redis.set_experiment(
+                tenant_id, written.record["id"], written.record
+            )
+        await self._routes.put(tenant_id, written.route)
+        return Applied.of(written.loop, written.change)
 
     async def add_note(
         self, tenant_id: str, ref: str, *, text: str, actor: Actor
@@ -787,16 +1250,19 @@ class LoopService:
         *,
         options: list[dict[str, Any]] | None = None,
         engine: str | None = None,
+        metric: str | None = None,
+        context: StagedContext = UNSET,
         fallback: str | None = None,
         actor: Actor,
         reason: str | None = None,
     ) -> Applied | None:
-        """new options, a new engine, or both, in a new cycle that learns
-        afresh. the fallback stays if its option does; otherwise it is named."""
-        if options is None and engine is None:
+        """new options, a new engine, a new metric or a new context, together
+        in one new cycle that learns afresh. the fallback stays if its option
+        does; otherwise it is named."""
+        if options is None and engine is None and metric is None and context is UNSET:
             raise LoopInvalidError(
-                "a new cycle needs new options, a new engine or both; to learn "
-                "afresh with the same ones, reset the cycle"
+                "a new cycle needs new options, a new engine, a new metric or a "
+                "new context; to learn afresh with the same ones, reset the cycle"
             )
         return await self._new_cycle(
             tenant_id,
@@ -804,6 +1270,8 @@ class LoopService:
             "cycle.start",
             options=_options(options) if options is not None else None,
             engine=_engine(engine) if engine is not None else None,
+            metric=metric,
+            context=_context(context) if context is not UNSET else UNSET,
             fallback=fallback,
             actor=actor,
             reason=reason,
@@ -820,6 +1288,8 @@ class LoopService:
             "cycle.reset",
             options=None,
             engine=None,
+            metric=None,
+            context=UNSET,
             fallback=None,
             actor=actor,
             reason=reason,
@@ -833,6 +1303,8 @@ class LoopService:
         *,
         options: list[LoopOption] | None,
         engine: str | None,
+        metric: str | None,
+        context: StagedContext,
         fallback: str | None,
         actor: Actor,
         reason: str | None,
@@ -844,21 +1316,20 @@ class LoopService:
             loop = await LoopRepository(session, tenant_id).resolve(ref)
             if loop is None:
                 return None
-            cycled = await self._next_cycle(
+            written = await self._next_cycle(
                 session,
                 tenant_id,
                 loop,
                 kind,
                 options=options,
                 engine=engine,
+                metric=await _metric(session, tenant_id, metric) if metric else None,
                 fallback=fallback,
-                context=loop.context_schema,
+                context=loop.context_schema if context is UNSET else context,
                 actor=actor,
                 reason=reason,
             )
-        await self._redis.set_experiment(tenant_id, cycled.record["id"], cycled.record)
-        await self._routes.put(tenant_id, cycled.route)
-        return Applied.of(cycled.loop, cycled.change)
+        return await self._publish(tenant_id, written)
 
     async def _next_cycle(
         self,
@@ -869,11 +1340,12 @@ class LoopService:
         *,
         options: list[LoopOption] | None,
         engine: str | None,
+        metric: Metric | None,
         fallback: str | None,
         context: list[dict[str, Any]] | None,
         actor: Actor,
         reason: str | None,
-    ) -> _Cycled:
+    ) -> _Written:
         """the next cycle, written in the caller's session; the caller puts
         its record and route once the session commits."""
         refused = "only a live or paused loop can start a new cycle"
@@ -895,16 +1367,19 @@ class LoopService:
                 f"the fallback {loop.fallback_key!r} is not one of the new "
                 f"options; name one of them as the fallback ({', '.join(keys)})"
             )
+        metric = metric or loop.metric
         if (
             kind == "cycle.start"
             and engine == loop.engine
             and (options is None or _same_options(loop.cycles[-1], options))
+            and metric.id == loop.metric_id
+            and context == loop.context_schema
         ):
             raise LoopInvalidError(
-                "the options and engine are the cycle's own; to learn afresh "
-                "with them, reset the cycle"
+                "the options, engine, metric and context are the cycle's own; to "
+                "learn afresh with them, reset the cycle"
             )
-        resolved = _resolve(engine, loop.metric, context)
+        resolved = _resolve(engine, metric, context)
 
         people = await _owner(session, tenant_id, loop)
         before = loop_to_dict(loop, people)
@@ -914,6 +1389,7 @@ class LoopService:
         if options is not None:
             _replace_options(loop, options)
         loop.engine = engine
+        loop.metric = metric
         loop.fallback_key = fallback
         loop.context_schema = context
         loop.cycles[-1].ended_at = datetime.now(timezone.utc)
@@ -934,7 +1410,7 @@ class LoopService:
             after=loop_dict,
             reason=reason,
         )
-        return _Cycled(loop_dict, change, route_of(loop), record)
+        return _Written(loop_dict, change, route_of(loop), record)
 
     async def _transition(
         self,
