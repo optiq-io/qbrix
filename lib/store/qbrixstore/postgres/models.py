@@ -592,6 +592,7 @@ class Loop(Base):
     owner_user_id: Mapped[str] = mapped_column(String(64), nullable=False)
     fallback_key: Mapped[str] = mapped_column(String(64), nullable=False)
     delivery: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    context_schema: Mapped[list | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -639,7 +640,8 @@ class LoopOption(Base):
 
 class Cycle(Base):
     """a version of a loop's options, engine and learning. its id is the id
-    the learning path serves and trains it under."""
+    the learning path serves and trains it under. context_schema is set only
+    when the cycle's engine learns from context, and never changes after."""
 
     __tablename__ = "cycles"
     __table_args__ = (UniqueConstraint("loop_id", "number", name="uq_cycle_number"),)
@@ -657,6 +659,7 @@ class Cycle(Base):
         String(32), ForeignKey("metric_versions.id"), nullable=False
     )
     options: Mapped[list] = mapped_column(JSON, nullable=False)
+    context_schema: Mapped[list | None] = mapped_column(JSON, nullable=True)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

@@ -722,6 +722,19 @@ class ProxyService:
             reason=reason,
         )
 
+    async def update_context(
+        self,
+        tenant_id: str,
+        ref: str,
+        *,
+        context: list[dict[str, Any]] | None,
+        actor: Actor,
+        reason: str | None = None,
+    ) -> Applied | None:
+        return await self._loop_service.update_context(
+            tenant_id, ref, context=context, actor=actor, reason=reason
+        )
+
     async def update_delivery(
         self,
         tenant_id: str,
@@ -785,6 +798,9 @@ class ProxyService:
         return await self._loop_result_service.results(
             tenant_id, ref, cycle_number=cycle_number, period=period
         )
+
+    async def loop_context(self, tenant_id: str, ref: str) -> dict | None:
+        return await self._loop_result_service.context(tenant_id, ref)
 
     async def list_cycles(self, tenant_id: str, ref: str) -> list[dict] | None:
         return await LoopReadService.list_cycles(tenant_id, ref)

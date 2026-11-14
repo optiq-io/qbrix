@@ -20,6 +20,7 @@ UNDOABLE_KINDS = frozenset(
         "loop.pause",
         "loop.resume",
         "delivery.update",
+        "context.update",
         "connection.levels",
     }
 )
@@ -43,8 +44,35 @@ NOT_UNDOABLE = {
 }
 
 
-def is_undoable(kind: str) -> bool:
+_CONTEXT_CYCLED = (
+    "declaring the context started a new cycle, which begins fresh learning, "
+    "so it can't be undone; declare the context again to change it"
+)
+
+
+def _started_cycle(before: dict | None, after: dict | None) -> bool:
+    def cycle_id(loop: dict | None) -> str | None:
+        return ((loop or {}).get("cycle") or {}).get("id")
+
+    return cycle_id(before) != cycle_id(after)
+
+
+def is_undoable(
+    kind: str, before: dict | None = None, after: dict | None = None
+) -> bool:
+    """a kind is undoable or not, except a context change, which is undoable
+    unless it started a cycle."""
+    if kind == "context.update" and _started_cycle(before, after):
+        return False
     return kind in UNDOABLE_KINDS
+
+
+def not_undoable_reason(
+    kind: str, before: dict | None = None, after: dict | None = None
+) -> str | None:
+    if kind == "context.update" and _started_cycle(before, after):
+        return _CONTEXT_CYCLED
+    return NOT_UNDOABLE.get(kind)
 
 
 def undo_scope(target_type: str) -> str | None:

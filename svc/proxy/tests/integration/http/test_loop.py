@@ -43,6 +43,7 @@ import pytest
 import pytest_asyncio
 
 import proxysvc.config
+from qbrixstore.clickhouse.ledger import PropertyArrival
 from qbrixstore.postgres import session as session_module
 from qbrixstore.postgres.models import Change
 
@@ -244,7 +245,7 @@ class TestRefusals:
             ({"fallback": "missing"}, "the fallback 'missing' is not one of"),
             ({"engine": "thompson"}, "unknown engine 'thompson'"),
             ({"engine": "spinoza:9"}, "spinoza has no major 9"),
-            ({"engine": "leibniz"}, "declare a context schema"),
+            ({"engine": "leibniz"}, "declare the context first"),
         ],
     )
     async def test_names_the_problem(self, loops, overrides, names):
@@ -2000,3 +2001,254 @@ class TestDelivery:
             resp = await _deliver(loops, loop["key"], rollout=10)
 
         assert resp.status_code == 403
+
+
+PLAN = {"name": "plan", "type": "categorical", "values": ["free", "pro"]}
+SEATS = {"name": "seats", "type": "numeric", "min": 1.0, "max": 500.0}
+RETURNING = {"name": "returning", "type": "boolean"}
+
+
+async def _declare(client, ref: str, context, **body):
+    return await client.put(
+        f"/api/v1/loops/{ref}/context", json={"context": context, **body}
+    )
+
+
+async def _on_leibniz(loops, context=None) -> dict:
+    """a live loop whose current cycle learns from context."""
+    loop = await _create(loops)
+    resp = await _declare(loops, loop["key"], context or [PLAN])
+    assert resp.status_code == 200, resp.text
+    await _launch(loops, loop["key"])
+    return await _start_cycle(loops, loop["key"], engine="leibniz")
+
+
+class TestContext:
+    async def test_a_new_loop_learns_from_no_context(self, loops):
+        loop = await _create(loops)
+
+        assert loop["context"] is None
+
+    async def test_a_draft_declares_it_without_a_cycle(self, wired_app, loops):
+        loop = await _create(loops)
+
+        resp = await _declare(loops, loop["key"], [PLAN, SEATS], reason="segments")
+
+        assert resp.status_code == 200, resp.text
+        declared = resp.json()["loop"]
+        assert declared["context"] == [PLAN, SEATS]
+        assert declared["cycle"] is None
+        change, *_ = await _changes(wired_app, loop["id"])
+        assert change["kind"] == "context.update"
+        assert change["reason"] == "segments"
+        assert change["before"]["context"] is None
+        assert change["after"]["context"] == [PLAN, SEATS]
+
+    async def test_on_spinoza_it_keeps_the_cycle_and_undoes(self, wired_app, loops):
+        loop = await _launched(loops)
+
+        declared = (await _declare(loops, loop["key"], [PLAN])).json()["loop"]
+        change, *_ = await _changes(wired_app, loop["id"])
+        route = await _route(wired_app, loop["key"])
+
+        assert declared["cycle"]["id"] == loop["cycle"]["id"]
+        assert declared["cycle"]["context"] is None
+        assert route.cycle.context is None
+        assert change["undoable"] is True
+
+        await wired_app.svc.undo_change(TENANT, change["id"], actor=UNDOER)
+        read = await wired_app.svc.get_loop(TENANT, loop["id"])
+        assert read["context"] is None
+
+    async def test_leibniz_is_refused_until_the_context_is_declared(self, loops):
+        loop = await _launched(loops)
+
+        resp = await loops.post(
+            f"/api/v1/loops/{loop['key']}/cycles", json={"engine": "leibniz"}
+        )
+
+        assert resp.status_code == 400, resp.text
+        assert "declare the context first" in resp.json()["detail"]
+
+    async def test_a_cycle_on_leibniz_learns_with_the_context(self, wired_app, loops):
+        started = await _on_leibniz(loops, [PLAN, SEATS])
+
+        record = await _record(wired_app, started["cycle"]["id"])
+        route = await _route(wired_app, started["key"])
+
+        assert started["engine"].startswith("leibniz")
+        assert started["cycle"]["context"] == [PLAN, SEATS]
+        assert record["policy_params"]["dim"] == 1 + 3 + 1
+        assert [p.name for p in route.cycle.context.root] == ["plan", "seats"]
+
+    async def test_on_leibniz_it_starts_a_cycle_that_cant_be_undone(
+        self, wired_app, loops
+    ):
+        loop = await _on_leibniz(loops)
+
+        declared = (await _declare(loops, loop["key"], [PLAN, RETURNING])).json()[
+            "loop"
+        ]
+        change, *_ = await _changes(wired_app, loop["id"])
+        record = await _record(wired_app, declared["cycle"]["id"])
+
+        assert declared["cycle"]["number"] == loop["cycle"]["number"] + 1
+        assert declared["cycle"]["context"] == [PLAN, RETURNING]
+        assert record["policy_params"]["dim"] == 1 + 3 + 1
+        assert change["kind"] == "context.update"
+        assert change["undoable"] is False
+        with pytest.raises(ChangeNotUndoableError, match="started a new cycle"):
+            await wired_app.svc.undo_change(TENANT, change["id"], actor=UNDOER)
+
+    async def test_a_paused_leibniz_loop_stays_paused_in_its_new_cycle(self, loops):
+        loop = await _on_leibniz(loops)
+        await _pause_by_hand(loops, loop["key"])
+
+        declared = (await _declare(loops, loop["key"], [SEATS])).json()["loop"]
+
+        assert declared["state"] == "paused"
+        assert declared["cycle"]["number"] == loop["cycle"]["number"] + 1
+
+    async def test_a_committed_leibniz_loop_is_reopened_first(self, loops):
+        loop = await _on_leibniz(loops)
+        await _commit(loops, loop["key"])
+
+        resp = await _declare(loops, loop["key"], [SEATS])
+
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["code"] == "LOOP_NOT_CYCLABLE"
+        assert "reopen it first" in resp.json()["detail"]
+
+    async def test_a_committed_spinoza_loop_declares_it(self, loops):
+        loop = await _committed(loops)
+
+        resp = await _declare(loops, loop["key"], [PLAN])
+
+        assert resp.status_code == 200, resp.text
+
+    async def test_a_retired_loop_is_refused(self, loops):
+        retired = await _retired(loops)
+
+        resp = await _declare(loops, retired["key"], [PLAN])
+
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["code"] == "LOOP_RETIRED"
+
+    @pytest.mark.parametrize(
+        "context, message",
+        [
+            ([], "context: context schema needs at least one property"),
+            (
+                [{"name": "plan", "type": "categorical", "values": []}],
+                "context.0.values",
+            ),
+            ([PLAN, PLAN], "duplicate property names: plan"),
+            ([{"name": "plan", "type": "colour"}], "context.0"),
+        ],
+    )
+    async def test_an_invalid_context_is_refused(self, loops, context, message):
+        loop = await _launched(loops)
+
+        resp = await _declare(loops, loop["key"], context)
+
+        assert resp.status_code == 400, resp.text
+        assert resp.json()["code"] == "INVALID_LOOP"
+        assert message in resp.json()["detail"]
+
+    async def test_the_same_context_is_nothing_to_change(self, loops):
+        loop = await _create(loops)
+        await _declare(loops, loop["key"], [PLAN])
+
+        resp = await _declare(loops, loop["key"], [PLAN])
+
+        assert resp.status_code == 400, resp.text
+        assert "nothing changes" in resp.json()["detail"]
+
+    async def test_leibniz_can_never_clear_it(self, loops):
+        loop = await _on_leibniz(loops)
+
+        resp = await _declare(loops, loop["key"], None)
+
+        assert resp.status_code == 400, resp.text
+        assert "start a cycle on another engine first" in resp.json()["detail"]
+
+    async def test_a_viewer_is_refused(self, wired_app, loops):
+        loop = await _launched(loops)
+
+        with as_tenant(wired_app.app, tenant_id=TENANT, role="viewer"):
+            resp = await _declare(loops, loop["key"], [PLAN])
+
+        assert resp.status_code == 403
+
+
+def _arrival(name, type_, arrived, last, last_ms=1):
+    return PropertyArrival(name, type_, arrived, last_ms, json.dumps(last))
+
+
+class TestContextRead:
+    async def test_it_says_what_arrived_could_be_read_and_wasnt_declared(
+        self, wired_app, loops
+    ):
+        loop = await _on_leibniz(loops, [PLAN, SEATS, RETURNING])
+        wired_app.svc._clickhouse.arrivals[loop["id"]] = (
+            100,
+            [
+                _arrival("plan", "String", 90, "pro", last_ms=5),
+                _arrival("plan", "Double", 10, 3.5, last_ms=9),
+                _arrival("seats", "Int64", 40, 12),
+                _arrival("country", "String", 100, "NL"),
+                _arrival("returning", "Null", 7, None),
+            ],
+        )
+
+        resp = await loops.get(f"/api/v1/loops/{loop['key']}/context")
+
+        assert resp.status_code == 200, resp.text
+        read = resp.json()
+        assert read["context"] == [PLAN, SEATS, RETURNING]
+        assert read["learns_from_context"] is True
+        assert read["decisions"] == 100
+        assert read["properties"] == [
+            {
+                "name": "plan",
+                "type": "categorical",
+                "arrived": 100,
+                "readable": 90,
+                "last_value": 3.5,
+            },
+            {
+                "name": "seats",
+                "type": "numeric",
+                "arrived": 40,
+                "readable": 40,
+                "last_value": 12,
+            },
+            {
+                "name": "returning",
+                "type": "boolean",
+                "arrived": 0,
+                "readable": 0,
+                "last_value": None,
+            },
+        ]
+        assert read["undeclared"] == [{"name": "country", "arrived": 100}]
+
+    async def test_a_loop_with_no_context_lists_what_it_could_declare(
+        self, wired_app, loops
+    ):
+        loop = await _launched(loops)
+        wired_app.svc._clickhouse.arrivals[loop["id"]] = (
+            3,
+            [_arrival("device", "String", 3, "mobile")],
+        )
+
+        read = (await loops.get(f"/api/v1/loops/{loop['key']}/context")).json()
+
+        assert read["learns_from_context"] is False
+        assert read["properties"] == []
+        assert read["undeclared"] == [{"name": "device", "arrived": 3}]
+
+    async def test_an_unknown_loop_is_not_found(self, loops):
+        resp = await loops.get("/api/v1/loops/nope/context")
+
+        assert resp.status_code == 404

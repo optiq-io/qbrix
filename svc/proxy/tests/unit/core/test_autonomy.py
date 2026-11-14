@@ -8,14 +8,16 @@ import pytest
 
 import proxysvc.mod
 from proxysvc.core import autonomy
+from proxysvc.core.actor import Actor
 from proxysvc.mod.change.serialize import VERBS
 from proxysvc.mod.change.undo import NOT_UNDOABLE
 from proxysvc.mod.change.undo import UNDOABLE_KINDS
+from proxysvc.mod.connection.service import ConnectionPrincipal
 
 pytestmark = pytest.mark.unit
 
 _KIND = re.compile(
-    r"^(loop|cycle|delivery|metric|note|experiment|pool|gate|connection)\.[a-z]+$"
+    r"^(loop|cycle|delivery|context|metric|note|experiment|pool|gate|connection)\.[a-z]+$"
 )
 
 
@@ -63,6 +65,7 @@ def test_the_defaults_are_the_definitions():
             "loop.reopen",
             "cycle.reset",
             "delivery.update",
+            "context.update",
             "metric.delete",
         ],
         "ask": ["loop.launch", "cycle.start", "loop.retire"],
@@ -99,3 +102,24 @@ def test_only_levels_off_their_default_are_kept():
 def test_a_read_an_old_kind_or_an_unknown_level_is_refused(levels):
     with pytest.raises(ValueError):
         autonomy.check(levels)
+
+
+@pytest.mark.parametrize(
+    "levels, expected",
+    [
+        ({}, "ask"),
+        ({"cycle.start": "notify"}, "notify"),
+        ({"cycle.start": "own"}, "notify"),
+        ({"cycle.start": "own", "context.update": "own"}, "own"),
+        ({"cycle.start": "own", "context.update": "ask"}, "ask"),
+    ],
+)
+def test_a_change_that_is_also_another_kind_acts_at_the_strictest(levels, expected):
+    principal = ConnectionPrincipal(
+        actor=Actor.member("user-ada"), tenant_id="t", role="member", levels=levels
+    )
+
+    assert principal.acting("context.update", "cycle.start").level == expected
+    assert principal.acting("context.update").level == levels.get(
+        "context.update", "notify"
+    )

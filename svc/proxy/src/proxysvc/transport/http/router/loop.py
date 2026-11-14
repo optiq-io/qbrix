@@ -21,6 +21,7 @@ from proxysvc.core.error import CycleNotFoundError
 from proxysvc.core.error import InvalidCursorError
 from proxysvc.core.error import LoopInvalidError
 from proxysvc.core.error import LoopKeyTakenError
+from proxysvc.core.error import LoopRetiredError
 from proxysvc.core.error import LoopStateError
 from proxysvc.mod.change.note import NOTE_MAX_LENGTH
 from proxysvc.mod.change.note import HistoryShow
@@ -122,6 +123,43 @@ class CycleResetRequest(BaseModel):
     reason: Optional[str] = None
 
 
+class ContextRequest(BaseModel):
+    context: Optional[list[dict[str, Any]]] = Field(
+        ...,
+        description=(
+            "The properties the engine learns from, each with a name and a type: "
+            '[{"name": "plan", "type": "categorical", "values": ["free", "pro"]}, '
+            '{"name": "seats", "type": "numeric", "min": 1, "max": 500}, '
+            '{"name": "returning", "type": "boolean"}]. Properties not declared '
+            "are still recorded and usable in the audience; a value of the wrong "
+            "type is learned as the property's default. null clears it."
+        ),
+    )
+    reason: Optional[str] = None
+
+
+class PropertyArrival(BaseModel):
+    name: str
+    type: str
+    arrived: int
+    readable: int
+    last_value: Any = None
+
+
+class UndeclaredArrival(BaseModel):
+    name: str
+    arrived: int
+
+
+class ContextResponse(BaseModel):
+    context: Optional[list[dict[str, Any]]] = None
+    learns_from_context: bool
+    since: str
+    decisions: int
+    properties: list[PropertyArrival]
+    undeclared: list[UndeclaredArrival]
+
+
 class DeliveryRequest(BaseModel):
     audience: Optional[list[dict[str, Any]]] = Field(
         default=None,
@@ -193,6 +231,7 @@ class CycleSummary(BaseModel):
     engine: str
     engine_version: str
     metric_version: str
+    context: Optional[list[dict[str, Any]]] = None
     started_at: Optional[str] = None
     ended_at: Optional[str] = None
 
@@ -252,6 +291,7 @@ class LoopSummary(BaseModel):
     owner: Person
     fallback: str
     delivery: Delivery
+    context: Optional[list[dict[str, Any]]] = None
     options: list[OptionSummary]
     cycle: Optional[CycleSummary] = None
     created_at: Optional[str] = None
@@ -773,6 +813,57 @@ async def reset_cycle(
         raise _not_found(loop)
     logger.info(f"cycle reset: {reset.value['id']} by user {actor.user_id}")
     return _serving(reset.value)
+
+
+@router.get(
+    "/{loop}/context",
+    status_code=status.HTTP_200_OK,
+    response_model=ContextResponse,
+)
+async def get_context(
+    loop: str,
+    tenant_id: str = Depends(get_current_tenant_id),
+    _scoped=Depends(require_scopes(["loop:read"])),
+):
+    """the context the loop's engine learns from, and what its decisions
+    carried in the last day: for each declared property how many carried it
+    and how many could be read, and the properties sent but not declared."""
+    found = await get_proxy_service().loop_context(tenant_id, loop)
+    if found is None:
+        raise _not_found(loop)
+    return ContextResponse(**found)
+
+
+@router.put(
+    "/{loop}/context",
+    status_code=status.HTTP_200_OK,
+    response_model=ServingResponse,
+)
+async def update_context(
+    loop: str,
+    body: ContextRequest,
+    tenant_id: str = Depends(get_current_tenant_id),
+    actor: Actor = Depends(get_person),
+    _scoped=Depends(require_scopes(["loop:write"])),
+):
+    """declare which context properties the loop's engine learns from. on an
+    engine that learns from context, a loop past draft starts a new cycle,
+    which can't be undone; otherwise it can be undone. serving moves on every
+    replica within serving_within_seconds."""
+    try:
+        updated = await get_proxy_service().update_context(
+            tenant_id, loop, context=body.context, actor=actor, reason=body.reason
+        )
+    except LoopInvalidError as e:
+        raise InvalidLoopException(str(e))
+    except LoopRetiredError as e:
+        raise LoopRetiredException(str(e))
+    except LoopStateError as e:
+        raise LoopNotCyclableException(str(e))
+    if updated is None:
+        raise _not_found(loop)
+    logger.info(f"context changed: {updated.value['id']} by user {actor.user_id}")
+    return _serving(updated.value)
 
 
 @router.put(

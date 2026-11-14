@@ -396,3 +396,64 @@ class TestEncodeWidthInvariant:
 
         assert len(vector) == schema.dim
         assert vector[0] == 1.0
+
+
+LENIENT = [
+    {"name": "plan", "type": "categorical", "values": ["free", "pro"]},
+    {"name": "seats", "type": "numeric", "min": 0, "max": 100},
+    {"name": "returning", "type": "boolean"},
+]
+
+
+class TestEncodeLenient:
+    """a loop's schema changes apart from the code that sends its properties,
+    so encoding for a loop never refuses."""
+
+    def test_matches_encode_for_what_encode_accepts(self):
+        schema = ContextSchema.model_validate(LENIENT)
+        supplied = {"plan": "pro", "seats": 25, "returning": True}
+
+        assert schema.encode_lenient(supplied) == schema.encode(supplied)
+
+    def test_an_undeclared_name_is_skipped(self):
+        schema = ContextSchema.model_validate(LENIENT)
+
+        assert schema.encode_lenient({"country": "NL"}) == schema.default_vector()
+
+    @pytest.mark.parametrize(
+        "name, value",
+        [("plan", 3.5), ("seats", "many"), ("seats", True), ("returning", "yes")],
+    )
+    def test_a_wrong_type_is_its_default(self, name, value):
+        schema = ContextSchema.model_validate(LENIENT)
+
+        assert schema.encode_lenient({name: value}) == schema.default_vector()
+
+    def test_none_and_missing_are_defaults(self):
+        schema = ContextSchema.model_validate(LENIENT)
+
+        assert schema.encode_lenient({"plan": None}) == schema.default_vector()
+        assert schema.encode_lenient(None) == schema.default_vector()
+
+
+class TestReadable:
+    @pytest.mark.parametrize(
+        "name, value, readable",
+        [
+            ("plan", "pro", True),
+            ("plan", "enterprise", True),
+            ("plan", 7, True),
+            ("plan", 3.5, False),
+            ("seats", 12, True),
+            ("seats", 12.5, True),
+            ("seats", True, False),
+            ("returning", False, True),
+            ("returning", "no", False),
+            ("plan", None, False),
+            ("country", "NL", False),
+        ],
+    )
+    def test_a_value_is_readable_when_it_encodes_as_itself(self, name, value, readable):
+        schema = ContextSchema.model_validate(LENIENT)
+
+        assert schema.readable(name, value) is readable

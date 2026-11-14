@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS sealed_decisions (
     sealed_by LowCardinality(String),
     value Nullable(Float64),
     outcomes UInt32,
+    context_vector Array(Float64),
     opened_date Date DEFAULT toDate(fromUnixTimestamp64Milli(opened_ms))
 )
 ENGINE = ReplacingMergeTree()
@@ -173,6 +174,10 @@ METRIC_EVENTS_ALTERS = [
     "ALTER TABLE metric_events ADD COLUMN IF NOT EXISTS ledger_ms Int64 DEFAULT received_ms",
 ]
 
+SEALED_DECISIONS_ALTERS = [
+    "ALTER TABLE sealed_decisions ADD COLUMN IF NOT EXISTS context_vector Array(Float64) AFTER outcomes",
+]
+
 # the sealer reads decisions by when their window closes and outcomes by when
 # they reached the ledger, neither of which leads the order key.
 LEDGER_INDEXES = [
@@ -190,7 +195,12 @@ def create_tables(client: Client, ttl_days: int = 90) -> None:
     client.command(METRIC_EVENTS_TABLE.format(ttl_days=ttl_days))
     client.command(SEALED_DECISIONS_TABLE.format(ttl_days=ttl_days))
     client.command(MILESTONES_TABLE)
-    for alter in SELECTION_EVENTS_ALTERS + METRIC_EVENTS_ALTERS + LEDGER_INDEXES:
+    for alter in (
+        SELECTION_EVENTS_ALTERS
+        + METRIC_EVENTS_ALTERS
+        + SEALED_DECISIONS_ALTERS
+        + LEDGER_INDEXES
+    ):
         client.command(alter)
 
 

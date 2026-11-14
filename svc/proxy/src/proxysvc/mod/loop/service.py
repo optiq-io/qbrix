@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from datetime import timezone
 from typing import Any
@@ -10,12 +11,14 @@ from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from qbrixcore.context_schema import ContextSchema
 from qbrixcore.engine import ENGINES
 from qbrixcore.engine import EngineError
 from qbrixcore.engine import EngineSpec
 from qbrixcore.engine import Resolved
 from qbrixcore.engine import ScoreRange
 from qbrixcore.engine import check_metric
+from qbrixstore.postgres.models import Change
 from qbrixstore.postgres.models import Cycle
 from qbrixstore.postgres.models import Loop
 from qbrixstore.postgres.models import LoopOption
@@ -26,6 +29,7 @@ from qbrixstore.redis.client import RedisClient
 from proxysvc.core.actor import Actor
 from proxysvc.core.error import LoopInvalidError
 from proxysvc.core.error import LoopKeyTakenError
+from proxysvc.core.error import LoopRetiredError
 from proxysvc.core.error import LoopStateError
 from proxysvc.mod.change.applied import Applied
 from proxysvc.mod.change.note import NOTE
@@ -35,6 +39,7 @@ from proxysvc.mod.change.undo import Undoing
 from proxysvc.mod.loop.delivery import Delivery
 from proxysvc.mod.loop.delivery import delivery_of
 from proxysvc.mod.loop.repository import LoopRepository
+from proxysvc.mod.loop.route import LoopRoute
 from proxysvc.mod.loop.route import LoopRouteCache
 from proxysvc.mod.loop.route import route_of
 from proxysvc.mod.loop.serialize import cycle_record
@@ -158,9 +163,13 @@ def _delivery(raw: dict[str, Any]) -> Delivery:
         ) from e
 
 
-def _problem(error: dict[str, Any]) -> str:
+_UNION_TAGS = frozenset({"categorical", "numeric", "boolean"})
+
+
+def _problem(error: dict[str, Any], prefix: str | None = None) -> str:
     message = error["msg"].removeprefix("Value error, ")
-    where = ".".join(str(part) for part in error["loc"])
+    loc = [part for part in error["loc"] if part not in _UNION_TAGS]
+    where = ".".join(str(part) for part in ([prefix] if prefix else []) + loc)
     return f"{where}: {message}" if where else message
 
 
@@ -199,6 +208,16 @@ def _replace_options(loop: Loop, options: list[LoopOption]) -> None:
     loop.options = replaced
 
 
+def _learns_from_context(engine: str) -> bool:
+    return ENGINES.get(engine).needs_context
+
+
+def starts_cycle(state: str, engine: str) -> bool:
+    """whether declaring a loop's context starts a cycle: its engine learns
+    from context, and the loop is past draft."""
+    return state != "draft" and _learns_from_context(engine)
+
+
 def _append_cycle(loop: Loop, engine: str) -> None:
     pinned = ENGINES.pin(engine)
     number = loop.cycles[-1].number + 1 if loop.cycles else 1
@@ -209,6 +228,9 @@ def _append_cycle(loop: Loop, engine: str) -> None:
             engine_version=str(ENGINES.get(pinned).version),
             metric_version_id=loop.metric.versions[-1].id,
             options=[option_to_dict(option) for option in loop.options],
+            context_schema=(
+                loop.context_schema if _learns_from_context(engine) else None
+            ),
         )
     )
 
@@ -243,6 +265,17 @@ def _options(options: list[dict[str, Any]]) -> list[LoopOption]:
     return built
 
 
+def _context(raw: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
+    if raw is None:
+        return None
+    try:
+        return ContextSchema.model_validate(raw).model_dump()
+    except ValidationError as e:
+        raise LoopInvalidError(
+            "; ".join(_problem(error, "context") for error in e.errors())
+        ) from e
+
+
 def _engine(engine: str) -> str:
     try:
         return str(EngineSpec.parse(engine))
@@ -254,7 +287,9 @@ async def _owner(session: AsyncSession, tenant_id: str, loop: Loop) -> People:
     return await People.load(session, tenant_id, [loop.owner_user_id])
 
 
-def _resolve(engine: str, metric: Metric) -> Resolved:
+def _resolve(
+    engine: str, metric: Metric, context: list[dict[str, Any]] | None = None
+) -> Resolved:
     score_range = (
         ScoreRange(metric.score_lo, metric.score_hi)
         if metric.score_lo is not None
@@ -262,9 +297,21 @@ def _resolve(engine: str, metric: Metric) -> Resolved:
     )
     try:
         metric_type = check_metric(metric.type, score_range)
-        return ENGINES.get(engine).resolve(metric_type, score_range=score_range)
+        return ENGINES.get(engine).resolve(
+            metric_type,
+            score_range=score_range,
+            context_dim=ContextSchema.model_validate(context).dim if context else None,
+        )
     except EngineError as e:
         raise LoopInvalidError(str(e)) from e
+
+
+@dataclass(frozen=True, slots=True)
+class _Cycled:
+    loop: dict[str, Any]
+    change: Change
+    route: LoopRoute
+    record: dict[str, Any] | None
 
 
 class LoopService:
@@ -350,7 +397,7 @@ class LoopService:
             loop_key = loop.key
             if loop.state != "draft":
                 raise _not_draft(loop_key, loop.state, "only a draft can be launched")
-            resolved = _resolve(loop.engine, loop.metric)
+            resolved = _resolve(loop.engine, loop.metric, loop.context_schema)
             people = await _owner(session, tenant_id, loop)
             before = loop_to_dict(loop, people)
             _append_cycle(loop, loop.engine)
@@ -499,6 +546,74 @@ class LoopService:
             )
         await self._routes.put(tenant_id, route)
         return Applied.of(loop_dict, change)
+
+    async def update_context(
+        self,
+        tenant_id: str,
+        ref: str,
+        *,
+        context: list[dict[str, Any]] | None,
+        actor: Actor,
+        reason: str | None = None,
+        undoing: Undoing | None = None,
+    ) -> Applied | None:
+        """which context properties the loop's engine learns from; none
+        clears it. on an engine that learns from context, a loop past draft
+        starts a cycle with it, since what it learned no longer fits."""
+        context = _context(context)
+        async with get_session() as session:
+            repo = LoopRepository(session, tenant_id)
+            loop = await repo.resolve(ref)
+            if loop is None:
+                return None
+            if loop.state == "retired":
+                raise LoopRetiredError(
+                    f"its context can't change: the loop {loop.key!r} is retired; "
+                    f"{_DELIVERY_FIXES['retired']}"
+                )
+            if context == loop.context_schema:
+                raise LoopInvalidError("nothing changes: the context is the loop's own")
+            if context is None and _learns_from_context(loop.engine):
+                raise LoopInvalidError(
+                    f"{ENGINES.get(loop.engine).name} learns from context, so the "
+                    f"context can't be cleared; start a cycle on another engine first"
+                )
+            if starts_cycle(loop.state, loop.engine):
+                cycled = await self._next_cycle(
+                    session,
+                    tenant_id,
+                    loop,
+                    "context.update",
+                    options=None,
+                    engine=None,
+                    fallback=None,
+                    context=context,
+                    actor=actor,
+                    reason=reason,
+                )
+            else:
+                people = await _owner(session, tenant_id, loop)
+                before = loop_to_dict(loop, people)
+                loop.context_schema = context
+                loop = await repo.reload(loop)
+                loop_dict = loop_to_dict(loop, people)
+                change = await ChangeRepository(session, tenant_id).record(
+                    "context.update",
+                    "loop",
+                    loop.id,
+                    actor,
+                    before=before,
+                    after=loop_dict,
+                    reason=reason,
+                    undoing=undoing,
+                )
+                cycled = _Cycled(loop_dict, change, route_of(loop), None)
+        if cycled.record is not None:
+            await self._redis.set_experiment(
+                tenant_id, cycled.record["id"], cycled.record
+            )
+        await self._routes.put(tenant_id, cycled.route)
+        return Applied.of(cycled.loop, cycled.change)
 
     async def add_note(
         self, tenant_id: str, ref: str, *, text: str, actor: Actor
@@ -725,71 +840,101 @@ class LoopService:
         """ends the current cycle and starts the next. the state stays, so a
         paused loop stays paused. the earlier cycle's record stays in redis:
         its open decisions keep sealing and teaching it, never the new one."""
-        refused = "only a live or paused loop can start a new cycle"
         async with get_session() as session:
-            repo = LoopRepository(session, tenant_id)
-            loop = await repo.resolve(ref)
+            loop = await LoopRepository(session, tenant_id).resolve(ref)
             if loop is None:
                 return None
-            _cyclable(refused)(loop)
-            loop_key = loop.key
-            state = loop.state
-            if state not in ("live", "paused"):
-                raise _moved(loop_key, state, refused)
-
-            engine = engine or loop.engine
-            keys = [o.key for o in (options if options is not None else loop.options)]
-            if fallback is not None:
-                _fallback_among(fallback, keys)
-            elif loop.fallback_key in keys:
-                fallback = loop.fallback_key
-            else:
-                raise LoopInvalidError(
-                    f"the fallback {loop.fallback_key!r} is not one of the new "
-                    f"options; name one of them as the fallback ({', '.join(keys)})"
-                )
-            if (
-                kind == "cycle.start"
-                and engine == loop.engine
-                and (options is None or _same_options(loop.cycles[-1], options))
-            ):
-                raise LoopInvalidError(
-                    "the options and engine are the cycle's own; to learn afresh "
-                    "with them, reset the cycle"
-                )
-            resolved = _resolve(engine, loop.metric)
-
-            people = await _owner(session, tenant_id, loop)
-            before = loop_to_dict(loop, people)
-            if not await repo.transition(loop.id, from_state=state, state=state):
-                loop = await repo.get(loop.id)
-                raise _moved(loop_key, loop.state, refused)
-            if options is not None:
-                _replace_options(loop, options)
-            loop.engine = engine
-            loop.fallback_key = fallback
-            loop.cycles[-1].ended_at = datetime.now(timezone.utc)
-            await session.flush()
-            _append_cycle(loop, engine)
-            try:
-                loop = await repo.reload(loop)
-            except IntegrityError as e:
-                raise _moved(loop_key, state, refused) from e
-            loop_dict = loop_to_dict(loop, people)
-            record = cycle_record(tenant_id, loop, loop.cycles[-1], resolved)
-            route = route_of(loop)
-            change = await ChangeRepository(session, tenant_id).record(
+            cycled = await self._next_cycle(
+                session,
+                tenant_id,
+                loop,
                 kind,
-                "loop",
-                loop.id,
-                actor,
-                before=before,
-                after=loop_dict,
+                options=options,
+                engine=engine,
+                fallback=fallback,
+                context=loop.context_schema,
+                actor=actor,
                 reason=reason,
             )
-        await self._redis.set_experiment(tenant_id, record["id"], record)
-        await self._routes.put(tenant_id, route)
-        return Applied.of(loop_dict, change)
+        await self._redis.set_experiment(tenant_id, cycled.record["id"], cycled.record)
+        await self._routes.put(tenant_id, cycled.route)
+        return Applied.of(cycled.loop, cycled.change)
+
+    async def _next_cycle(
+        self,
+        session: AsyncSession,
+        tenant_id: str,
+        loop: Loop,
+        kind: str,
+        *,
+        options: list[LoopOption] | None,
+        engine: str | None,
+        fallback: str | None,
+        context: list[dict[str, Any]] | None,
+        actor: Actor,
+        reason: str | None,
+    ) -> _Cycled:
+        """the next cycle, written in the caller's session; the caller puts
+        its record and route once the session commits."""
+        refused = "only a live or paused loop can start a new cycle"
+        repo = LoopRepository(session, tenant_id)
+        _cyclable(refused)(loop)
+        loop_key = loop.key
+        state = loop.state
+        if state not in ("live", "paused"):
+            raise _moved(loop_key, state, refused)
+
+        engine = engine or loop.engine
+        keys = [o.key for o in (options if options is not None else loop.options)]
+        if fallback is not None:
+            _fallback_among(fallback, keys)
+        elif loop.fallback_key in keys:
+            fallback = loop.fallback_key
+        else:
+            raise LoopInvalidError(
+                f"the fallback {loop.fallback_key!r} is not one of the new "
+                f"options; name one of them as the fallback ({', '.join(keys)})"
+            )
+        if (
+            kind == "cycle.start"
+            and engine == loop.engine
+            and (options is None or _same_options(loop.cycles[-1], options))
+        ):
+            raise LoopInvalidError(
+                "the options and engine are the cycle's own; to learn afresh "
+                "with them, reset the cycle"
+            )
+        resolved = _resolve(engine, loop.metric, context)
+
+        people = await _owner(session, tenant_id, loop)
+        before = loop_to_dict(loop, people)
+        if not await repo.transition(loop.id, from_state=state, state=state):
+            loop = await repo.get(loop.id)
+            raise _moved(loop_key, loop.state, refused)
+        if options is not None:
+            _replace_options(loop, options)
+        loop.engine = engine
+        loop.fallback_key = fallback
+        loop.context_schema = context
+        loop.cycles[-1].ended_at = datetime.now(timezone.utc)
+        await session.flush()
+        _append_cycle(loop, engine)
+        try:
+            loop = await repo.reload(loop)
+        except IntegrityError as e:
+            raise _moved(loop_key, state, refused) from e
+        loop_dict = loop_to_dict(loop, people)
+        record = cycle_record(tenant_id, loop, loop.cycles[-1], resolved)
+        change = await ChangeRepository(session, tenant_id).record(
+            kind,
+            "loop",
+            loop.id,
+            actor,
+            before=before,
+            after=loop_dict,
+            reason=reason,
+        )
+        return _Cycled(loop_dict, change, route_of(loop), record)
 
     async def _transition(
         self,

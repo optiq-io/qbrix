@@ -157,6 +157,7 @@ def _seal_one(
                 sealed_by=sealed_by,
                 value=value,
                 outcomes=len(learned),
+                context_vector=tuple(decision.context_vector),
             )
         )
 

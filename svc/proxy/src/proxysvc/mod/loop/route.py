@@ -4,6 +4,8 @@ import redis.asyncio as aioredis
 from pydantic import BaseModel
 from pydantic import ConfigDict
 
+from qbrixcore.context_schema import ContextSchema
+from qbrixstore.postgres.models import Cycle
 from qbrixstore.postgres.models import Loop
 
 from proxysvc.config import ProxySettings
@@ -24,8 +26,24 @@ class RouteOption(BaseModel):
 
 
 class RouteCycle(BaseModel):
+    """context is the schema the cycle's engine learns from, if it learns
+    from any; select encodes properties with it."""
+
     id: str
     number: int
+    context: ContextSchema | None = None
+
+
+def _route_cycle(cycle: Cycle) -> RouteCycle:
+    return RouteCycle(
+        id=cycle.id,
+        number=cycle.number,
+        context=(
+            ContextSchema.model_validate(cycle.context_schema)
+            if cycle.context_schema
+            else None
+        ),
+    )
 
 
 class RouteMetric(BaseModel):
@@ -70,7 +88,7 @@ def route_of(loop: Loop) -> LoopRoute:
         id=loop.id,
         key=loop.key,
         state=loop.state,
-        cycle=RouteCycle(id=cycle.id, number=cycle.number) if cycle else None,
+        cycle=_route_cycle(cycle) if cycle else None,
         options=options,
         committed=(
             keys.index(loop.committed_key) if loop.committed_key is not None else None

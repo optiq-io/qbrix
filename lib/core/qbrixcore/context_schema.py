@@ -212,6 +212,35 @@ class ContextSchema(RootModel[list[ContextProperty]]):
             vector.extend(prop.default() if value is None else prop.encode(value))
         return vector
 
+    def encode_lenient(self, properties: dict | None = None) -> list[float]:
+        """encode what can be encoded, never refusing: an undeclared name is
+        skipped and a value of the wrong type contributes its default, the way
+        an unlisted categorical value scores as `other`. for callers whose
+        schema changes apart from the code that sends properties."""
+        supplied = properties or {}
+        vector: list[float] = list(_INTERCEPT)
+        for prop in self.root:
+            value = supplied.get(prop.name)
+            if value is None:
+                vector.extend(prop.default())
+                continue
+            try:
+                vector.extend(prop.encode(value))
+            except ContextEncodeError:
+                vector.extend(prop.default())
+        return vector
+
+    def readable(self, name: str, value: Any) -> bool:
+        """whether a declared property's value encodes as itself, not its default."""
+        prop = next((prop for prop in self.root if prop.name == name), None)
+        if prop is None or value is None:
+            return False
+        try:
+            prop.encode(value)
+        except ContextEncodeError:
+            return False
+        return True
+
     def default_vector(self) -> list[float]:
         """the vector for a request that carries no properties at all."""
         return self.encode()

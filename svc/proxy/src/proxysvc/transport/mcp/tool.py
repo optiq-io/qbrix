@@ -45,6 +45,7 @@ from proxysvc.mod.change.proposal import Waiting
 from proxysvc.mod.change.undo import undo_scope
 from proxysvc.mod.connection.service import ConnectionPrincipal
 from proxysvc.mod.loop.delivery import delivery_of
+from proxysvc.mod.loop.service import starts_cycle
 from proxysvc.mod.metric.serialize import window_label
 from proxysvc.mod.safety.rule import DECISION_ERRORS
 from proxysvc.service import ProxyService
@@ -132,6 +133,23 @@ class ConditionInput(BaseModel):
     value: str | int | float | bool | list[str | int | float | bool]
 
 
+class ContextPropertyInput(BaseModel):
+    name: str = Field(description="The property's name, as the app sends it.")
+    type: Literal["categorical", "numeric", "boolean"] = Field(
+        description="categorical: one of a few values; numeric: a number in a range; boolean: true or false."
+    )
+    values: Optional[list[str]] = Field(
+        default=None,
+        description="categorical only: the values worth telling apart. Any other value counts as other.",
+    )
+    min: Optional[float] = Field(
+        default=None, description="numeric only: the lowest value that matters."
+    )
+    max: Optional[float] = Field(
+        default=None, description="numeric only: the highest value that matters."
+    )
+
+
 class HoursInput(BaseModel):
     start: str = Field(description='Like "09:00": the loop decides from then.')
     end: str = Field(description='Like "18:00": the loop stops deciding then.')
@@ -212,6 +230,37 @@ def _concise(loop: dict, detail: Detail) -> dict:
         **loop,
         "options": [{**option, "config": None} for option in loop["options"]],
     }
+
+
+def _context_line(loop: dict) -> str:
+    context = loop.get("context")
+    if not context:
+        return "Learns from: no context."
+    return f"Learns from: {', '.join(prop['name'] for prop in context)}."
+
+
+def _arrival_line(read: dict) -> str:
+    """what the app must send, against what the loop's decisions carried."""
+    parts = []
+    for prop in read["properties"]:
+        if prop["arrived"] == 0:
+            parts.append(f"{prop['name']} not arriving yet")
+        elif prop["readable"] < prop["arrived"]:
+            parts.append(
+                f"{prop['name']} arriving, but {prop['arrived'] - prop['readable']} "
+                f"of {prop['arrived']} values aren't {prop['type']} and are learned "
+                f"as its default (last: {json.dumps(prop['last_value'])})"
+            )
+        else:
+            parts.append(f"{prop['name']} arriving in {prop['arrived']}")
+    line = f"Of {read['decisions']} decisions in the last day: " + (
+        "; ".join(parts) or "no properties declared"
+    )
+    if read["undeclared"]:
+        line += ". Sent but not declared: " + ", ".join(
+            prop["name"] for prop in read["undeclared"]
+        )
+    return line + "."
 
 
 def _loop_line(loop: dict) -> str:
@@ -750,15 +799,17 @@ def register(
         args: dict[str, Any],
         *,
         reason: str | None = None,
+        also: tuple[str, ...] = (),
     ) -> Applied | Waiting | None:
-        """a change at this connection's level for its kind."""
+        """a change at this connection's level for its kind, or the strictest
+        of the kinds it is also."""
         try:
             return await service().act(
                 principal.tenant_id,
                 kind,
                 ref,
                 args,
-                actor=principal.acting(kind),
+                actor=principal.acting(kind, *also),
                 reason=reason,
             )
         except ChangeWaitingError as e:
@@ -872,6 +923,7 @@ def register(
             + (f"{paused}\n" if paused else "")
             + f"Purpose: {found['purpose'] or '(none)'}\n"
             f"{_delivery_line(found, datetime.now(timezone.utc))}\n"
+            f"{_context_line(found)}\n"
             f"Owner: {found['owner']['name']} · engine {found['engine']}\n"
             f"{_autonomy_line(levels)}\n"
             + (
@@ -1688,6 +1740,81 @@ def register(
 
         return await once("delivery_update", arguments, call, ctx, loop_answered)
 
+    async def context_update(
+        ctx: Context,
+        loop: LoopRef,
+        reason: Reason,
+        context: Annotated[
+            Optional[list[ContextPropertyInput]],
+            Field(
+                description="The properties the engine learns from; replaces the whole context. null clears it, which an engine that learns from context refuses."
+            ),
+        ],
+    ) -> Annotated[CallToolResult, LoopChanged] | InputRequiredResult:
+        """Declare which context properties a loop's engine learns from. Wire the app to send them with select first, then declare them: properties not declared are still recorded and usable in the audience, and a value of the wrong type is learned as the property's default, so select never fails over the context. The answer says which declared properties arrived in the last day. On Leibniz, a loop past draft starts a new cycle, which asks first like cycle_start and can't be undone; otherwise this can be undone."""
+        arguments = {
+            "loop": loop,
+            "reason": reason,
+            "context": (
+                [prop.model_dump(exclude_none=True) for prop in context]
+                if context is not None
+                else None
+            ),
+        }
+
+        async def call(principal: ConnectionPrincipal) -> CallToolResult:
+            _require(principal, "loop:write", "change a loop's context")
+            found = await service().get_loop(principal.tenant_id, loop)
+            if found is None:
+                raise await refused_loop(principal, loop)
+            cycles = starts_cycle(found["state"], found["engine"])
+            try:
+                with refusals():
+                    updated = await make(
+                        principal,
+                        "context.update",
+                        loop,
+                        {"context": arguments["context"]},
+                        reason=reason,
+                        also=("cycle.start",) if cycles else (),
+                    )
+            except LoopStateError as e:
+                found = await service().get_loop(principal.tenant_id, loop)
+                if found["state"] == "retired":
+                    raise error.retired(loop) from e
+                raise error.not_cyclable(
+                    found["key"], found["state"], found["paused_from"]
+                ) from e
+            if updated is None:
+                raise await refused_loop(principal, loop)
+            if isinstance(updated, Waiting):
+                return await asked(
+                    principal,
+                    updated.change,
+                    lambda change, _: LoopChanged(
+                        status="waiting", change=change, loop=updated.value
+                    ),
+                )
+            value = updated.value
+            change = changed(updated, "loop", value["key"])
+            read = await service().loop_context(principal.tenant_id, value["id"])
+            cycled = not change["undoable"]
+            started = (
+                f" Started cycle {value['cycle']['number']}, which learns afresh."
+                if cycled
+                else ""
+            )
+            undo = "can't be undone" if cycled else "can be undone"
+            return _result(
+                f"Changed the context of {value['key']}. {_context_line(value)}"
+                f"{started} {_arrival_line(read)} "
+                f"Serving moves within {math.ceil(settings.experiment_cache_ttl)} "
+                f"seconds. Change {change['id']}, {undo}: {change['url']}",
+                LoopChanged(status="applied", change=change, loop=value),
+            )
+
+        return await once("context_update", arguments, call, ctx, loop_answered)
+
     async def loop_resume(
         ctx: Context, loop: LoopRef, reason: Reason
     ) -> Annotated[CallToolResult, LoopChanged] | InputRequiredResult:
@@ -1920,6 +2047,7 @@ def register(
         (cycle_start, _DESTRUCTIVE),
         (cycle_reset, _DESTRUCTIVE),
         (delivery_update, _DESTRUCTIVE),
+        (context_update, _DESTRUCTIVE),
         (metric_create, _CREATE),
         (note_add, _CREATE),
         (change_undo, _DESTRUCTIVE),

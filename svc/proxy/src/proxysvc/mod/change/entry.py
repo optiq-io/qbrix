@@ -15,7 +15,7 @@ from proxysvc.mod.change.note import NOTE_KINDS
 from proxysvc.mod.change.serialize import history_entry
 from proxysvc.mod.change.serialize import verb_for
 from proxysvc.mod.change.serialize import who_made
-from proxysvc.mod.change.undo import NOT_UNDOABLE
+from proxysvc.mod.change.undo import not_undoable_reason
 from proxysvc.mod.change.undo import is_undoable
 from proxysvc.mod.metric.serialize import window_label
 from proxysvc.mod.people import People
@@ -32,6 +32,7 @@ _PLAIN_FIELDS = (
     "engine",
     "fallback",
     "delivery",
+    "context",
 )
 
 
@@ -237,8 +238,11 @@ def workspace_entry(
         "after": newest.after,
         "pieces": pieces(newest, target, people, len(changes)),
         "diff": diff(oldest.before, newest.after),
-        "undoable": is_undoable(newest.kind) and newest.status == "applied",
-        "not_undoable_reason": NOT_UNDOABLE.get(newest.kind),
+        "undoable": is_undoable(newest.kind, newest.before, newest.after)
+        and newest.status == "applied",
+        "not_undoable_reason": not_undoable_reason(
+            newest.kind, newest.before, newest.after
+        ),
         "undone_by": (
             {
                 "id": undoer.id,

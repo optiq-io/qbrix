@@ -9,11 +9,15 @@ import logging
 import time
 
 import fakeredis
+import numpy as np
 import pytest
 import pytest_asyncio
 from fakeredis.aioredis import FakeRedis
 from redis.asyncio.client import Pipeline
 
+from qbrixcore.context import Context
+from qbrixcore.engine import ENGINES
+from qbrixcore.engine import MetricType
 from qbrixstore.clickhouse.ledger import LedgerDecision
 from qbrixstore.clickhouse.ledger import LedgerOutcome
 from qbrixstore.clickhouse.ledger import OutcomeRef
@@ -94,6 +98,7 @@ class FakeLedger:
         opened_ms: int,
         metric_type: str,
         cycle_id: str = CYCLE,
+        context_vector: tuple[float, ...] = (),
     ) -> LedgerDecision:
         decision = LedgerDecision(
             tenant_id=TENANT,
@@ -108,6 +113,7 @@ class FakeLedger:
             opened_ms=opened_ms,
             window_ms=WINDOW,
             ledger_ms=opened_ms,
+            context_vector=context_vector,
         )
         self.decisions.append(decision)
         return decision
@@ -302,6 +308,52 @@ class TestAPass:
         await seal_all(sealer)
 
         assert ledger.sealed == {}
+
+
+FREE = (1.0, 1.0, 0.0, 0.0)
+PRO = (1.0, 0.0, 1.0, 0.0)
+
+
+class TestContext:
+    async def test_leibniz_learns_each_segment_its_own_option(
+        self, sealer, ledger, store
+    ):
+        resolved = ENGINES.get("leibniz").resolve(MetricType.CONVERSION, context_dim=4)
+        record = {
+            "id": CYCLE,
+            "policy": resolved.policy_cls.name,
+            "policy_params": dict(resolved.fixed_params),
+            "pool": {"arms": [{"index": 0}, {"index": 1}]},
+            "enabled": True,
+        }
+        await store.set_experiment(TENANT, CYCLE, record)
+        opened = ago(600)
+        for n in range(60):
+            for segment, converts_on in ((FREE, 0), (PRO, 1)):
+                for option in (0, 1):
+                    decision = ledger.decide(
+                        f"{segment[1]}-{option}-{n}",
+                        option,
+                        opened + n,
+                        "conversion",
+                        context_vector=segment,
+                    )
+                    if option == converts_on:
+                        ledger.answer(decision, 1, decision.opened_ms + 1_000)
+
+        await seal_all(sealer)
+
+        learned = resolved.policy_cls.param_state_cls.model_validate(
+            await params(store)
+        )
+        np.random.seed(7)
+        for segment, converts_on in ((FREE, 0), (PRO, 1)):
+            chosen = [
+                resolved.policy_cls.select(learned, Context(vector=list(segment)))
+                for _ in range(200)
+            ]
+            assert chosen.count(converts_on) / len(chosen) > 0.8
+        assert all(row.context_vector in (FREE, PRO) for row in ledger.sealed.values())
 
 
 class TestCompleteUpTo:

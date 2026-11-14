@@ -17,6 +17,7 @@ from qbrixstore.clickhouse.ledger import DecisionCount
 from qbrixstore.clickhouse.ledger import LedgerDecision
 from qbrixstore.clickhouse.ledger import LedgerOutcome
 from qbrixstore.clickhouse.ledger import OutcomeRef
+from qbrixstore.clickhouse.ledger import PropertyArrival
 from qbrixstore.clickhouse.ledger import SealedDecision
 from qbrixstore.clickhouse.ledger import SealedStats
 from qbrixstore.clickhouse.ledger import TrailingCount
@@ -42,7 +43,8 @@ SELECT
     metric_type,
     timestamp_ms AS opened_ms,
     window_ms,
-    ledger_ms
+    ledger_ms,
+    context_vector
 FROM selection_events
 """
 
@@ -651,6 +653,40 @@ class ClickHouseClient:
             },
         )
         return [DecisionCount(**row) for row in rows]
+
+    def property_arrivals(
+        self, tenant_id: str, loop_id: str, since_ms: int, limit: int = 200
+    ) -> tuple[int, list[PropertyArrival]]:
+        """a loop's decisions since a time, and the context properties they
+        carried, per name and json type of the value."""
+        filters = {"tenant": tenant_id, "loop": loop_id, "since": since_ms}
+        where = """tenant_id = {tenant:String}
+              AND loop_id = {loop:String}
+              AND timestamp_ms >= {since:Int64}
+              AND decision_id != ''"""
+        total = self._rows(
+            f"SELECT count() AS decisions FROM selection_events WHERE {where}",
+            filters,
+        )
+        rows = self._rows(
+            f"""
+            SELECT
+                tupleElement(pair, 1) AS name,
+                toString(JSONType(tupleElement(pair, 2))) AS type,
+                count() AS arrived,
+                max(timestamp_ms) AS last_ms,
+                argMax(tupleElement(pair, 2), timestamp_ms) AS last
+            FROM selection_events
+            ARRAY JOIN JSONExtractKeysAndValuesRaw(properties) AS pair
+            WHERE {where}
+            GROUP BY name, type
+            ORDER BY arrived DESC
+            LIMIT {{limit:UInt32}}
+            """,
+            {**filters, "limit": limit},
+        )
+        decisions = int(total[0]["decisions"]) if total else 0
+        return decisions, [PropertyArrival(**row) for row in rows]
 
     def sealed_stats(
         self, tenant_id: str, spans: Sequence[CycleSpan]

@@ -32,6 +32,7 @@ function loop(key: string, overrides: Partial<LoopListItem> = {}): LoopListItem 
       rollout: 100,
       schedule: { hours: null, starts_on: null, timezone: null },
     },
+    context: null,
     options: [
       { id: "1", key: "a", name: "Option A" },
       { id: "2", key: "b", name: "Option B" },
