@@ -82,9 +82,16 @@ class LoopCreateRequest(BaseModel):
     key: Optional[str] = None
     purpose: str = ""
     metric: Optional[str] = None
-    engine: str = ENGINES.DEFAULT
+    engine: str = Field(
+        default=ENGINES.DEFAULT,
+        description="spinoza, spinoza:1 to follow its minors, or spinoza:1.0 to stay on one.",
+    )
     options: list[OptionBody]
     fallback: Optional[str] = None
+    context: Optional[list[dict[str, Any]]] = Field(
+        default=None,
+        description="The properties its engine learns from, as for PUT /context; leibniz needs one.",
+    )
 
 
 class LoopRenameRequest(BaseModel):
@@ -732,6 +739,7 @@ async def create_loop(
             engine=body.engine,
             options=[option.model_dump() for option in body.options],
             fallback=body.fallback,
+            context=body.context,
             actor=actor,
         )
     except LoopInvalidError as e:

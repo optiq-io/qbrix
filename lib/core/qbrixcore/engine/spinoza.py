@@ -15,6 +15,9 @@ class Spinoza(BaseEngine):
 
     name = "spinoza"
     version = EngineVersion(1, 0)
+    suits = "Most loops: find what works for everyone, and keep a little doubt."
+    learns_from = "outcomes"
+    needs = "nothing"
 
     @classmethod
     def _resolve(

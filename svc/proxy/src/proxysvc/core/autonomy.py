@@ -60,6 +60,7 @@ NOT_BY_CONNECTIONS = frozenset(
         "gate.patch",
         "gate.delete",
         "loop.delete",
+        "engine.minor",
         "connection.levels",
     }
 )

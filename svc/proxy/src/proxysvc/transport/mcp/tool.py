@@ -21,6 +21,9 @@ from mcp_types import ToolAnnotations
 from pydantic import BaseModel
 from pydantic import Field
 
+from qbrixcore.engine import ENGINES
+from qbrixcore.engine.spec import ACCEPTED_FORMS
+
 from proxysvc.config import ProxySettings
 from proxysvc.core import autonomy
 from proxysvc.core.actor import Actor
@@ -44,12 +47,14 @@ from proxysvc.mod.change.proposal import STATUSES
 from proxysvc.mod.change.proposal import Waiting
 from proxysvc.mod.change.undo import undo_scope
 from proxysvc.mod.connection.service import ConnectionPrincipal
+from proxysvc.mod.engine.catalog import engine_catalog
 from proxysvc.mod.loop.delivery import delivery_of
 from proxysvc.mod.loop.service import starts_cycle
 from proxysvc.mod.metric.serialize import window_label
 from proxysvc.mod.safety.rule import DECISION_ERRORS
 from proxysvc.service import ProxyService
 from proxysvc.transport.http.router.change import ChangePage
+from proxysvc.transport.http.router.engine import EngineList
 from proxysvc.transport.http.router.milestone import MilestoneList
 from proxysvc.transport.http.router.summary import WeekSummary
 from proxysvc.transport.mcp import ask
@@ -1101,6 +1106,30 @@ def register(
         ] or ["No metrics yet. Create one with metric_create."]
         return _result("\n".join(lines), MetricList(metrics=metrics))
 
+    async def engines_list() -> Annotated[CallToolResult, EngineList]:
+        """List the engines a cycle can run: what each suits, what it learns from, what it needs, and its versions. Choose one with loop_create, brief_update on a draft, or cycle_start."""
+        principal = current_principal()
+        try:
+            _require(principal, "loop:read", "read engines")
+        except Refusal as refusal:
+            return _refused(refusal)
+        engines = engine_catalog()
+        lines = [
+            f"{engine['name']}{' (the default)' if engine['default'] else ''}"
+            f" · {engine['title']} {engine['latest']}"
+            f" · {engine['suits']} · learns from {engine['learns_from']}"
+            f" · needs {engine['needs']}"
+            for engine in engines
+        ]
+        lines.append(
+            f"Name one as {ACCEPTED_FORMS}: a name or a major follows its minors "
+            f"as qbrix is upgraded, keeping what the loop learned; a minor stays "
+            f"exactly there."
+        )
+        return _result(
+            "\n".join(lines), EngineList(engines=engines, forms=ACCEPTED_FORMS)
+        )
+
     async def changes_list(
         who: Annotated[
             Optional[list[Literal["member", "connection", "qbrix"]]],
@@ -1327,8 +1356,20 @@ def register(
                 description="The option's key served when qbrix can't decide; the first option when left out."
             ),
         ] = None,
+        engine: Annotated[
+            str,
+            Field(
+                description="The engine that decides, from engines_list: spinoza (the default), leibniz or buridan. spinoza:1 follows its minors as qbrix is upgraded; spinoza:1.0 stays exactly on that version."
+            ),
+        ] = ENGINES.DEFAULT,
+        context: Annotated[
+            Optional[list[ContextPropertyInput]],
+            Field(
+                description="The properties its engine learns from, as for context_update; leibniz needs one."
+            ),
+        ] = None,
     ) -> Annotated[CallToolResult, LoopChanged] | InputRequiredResult:
-        """Create a draft loop with its options and metric. A draft serves its fallback until it is launched with loop_launch."""
+        """Create a draft loop with its options, metric and engine. A draft serves its fallback until it is launched with loop_launch."""
         arguments = {
             "name": name,
             "metric": metric,
@@ -1337,6 +1378,12 @@ def register(
             "purpose": purpose,
             "key": key,
             "fallback": fallback,
+            "engine": engine,
+            "context": (
+                [prop.model_dump(exclude_none=True) for prop in context]
+                if context is not None
+                else None
+            ),
         }
 
         async def call(principal: ConnectionPrincipal) -> CallToolResult:
@@ -1355,6 +1402,8 @@ def register(
                         "metric": metric,
                         "options": arguments["options"],
                         "fallback": fallback,
+                        "engine": engine,
+                        "context": arguments["context"],
                     },
                     reason=reason,
                 )
@@ -1369,7 +1418,8 @@ def register(
             loop = created.value
             change = changed(created, "loop", loop["key"])
             return _result(
-                f"Created the draft loop {loop['key']} ({loop['name']}). "
+                f"Created the draft loop {loop['key']} ({loop['name']}) "
+                f"on {loop['engine']}. "
                 f"Launch it with loop_launch once its select call is in the code. "
                 f"Change {change['id']}, can be undone: {change['url']}",
                 LoopChanged(status="applied", change=change, loop=loop),
@@ -2183,6 +2233,7 @@ def register(
         (loop_results, _READ),
         (loop_preview, _READ),
         (metrics_list, _READ),
+        (engines_list, _READ),
         (changes_list, _READ),
         (change_get, _READ),
         (loop_history, _READ),

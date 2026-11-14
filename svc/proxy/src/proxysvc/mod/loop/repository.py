@@ -41,6 +41,7 @@ class LoopRepository:
         owner_user_id: str,
         fallback_key: str,
         options: list[LoopOption],
+        context_schema: list[dict] | None = None,
     ) -> Loop:
         loop = Loop(
             tenant_id=self._tenant_id,
@@ -53,6 +54,7 @@ class LoopRepository:
             owner_user_id=owner_user_id,
             fallback_key=fallback_key,
             options=options,
+            context_schema=context_schema,
         )
         self._session.add(loop)
         await self._session.flush()

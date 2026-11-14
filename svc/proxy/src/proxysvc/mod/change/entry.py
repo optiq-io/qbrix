@@ -139,6 +139,11 @@ def _cycle(snapshot: dict) -> str | None:
     return str(cycle["number"]) if cycle else None
 
 
+def _engine_version(snapshot: dict) -> str | None:
+    cycle = snapshot.get("cycle")
+    return cycle["engine_version"] if cycle else None
+
+
 def _window(snapshot: dict) -> str | None:
     seconds = snapshot.get("window_seconds")
     return window_label(seconds) if seconds is not None else None
@@ -158,6 +163,7 @@ def diff(before: dict | None, after: dict | None) -> list[dict]:
     pairs.append(("metric", _metric_name(before), _metric_name(after)))
     pairs.append(("window", _window(before), _window(after)))
     pairs.append(("cycle", _cycle(before), _cycle(after)))
+    pairs.append(("engine version", _engine_version(before), _engine_version(after)))
     changed = [_difference(*pair) for pair in pairs if pair[1] != pair[2]]
 
     options_before = _option_names(before)

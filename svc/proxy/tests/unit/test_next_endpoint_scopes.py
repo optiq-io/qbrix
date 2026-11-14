@@ -36,6 +36,7 @@ pytestmark = pytest.mark.unit
         ("GET", "/api/v1/changes/counts", "loop:read"),
         ("POST", "/api/v1/changes/abc/undo", "loop:write"),
         ("GET", "/api/v1/summary", "loop:read"),
+        ("GET", "/api/v1/engines", "loop:read"),
         ("GET", "/api/v1/runtime/status", "runtime:read"),
     ],
 )

@@ -42,6 +42,8 @@ NOT_UNDOABLE = {
     "cycle.reset": "resetting a cycle begins fresh learning, so it can't be undone; "
     "the earlier cycle stays readable",
     "note.add": "a note stays in history; add another note to correct it",
+    "engine.minor": "qbrix moves a cycle to its engine's latest minor as it is "
+    "upgraded; start a cycle on an exact minor, such as spinoza:1.0, to stay on one",
 }
 
 

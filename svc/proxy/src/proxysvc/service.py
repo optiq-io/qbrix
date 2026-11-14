@@ -622,6 +622,7 @@ class ProxyService:
         engine: str = ENGINES.DEFAULT,
         options: list[dict[str, Any]],
         fallback: str | None = None,
+        context: list[dict[str, Any]] | None = None,
         actor: Actor,
         reason: str | None = None,
     ) -> Applied:
@@ -634,6 +635,7 @@ class ProxyService:
             engine=engine,
             options=options,
             fallback=fallback,
+            context=context,
             actor=actor,
             reason=reason,
         )

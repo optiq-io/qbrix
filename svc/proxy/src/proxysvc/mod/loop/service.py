@@ -310,7 +310,7 @@ async def _owner(session: AsyncSession, tenant_id: str, loop: Loop) -> People:
     return await People.load(session, tenant_id, [loop.owner_user_id])
 
 
-def _resolve(
+def resolve_engine(
     engine: str, metric: Metric, context: list[dict[str, Any]] | None = None
 ) -> Resolved:
     score_range = (
@@ -417,6 +417,7 @@ class LoopService:
         engine: str = ENGINES.DEFAULT,
         options: list[dict[str, Any]],
         fallback: str | None = None,
+        context: list[dict[str, Any]] | None = None,
         actor: Actor,
         reason: str | None = None,
     ) -> Applied:
@@ -429,12 +430,13 @@ class LoopService:
         keys = [option.key for option in built]
         fallback = _fallback_among(keys[0] if fallback is None else fallback, keys)
         engine = _engine(engine)
+        context = _context(context)
 
         async with get_session() as session:
             found = await MetricRepository(session, tenant_id).resolve(metric)
             if found is None:
                 raise LoopInvalidError(f"no metric named or with id {metric!r}")
-            _resolve(engine, found)
+            resolve_engine(engine, found, context)
 
             repo = LoopRepository(session, tenant_id)
             if key is None:
@@ -452,6 +454,7 @@ class LoopService:
                     owner_user_id=actor.user_id,
                     fallback_key=fallback,
                     options=built,
+                    context_schema=context,
                 )
             except IntegrityError as e:
                 raise _taken(key) from e
@@ -475,7 +478,7 @@ class LoopService:
             loop_key = loop.key
             if loop.state != "draft":
                 raise _not_draft(loop_key, loop.state, "only a draft can be launched")
-            resolved = _resolve(loop.engine, loop.metric, loop.context_schema)
+            resolved = resolve_engine(loop.engine, loop.metric, loop.context_schema)
             people = await _owner(session, tenant_id, loop)
             before = loop_to_dict(loop, people)
             _append_cycle(loop, loop.engine)
@@ -725,7 +728,7 @@ class LoopService:
         found = await _metric(session, tenant_id, metric) if metric else loop.metric
         owner_id = await _member(session, tenant_id, owner) if owner else None
         if drafting:
-            _resolve(engine, found, loop.context_schema)
+            resolve_engine(engine, found, loop.context_schema)
             keys = [o.key for o in (built if built is not None else loop.options)]
             if fallback is not None:
                 _fallback_among(fallback, keys)
@@ -1379,7 +1382,7 @@ class LoopService:
                 "the options, engine, metric and context are the cycle's own; to "
                 "learn afresh with them, reset the cycle"
             )
-        resolved = _resolve(engine, metric, context)
+        resolved = resolve_engine(engine, metric, context)
 
         people = await _owner(session, tenant_id, loop)
         before = loop_to_dict(loop, people)

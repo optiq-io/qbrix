@@ -35,11 +35,22 @@ class BaseEngine(ABC):
 
     engines take no settings: what a person could tune is pinned in each
     engine's resolution, so a version always means the same behaviour.
+
+    suits, learns_from and needs describe the engine in product words. every
+    minor after a major's first says what it changed in changes.
     """
 
     name: ClassVar[str]
     version: ClassVar[EngineVersion]
     needs_context: ClassVar[bool] = False
+    suits: ClassVar[str]
+    learns_from: ClassVar[str]
+    needs: ClassVar[str]
+    changes: ClassVar[str | None] = None
+
+    @classmethod
+    def title(cls) -> str:
+        return cls.name.capitalize()
 
     @classmethod
     def resolve(

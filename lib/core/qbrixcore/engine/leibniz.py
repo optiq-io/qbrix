@@ -16,6 +16,12 @@ class Leibniz(BaseEngine):
     name = "leibniz"
     version = EngineVersion(1, 0)
     needs_context = True
+    suits = (
+        "Personalization: different options for different requests, "
+        "by what the app knows about them."
+    )
+    learns_from = "outcomes and context"
+    needs = "a context on the loop, and more traffic than Spinoza"
 
     @classmethod
     def _resolve(
