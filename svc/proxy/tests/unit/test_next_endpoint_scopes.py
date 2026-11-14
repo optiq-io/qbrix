@@ -25,6 +25,8 @@ pytestmark = pytest.mark.unit
         ("POST", "/api/v1/loops/checkout-headline/cycles/reset", "loop:write"),
         ("PUT", "/api/v1/loops/checkout-headline/delivery", "loop:write"),
         ("POST", "/api/v1/loops/checkout-headline/notes", "loop:write"),
+        ("POST", "/api/v1/loops/checkout-headline/preview", "loop:read"),
+        ("POST", "/api/v1/loops/checkout-headline/edits", "loop:write"),
         ("PATCH", "/api/v1/loops/checkout-headline", "loop:write"),
         ("GET", "/api/v1/metrics", "metric:read"),
         ("GET", "/api/v1/metrics/purchase", "metric:read"),

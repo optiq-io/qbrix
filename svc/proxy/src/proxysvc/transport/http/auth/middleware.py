@@ -1,5 +1,6 @@
 import logging
 import time
+from fnmatch import fnmatchcase
 from typing import Optional, Tuple
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -289,10 +290,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return ENDPOINT_SCOPES[key]
 
         for (pattern_method, pattern_path), scope in ENDPOINT_SCOPES.items():
-            if method == pattern_method and pattern_path.endswith("*"):
-                prefix = pattern_path[:-1]
-                if path.startswith(prefix):
-                    return scope
+            if method == pattern_method and fnmatchcase(path, pattern_path):
+                return scope
 
         return None
 

@@ -11,6 +11,7 @@ from proxysvc.core.error import ChangeMovedError
 from proxysvc.core.error import ChangeNotUndoableError
 from proxysvc.core.error import ChangeWaitingError
 from proxysvc.core.error import ConnectionLevelsForbiddenError
+from proxysvc.core.error import DecisionContextError
 from proxysvc.core.error import ExperimentLimitError
 from proxysvc.core.error import ExperimentRunningError
 from proxysvc.core.error import InvalidCursorError
@@ -284,6 +285,10 @@ def refusals() -> Iterator[None]:
         ) from e
     except LoopInvalidError as e:
         raise Refusal(f"{_sentence(str(e))} Fix it and call again.") from e
+    except DecisionContextError as e:
+        raise Refusal(
+            f"The context isn't one select would take: {e}. Fix it and call again."
+        ) from e
     except MetricInvalidError as e:
         raise Refusal(f"{_sentence(str(e))} Fix it and call again.") from e
     except SummaryRangeError as e:

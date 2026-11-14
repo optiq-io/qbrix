@@ -64,6 +64,29 @@ Rollout places each unit in one of 100 buckets, from its id and the loop's. A un
 
 There is no end date. A temporary stop is a pause; when the choice leaves the product, retire the loop.
 
+### Previewing a request
+
+To check who gets what, preview a request: `loop_preview` over MCP, or `POST /api/v1/loops/{loop}/preview` with the `unit` and `properties` your app would send to `select`. It records nothing: no decision, no count, no usage.
+
+```json
+{
+  "reason": "outside_delivery",
+  "option": { "key": "control", "name": "Control", "config": { "headline": "Buy now" } },
+  "excluded_by": {
+    "part": "audience",
+    "condition": { "property": "device", "operator": "is", "value": "mobile" }
+  },
+  "defaults": null,
+  "share": null
+}
+```
+
+- `reason` is the one `select` would give. Outside delivery, `excluded_by` names the part that left the request out: the `schedule`, the first audience `condition` it doesn't hold, or the `rollout`.
+- `option` is what the request gets: the fallback, or the committed option. While a live loop's engine decides, there is no option to show. Instead, `share` gives each option's share of the loop's decisions over the last day.
+- `defaults` lists the [declared properties](#what-a-loop-learns-from) the engine would learn as their default, because the request doesn't send them or sends the wrong type.
+
+Any role that can read the loop can preview it.
+
 ## What a loop learns from
 
 A loop's **context** is the list of properties its engine learns from. Every property a request sends is recorded with its decision and can be used in the audience; the context says which of them the engine weighs when it chooses. Leibniz learns from context and needs one. Spinoza and Buridan don't use it.

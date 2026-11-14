@@ -18,9 +18,11 @@ from qbrixcore.engine import ENGINES
 from proxysvc.config import settings
 from proxysvc.core.actor import Actor
 from proxysvc.core.error import CycleNotFoundError
+from proxysvc.core.error import DecisionContextError
 from proxysvc.core.error import InvalidCursorError
 from proxysvc.core.error import LoopInvalidError
 from proxysvc.core.error import LoopKeyTakenError
+from proxysvc.core.error import LoopNotFoundError
 from proxysvc.core.error import LoopRetiredError
 from proxysvc.core.error import LoopStateError
 from proxysvc.mod.change.note import NOTE_MAX_LENGTH
@@ -38,6 +40,7 @@ from proxysvc.transport.http.auth.dependencies import get_person
 from proxysvc.transport.http.auth.dependencies import require_scopes
 from proxysvc.transport.http.exception import CycleNotFoundException
 from proxysvc.transport.http.exception import InvalidCursorException
+from proxysvc.transport.http.exception import InvalidDecisionContextException
 from proxysvc.transport.http.exception import InvalidLoopException
 from proxysvc.transport.http.exception import LoopKeyTakenException
 from proxysvc.transport.http.exception import LoopNotCommittedException
@@ -171,6 +174,48 @@ class ContextResponse(BaseModel):
     decisions: int
     properties: list[PropertyArrival]
     undeclared: list[UndeclaredArrival]
+
+
+class PreviewRequest(BaseModel):
+    unit: Any = Field(
+        default=None,
+        description="Who or what the request is for, as the app would send it to select.",
+    )
+    properties: Any = Field(
+        default=None,
+        description='What the app knows about the request, e.g. {"device": "mobile"}.',
+    )
+
+
+class PreviewOption(BaseModel):
+    key: str
+    name: str
+    config: dict[str, Any]
+
+
+class PreviewExclusion(BaseModel):
+    part: Literal["schedule", "audience", "rollout"]
+    condition: Optional[dict[str, Any]] = None
+
+
+class PreviewShareOption(BaseModel):
+    key: str
+    name: str
+    share: Optional[float] = None
+
+
+class PreviewShare(BaseModel):
+    at: str
+    cycle: int
+    options: list[PreviewShareOption]
+
+
+class PreviewResponse(BaseModel):
+    reason: str
+    option: Optional[PreviewOption] = None
+    excluded_by: Optional[PreviewExclusion] = None
+    defaults: Optional[list[str]] = None
+    share: Optional[PreviewShare] = None
 
 
 class DeliveryPart(BaseModel):
@@ -1007,6 +1052,34 @@ async def get_context(
     if found is None:
         raise _not_found(loop)
     return ContextResponse(**found)
+
+
+@router.post(
+    "/{loop}/preview",
+    status_code=status.HTTP_200_OK,
+    response_model=PreviewResponse,
+)
+async def preview_loop(
+    loop: str,
+    body: PreviewRequest,
+    tenant_id: str = Depends(get_current_tenant_id),
+    _scoped=Depends(require_scopes(["loop:read"])),
+):
+    """what select would answer for this unit and properties, recording
+    nothing. the reason, and the option it would serve: the fallback outside
+    delivery, with the part of the delivery that left it out; the committed
+    option; or, while the engine decides, no option and the loop's share over
+    the last day. defaults lists the declared properties the engine would
+    learn as their default."""
+    try:
+        preview = await get_proxy_service().preview_loop(
+            tenant_id, loop, body.unit, body.properties
+        )
+    except LoopNotFoundError:
+        raise _not_found(loop)
+    except DecisionContextError as e:
+        raise InvalidDecisionContextException(str(e))
+    return PreviewResponse(**preview)
 
 
 @router.put(

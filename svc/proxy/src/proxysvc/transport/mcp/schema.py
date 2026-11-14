@@ -12,6 +12,7 @@ from proxysvc.transport.http.router.change import ChangePage
 from proxysvc.transport.http.router.loop import HistoryEntry
 from proxysvc.transport.http.router.loop import LoopResults
 from proxysvc.transport.http.router.loop import LoopSummary
+from proxysvc.transport.http.router.loop import PreviewResponse
 from proxysvc.transport.http.router.loop import ResultsResponse
 from proxysvc.transport.http.router.loop import Share
 from proxysvc.transport.http.router.loop import SeriesPoint
@@ -55,6 +56,9 @@ class LoopPage(BaseModel):
 
 class ShareView(Share):
     series: Optional[list[SeriesPoint]] = None
+
+
+PreviewView = PreviewResponse
 
 
 class ResultsView(ResultsResponse):

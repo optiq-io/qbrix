@@ -351,6 +351,15 @@ class LoopResultService:
             }
         return summaries
 
+    async def share_now(self, tenant_id: str, ref: str) -> dict | None:
+        """the loop's share over the last day of its current cycle."""
+        async with get_session() as session:
+            loop = await LoopRepository(session, tenant_id).resolve(ref)
+        if loop is None:
+            return None
+        shares = await self.shares_at(tenant_id, [loop], self._clock())
+        return shares.get(loop.id)
+
     async def shares_at(
         self, tenant_id: str, loops: Sequence[Loop], at_ms: int
     ) -> dict:

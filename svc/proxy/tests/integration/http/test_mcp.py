@@ -67,6 +67,7 @@ TOOLS = [
     "loops_list",
     "loop_get",
     "loop_results",
+    "loop_preview",
     "metrics_list",
     "changes_list",
     "change_get",
@@ -361,6 +362,7 @@ class TestProtocol:
             "loops_list",
             "loop_get",
             "loop_results",
+            "loop_preview",
             "metrics_list",
             "change_get",
         ):
@@ -1352,6 +1354,11 @@ class TestViewer:
                 await _call(viewer, "loops_list"),
                 await _call(viewer, "loop_get", {"loop": "checkout-headline"}),
                 await _call(viewer, "loop_results", {"loop": "checkout-headline"}),
+                await _call(
+                    viewer,
+                    "loop_preview",
+                    {"loop": "checkout-headline", "unit": "user-42"},
+                ),
                 await _call(viewer, "metrics_list"),
                 await _call(viewer, "changes_list"),
                 await _call(viewer, "change_get", {"change": draft["change"]["id"]}),
@@ -2711,3 +2718,59 @@ class TestCycleStartCarriesEverything:
         assert applied["cycle"]["number"] == 2
         assert applied["metric"]["name"] == "signup"
         assert applied["context"] == [PLAN]
+
+
+class TestPreview:
+
+    async def test_outside_the_audience_names_the_condition_and_records_nothing(
+        self, mcp, wired_app
+    ):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await _call(client, "delivery_update", {**DELIVERY, "rollout": 100})
+            wired_app.selection_spy.events.clear()
+            desktop = await _call(
+                client,
+                "loop_preview",
+                {
+                    "loop": "checkout-headline",
+                    "unit": "user-42",
+                    "properties": {"device": "desktop", "country": "NL"},
+                },
+            )
+            mobile = await _call(
+                client,
+                "loop_preview",
+                {
+                    "loop": "checkout-headline",
+                    "unit": "user-42",
+                    "properties": {"device": "mobile", "country": "NL"},
+                },
+            )
+
+        assert desktop.content[0].text.splitlines()[0] == (
+            "Outside delivery: device is mobile doesn't hold. "
+            "It gets the fallback, control."
+        )
+        assert desktop.structured_content["excluded_by"]["condition"] == MOBILE_NL[0]
+        assert mobile.content[0].text.splitlines()[:2] == [
+            "Live, inside delivery: the engine decides.",
+            "Share, last day: no decisions yet.",
+        ]
+        assert mobile.structured_content["option"] is None
+        assert "Nothing was recorded." in mobile.content[0].text
+        await wired_app.events.drain()
+        assert wired_app.selection_spy.events == []
+
+    async def test_an_unknown_loop_and_a_missing_unit_are_refused(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            unknown = await _call(client, "loop_preview", {"loop": "nope", "unit": "u"})
+            blank = await _call(
+                client, "loop_preview", {"loop": "checkout-headline", "unit": " "}
+            )
+
+        assert "nope" in _error(unknown)
+        assert _error(blank).startswith(
+            "The context isn't one select would take: context.unit is required"
+        )

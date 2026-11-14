@@ -2,12 +2,14 @@ import asyncio
 from collections.abc import Collection
 from collections.abc import Sequence
 from datetime import datetime
+from datetime import timezone
 from typing import Any
 
 from qbrixcore.engine import ENGINES
 from qbrixlog import get_logger
 from qbrixstore.postgres.session import init_db
 from qbrixstore.clickhouse.client import ClickHouseClient
+from qbrixstore.redis import LoopSelectReason
 from qbrixstore.redis.client import RedisClient
 from qbrixstore.redis.streams import consumer_group_backlog
 from qbrixstore.config import ClickHouseSettings, PostgresSettings, RedisSettings
@@ -866,6 +868,19 @@ class ProxyService:
         return await self._loop_select_service.select(
             tenant_id, loop, unit, properties, source=source
         )
+
+    async def preview_loop(
+        self, tenant_id: str, loop: str, unit: Any, properties: Any = None
+    ) -> dict:
+        """what select would answer for a context, recording nothing, with
+        the loop's current share while its engine decides."""
+        preview = await self._loop_select_service.preview(
+            tenant_id, loop, unit, properties, now=datetime.now(timezone.utc)
+        )
+        share = None
+        if preview["reason"] == LoopSelectReason.LIVE.value:
+            share = await self._loop_result_service.share_now(tenant_id, loop)
+        return {**preview, "share": share}
 
     async def list_milestones(
         self,
