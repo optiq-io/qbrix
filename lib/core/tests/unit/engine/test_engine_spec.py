@@ -8,12 +8,27 @@ from qbrixcore.engine import EngineRegistry
 from qbrixcore.engine import EngineSpec
 from qbrixcore.engine import EngineVersion
 from qbrixcore.engine import Leibniz
+from qbrixcore.engine import Resolved
 from qbrixcore.engine import Spinoza
 from qbrixcore.engine.spec import ACCEPTED_FORMS
+from qbrixcore.policy.ts import GaussianTSPolicy
 
 
 class SpinozaOneOne(Spinoza):
     version = EngineVersion(1, 1)
+    changes = "explores less once an option is clearly ahead"
+
+
+class SpinozaOneOneUnsaid(Spinoza):
+    version = EngineVersion(1, 1)
+
+
+class SpinozaOneOneRelearns(SpinozaOneOne):
+    @classmethod
+    def _resolve(cls, metric_type, score_range, context_dim):
+        if metric_type.value == "value":
+            return Resolved(GaussianTSPolicy)
+        return super()._resolve(metric_type, score_range, context_dim)
 
 
 class TestEngineSpec:
@@ -106,3 +121,29 @@ class TestEngineRegistry:
     def test_duplicate_version_is_refused(self):
         with pytest.raises(ValueError, match="registered twice"):
             EngineRegistry([Spinoza, Spinoza])
+
+    def test_pin_over_several_minors_keeps_the_major_or_the_minor(self):
+        registry = EngineRegistry([Spinoza, SpinozaOneOne])
+
+        assert str(registry.pin("spinoza")) == "spinoza:1"
+        assert str(registry.pin("spinoza:1.0")) == "spinoza:1.0"
+
+    def test_versions_list_every_version_oldest_first(self):
+        registry = EngineRegistry([SpinozaOneOne, Spinoza, Leibniz])
+
+        assert registry.versions("spinoza") == [Spinoza, SpinozaOneOne]
+        assert registry.versions("leibniz") == [Leibniz]
+
+    def test_a_minor_that_says_nothing_of_what_it_changed_is_refused(self):
+        with pytest.raises(ValueError, match="needs a changes line"):
+            EngineRegistry([Spinoza, SpinozaOneOneUnsaid])
+
+    def test_a_minor_that_learns_into_another_state_is_refused(self):
+        with pytest.raises(ValueError, match="learns value into a different state"):
+            EngineRegistry([Spinoza, SpinozaOneOneRelearns])
+
+    def test_every_engine_says_what_it_suits_learns_from_and_needs(self):
+        for name in ENGINES.names:
+            engine = ENGINES.get(name)
+            assert engine.suits and engine.learns_from and engine.needs
+        assert ENGINES.get("leibniz").title() == "Leibniz"

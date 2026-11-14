@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Iterable
 
 from qbrixcore.engine.base import BaseEngine
+from qbrixcore.engine.metric import MetricType
+from qbrixcore.engine.metric import ScoreRange
 from qbrixcore.engine.spec import ACCEPTED_FORMS
 from qbrixcore.engine.spec import EngineError
 from qbrixcore.engine.spec import EngineSpec
@@ -27,10 +29,18 @@ class EngineRegistry:
         for majors in self._majors.values():
             for minors in majors.values():
                 minors.sort(key=lambda e: e.version)
+                _check_minors(minors)
 
     @property
     def names(self) -> list[str]:
         return sorted(self._majors)
+
+    def versions(self, name: str) -> list[type[BaseEngine]]:
+        """every version of an engine, oldest first."""
+        majors = self._majors.get(name)
+        if majors is None:
+            raise EngineError(f"unknown engine {name!r}")
+        return [engine for major in sorted(majors) for engine in majors[major]]
 
     def get(self, spec: str | EngineSpec) -> type[BaseEngine]:
         """the exact engine version a spec runs today."""
@@ -69,3 +79,32 @@ class EngineRegistry:
     @staticmethod
     def _parse(spec: str | EngineSpec) -> EngineSpec:
         return spec if isinstance(spec, EngineSpec) else EngineSpec.parse(spec)
+
+
+def _learned_state(engine: type[BaseEngine], metric_type: MetricType) -> type:
+    return engine.resolve(
+        metric_type,
+        score_range=ScoreRange(0.0, 1.0) if metric_type is MetricType.SCORE else None,
+        context_dim=1,
+    ).policy_cls.param_state_cls
+
+
+def _check_minors(minors: list[type[BaseEngine]]) -> None:
+    """a cycle follows its major's minors with what it learned, so a minor
+    must say what it changed and learn into the same state as its major."""
+    first = minors[0]
+    for engine in minors:
+        if engine.version.minor > 0 and not engine.changes:
+            raise ValueError(
+                f"{engine.name} {engine.version} needs a changes line saying "
+                f"what it changed"
+            )
+        for metric_type in MetricType:
+            if _learned_state(engine, metric_type) is not _learned_state(
+                first, metric_type
+            ):
+                raise ValueError(
+                    f"{engine.name} {engine.version} learns {metric_type.value} "
+                    f"into a different state than {first.name} {first.version}; "
+                    f"that is a new major"
+                )

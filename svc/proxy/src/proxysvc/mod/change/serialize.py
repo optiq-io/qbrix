@@ -26,6 +26,7 @@ VERBS = {
     "delivery.update": "changed the delivery of",
     "context.update": "changed the context of",
     "brief.update": "changed the brief of",
+    "engine.minor": "updated the engine of",
     "metric.create": "created",
     "metric.delete": "deleted",
     "note.add": "added a note to",

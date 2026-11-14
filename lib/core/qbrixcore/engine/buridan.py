@@ -13,6 +13,12 @@ class Buridan(BaseEngine):
 
     name = "buridan"
     version = EngineVersion(1, 0)
+    suits = (
+        "An even split that never prefers an option: a baseline, "
+        "or data nobody steered."
+    )
+    learns_from = "nothing; outcomes are still recorded and shown"
+    needs = "nothing"
 
     @classmethod
     def _resolve(

@@ -69,6 +69,7 @@ TOOLS = [
     "loop_results",
     "loop_preview",
     "metrics_list",
+    "engines_list",
     "changes_list",
     "change_get",
     "loop_history",
@@ -1360,6 +1361,7 @@ class TestViewer:
                     {"loop": "checkout-headline", "unit": "user-42"},
                 ),
                 await _call(viewer, "metrics_list"),
+                await _call(viewer, "engines_list"),
                 await _call(viewer, "changes_list"),
                 await _call(viewer, "change_get", {"change": draft["change"]["id"]}),
                 await _call(viewer, "loop_history", {"loop": "checkout-headline"}),
@@ -1468,6 +1470,20 @@ class TestReads:
         assert [loop["key"] for loop in metric["loops"]] == ["checkout-headline"]
         assert "used by checkout-headline" in result.content[0].text
 
+    async def test_engines_list_says_what_each_engine_needs(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            result = await _call(client, "engines_list")
+
+        engines = {e["name"]: e for e in result.structured_content["engines"]}
+        assert list(engines) == ["spinoza", "buridan", "leibniz"]
+        assert engines["spinoza"]["default"] is True
+        assert engines["leibniz"]["needs_context"] is True
+        assert engines["leibniz"]["needs"].startswith("a context on the loop")
+        assert engines["buridan"]["versions"] == ["1.0"]
+        text = result.content[0].text
+        assert "spinoza (the default) · Spinoza 1.0" in text
+        assert "spinoza, spinoza:1 or spinoza:1.3" in text
+
     async def test_loop_results_of_a_live_loop(self, mcp, wired_app):
         async with _session(mcp, wired_app) as client:
             await _draft(client)
@@ -1536,6 +1552,39 @@ class TestRefusals:
         assert _error(result) == (
             "No loop with key or id nope. Call loops_list to see this workspace's loops."
         )
+
+    @pytest.mark.parametrize(
+        "engine, cycle", [("buridan", "buridan:1"), ("spinoza:1.0", "spinoza:1.0")]
+    )
+    async def test_a_loop_is_created_on_the_engine_it_names(
+        self, mcp, wired_app, engine, cycle
+    ):
+        async with _session(mcp, wired_app) as client:
+            await _call(client, "metric_create", METRIC)
+            created = await _call(client, "loop_create", {**LOOP, "engine": engine})
+            launched = await _call(
+                client, "loop_launch", {"loop": "checkout-headline", "reason": "go"}
+            )
+
+        assert created.structured_content["loop"]["engine"] == engine
+        assert f"on {engine}." in created.content[0].text
+        assert launched.structured_content["loop"]["cycle"]["engine"] == cycle
+
+    async def test_a_loop_is_created_on_leibniz_with_its_context(self, mcp, wired_app):
+        context = [{"name": "plan", "type": "categorical", "values": ["free", "pro"]}]
+        async with _session(mcp, wired_app) as client:
+            await _call(client, "metric_create", METRIC)
+            refused = await _call(client, "loop_create", {**LOOP, "engine": "leibniz"})
+            created = await _call(
+                client,
+                "loop_create",
+                {**LOOP, "engine": "leibniz", "context": context},
+            )
+
+        assert "declare the context first" in _error(refused)
+        loop = created.structured_content["loop"]
+        assert loop["engine"] == "leibniz"
+        assert [prop["name"] for prop in loop["context"]] == ["plan"]
 
     async def test_an_unknown_metric_suggests_one(self, mcp, wired_app):
         async with _session(mcp, wired_app) as client:

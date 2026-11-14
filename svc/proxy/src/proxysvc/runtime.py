@@ -12,6 +12,7 @@ from proxysvc.core.invalidation import TenantInvalidation
 from proxysvc.mod.auth import AuthService
 from proxysvc.mod.auth import create_auth_service
 from proxysvc.mod.auth import init_operators
+from proxysvc.mod.loop.upgrade import follow_minors
 from proxysvc.mod.safety.watch import SafetyWatch
 from proxysvc.service import ProxyService
 
@@ -91,6 +92,7 @@ class ProxyRuntime:
         await self._invalidation.start()
 
         if self._settings.next_enabled:
+            await self._follow_minors()
             self._safety = SafetyWatch(
                 self._proxy_service.redis,
                 self._proxy_service.loops,
@@ -99,6 +101,16 @@ class ProxyRuntime:
             await self._safety.start()
 
         logger.info("proxy runtime started")
+
+    async def _follow_minors(self) -> None:
+        """a failed pass leaves each cycle learning on the minor it runs, and
+        the next start tries again, so it never holds back the start."""
+        try:
+            await follow_minors(self._proxy_service.redis)
+        except Exception:
+            logger.error(
+                "moving cycles to their latest engine minor failed", exc_info=True
+            )
 
     async def stop(self) -> None:
         if self._safety is not None:
