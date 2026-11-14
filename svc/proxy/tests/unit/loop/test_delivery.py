@@ -197,6 +197,56 @@ class TestOrder:
         assert not _decides({**delivery, "rollout": 0}, mobile_nl, now=_at(12))
 
 
+class TestExcludedBy:
+    DELIVERY = {
+        "audience": MOBILE_NL,
+        "rollout": 0,
+        "schedule": {"hours": {"start": "09:00", "end": "18:00"}, "timezone": "UTC"},
+    }
+
+    def _excluded(self, delivery: dict, properties: dict, now=NOON_UTC):
+        return Delivery.model_validate(delivery).excluded_by(
+            "loop-1", "u-1", properties, now
+        )
+
+    def test_the_schedule_is_named_first(self):
+        found = self._excluded(self.DELIVERY, {"device": "desktop"}, now=_at(20))
+
+        assert (found.part, found.condition) == ("schedule", None)
+
+    def test_the_first_condition_that_fails_is_named(self):
+        found = self._excluded(self.DELIVERY, {"device": "mobile", "country": "DE"})
+
+        assert found.part == "audience"
+        assert found.condition.model_dump() == MOBILE_NL[1]
+
+    def test_a_missing_property_fails_its_condition(self):
+        found = self._excluded(self.DELIVERY, {})
+
+        assert found.condition.model_dump() == MOBILE_NL[0]
+
+    def test_the_rollout_is_named_last(self):
+        found = self._excluded(self.DELIVERY, {"device": "mobile", "country": "NL"})
+
+        assert (found.part, found.condition) == ("rollout", None)
+
+    def test_inside_is_none_and_decide_agrees(self):
+        delivery = {**self.DELIVERY, "rollout": 100}
+        inside = {"device": "mobile", "country": "NL"}
+
+        assert self._excluded(delivery, inside) is None
+        assert _decides(delivery, inside)
+
+    @pytest.mark.parametrize("unit", [f"u-{n}" for n in range(50)])
+    def test_decide_is_never_excluded_by(self, unit):
+        delivery = Delivery.model_validate({**self.DELIVERY, "rollout": 40})
+        properties = {"device": "mobile", "country": "BE"}
+
+        assert delivery.decide("loop-1", unit, properties, NOON_UTC) is (
+            delivery.excluded_by("loop-1", unit, properties, NOON_UTC) is None
+        )
+
+
 def test_it_round_trips_through_json():
     delivery = Delivery.model_validate(
         {

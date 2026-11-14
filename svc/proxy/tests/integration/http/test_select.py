@@ -863,3 +863,133 @@ class TestContext:
         await _select(api, loop["key"], {"unit": "u", "properties": {"plan": "pro"}})
 
         assert _sent_vector(wired_app) == []
+
+
+async def _preview(api, loop: str, context: dict | None = None):
+    return await api.post(
+        f"/api/v1/loops/{loop}/preview",
+        json={"unit": "user-42"} if context is None else context,
+    )
+
+
+async def _nothing_recorded(wired_app, loop: dict) -> None:
+    await _settled(wired_app)
+    wired_app.motor_mock.select.assert_not_called()
+    assert wired_app.selection_spy.events == []
+    assert wired_app.milestone_spy.events == []
+    counts = await wired_app.svc._redis.loop_selects(TENANT, loop["id"], 5)
+    assert set(counts.values()) == {0}
+    if loop.get("cycle"):
+        health = await wired_app.svc._redis.select_health(
+            TENANT, loop["cycle"]["id"], 5
+        )
+        assert (health.ok, health.error) == (0, 0)
+
+
+class TestPreview:
+    async def test_outside_the_audience_names_the_condition(self, wired_app, api):
+        loop = await _loop(wired_app, launch=True, fallback="urgency")
+        loop = await _deliver(wired_app, loop, audience=MOBILE_NL)
+        wired_app.motor_mock.select.reset_mock()
+
+        desktop = (await _preview(api, loop["key"], DESKTOP_IN_NL)).json()
+        mobile = (await _preview(api, loop["key"], MOBILE_IN_NL)).json()
+
+        assert desktop["reason"] == "outside_delivery"
+        assert desktop["option"]["key"] == "urgency"
+        assert desktop["excluded_by"] == {"part": "audience", "condition": MOBILE_NL[0]}
+        assert mobile["reason"] == "live"
+        assert mobile["option"] is None
+        assert mobile["excluded_by"] is None
+        assert [o["key"] for o in mobile["share"]["options"]] == ["control", "urgency"]
+        await _nothing_recorded(wired_app, loop)
+
+    async def test_the_rollout_and_the_schedule_are_named(
+        self, wired_app, api, monkeypatch
+    ):
+        loop = await _loop(wired_app, launch=True)
+        await _deliver(wired_app, loop, rollout=0)
+        rollout = (await _preview(api, loop["key"])).json()
+        await _deliver(
+            wired_app,
+            loop,
+            rollout=100,
+            schedule={"hours": {"start": "09:00", "end": "18:00"}, "timezone": "UTC"},
+        )
+        evening = datetime(2026, 11, 14, 20, 0, tzinfo=timezone.utc)
+
+        class Clock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return evening.astimezone(tz)
+
+        monkeypatch.setattr("proxysvc.service.datetime", Clock)
+        schedule = (await _preview(api, loop["key"])).json()
+
+        assert rollout["excluded_by"] == {"part": "rollout", "condition": None}
+        assert schedule["excluded_by"] == {"part": "schedule", "condition": None}
+
+    async def test_a_live_loop_shows_its_share_over_the_last_day(self, wired_app, api):
+        loop = await _loop(wired_app, launch=True)
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        for n, option in enumerate([0, 1, 1, 1]):
+            wired_app.ledger.decide(loop["cycle"]["id"], f"d-{n}", option, now_ms)
+
+        found = (await _preview(api, loop["key"])).json()
+
+        assert found["share"]["cycle"] == 1
+        assert [o["share"] for o in found["share"]["options"]] == [0.25, 0.75]
+
+    async def test_a_committed_loop_shows_its_option(self, wired_app, api):
+        loop = await _committed(wired_app, "urgency")
+        wired_app.motor_mock.select.reset_mock()
+
+        found = (await _preview(api, loop["key"])).json()
+
+        assert (found["reason"], found["option"]["key"]) == ("committed", "urgency")
+        assert found["share"] is None
+        await _nothing_recorded(wired_app, loop)
+
+    async def test_a_draft_previews_its_fallback_and_is_no_first_call(
+        self, wired_app, api
+    ):
+        loop = await _loop(wired_app, fallback="urgency")
+
+        found = (await _preview(api, loop["key"])).json()
+
+        assert (found["reason"], found["option"]["key"]) == ("draft", "urgency")
+        await _nothing_recorded(wired_app, loop)
+        await _select(api, loop["key"])
+        await _settled(wired_app)
+        assert [e.kind for e in wired_app.milestone_spy.events] == ["loop.first_call"]
+
+    async def test_paused_and_retired_preview_the_fallback(self, wired_app, api):
+        paused = await _loop(wired_app, launch=True)
+        await wired_app.svc._loop_service.pause_loop(TENANT, paused["key"], actor=ACTOR)
+        retired = await _retired(wired_app)
+
+        assert (await _preview(api, paused["key"])).json()["reason"] == "paused"
+        assert (await _preview(api, retired["key"])).json()["reason"] == "retired"
+
+    async def test_leibniz_lists_the_properties_it_would_learn_as_defaults(
+        self, wired_app, api
+    ):
+        loop = await _on_leibniz(wired_app)
+
+        found = (
+            await _preview(api, loop["key"], {"unit": "u", "properties": {"plan": 3.5}})
+        ).json()
+
+        assert found["defaults"] == ["plan", "seats"]
+
+    async def test_spinoza_learns_no_context_so_lists_no_defaults(self, wired_app, api):
+        loop = await _loop(wired_app, launch=True)
+
+        assert (await _preview(api, loop["key"])).json()["defaults"] is None
+
+    async def test_refusals(self, wired_app, api):
+        loop = await _loop(wired_app, launch=True)
+
+        assert (await _preview(api, "nope")).status_code == 404
+        missing = await _preview(api, loop["key"], {"properties": {}})
+        assert missing.status_code == 400

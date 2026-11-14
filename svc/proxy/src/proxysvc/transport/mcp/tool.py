@@ -72,6 +72,7 @@ from proxysvc.transport.mcp.schema import LoopView
 from proxysvc.transport.mcp.schema import MetricChanged
 from proxysvc.transport.mcp.schema import MetricList
 from proxysvc.transport.mcp.schema import NoteAdded
+from proxysvc.transport.mcp.schema import PreviewView
 from proxysvc.transport.mcp.schema import ResultsView
 from proxysvc.transport.mcp.verifier import current_principal
 from proxysvc.transport.mcp.wire import wiring
@@ -572,6 +573,51 @@ def _week_lines(week: dict) -> list[str]:
     return lines
 
 
+_EXCLUDED_BY = {
+    "schedule": "it is outside the schedule",
+    "rollout": "the unit is outside the rollout",
+}
+
+_REASON_LINES = {
+    "draft": "A draft: it gets the fallback",
+    "paused": "Paused: it gets the fallback",
+    "retired": "Retired: it gets the fallback",
+}
+
+
+def _preview_text(preview: dict) -> str:
+    reason = preview["reason"]
+    option = preview["option"]
+    excluded = preview["excluded_by"]
+    if excluded is not None:
+        condition = excluded["condition"]
+        why = (
+            f"{condition['property']} {_OPERATOR_PHRASES[condition['operator']]} "
+            f"{_value_phrase(condition['value'])} doesn't hold"
+            if condition is not None
+            else _EXCLUDED_BY[excluded["part"]]
+        )
+        lines = [f"Outside delivery: {why}. It gets the fallback, {option['key']}."]
+    elif reason in _REASON_LINES:
+        lines = [f"{_REASON_LINES[reason]}, {option['key']}."]
+    elif reason == "committed":
+        lines = [f"Committed, inside delivery: it gets {option['key']}."]
+    else:
+        share = preview["share"]
+        shared = _share_line(share["options"]) if share else ""
+        lines = [
+            "Live, inside delivery: the engine decides.",
+            f"Share, last day: {shared or 'no decisions yet'}.",
+        ]
+    if preview["defaults"]:
+        lines.append(
+            f"Learned as their default (missing or the wrong type): "
+            f"{', '.join(preview['defaults'])}."
+        )
+    lines.append("Nothing was recorded.")
+    return "\n".join(lines)
+
+
 def _share_line(share: list[dict]) -> str:
     return ", ".join(
         f"{item['key']} {item['share']:.0%}"
@@ -1003,6 +1049,37 @@ def register(
             f"{health['outcomes']['late']} late"
         )
         return _result("\n".join(lines), ResultsView(**results))
+
+    async def loop_preview(
+        loop: LoopRef,
+        unit: Annotated[
+            str,
+            Field(
+                min_length=1,
+                description="Who or what the request is for, as the app sends it to select.",
+            ),
+        ],
+        properties: Annotated[
+            Optional[dict[str, Any]],
+            Field(
+                description='What the app knows about the request, e.g. {"device": "mobile"}.'
+            ),
+        ] = None,
+    ) -> Annotated[CallToolResult, PreviewView]:
+        """What select would return for a request, recording no decision: the reason, and the option it gets, or while the engine decides, the loop's share over the last day. Outside delivery it names the part that left the request out: the schedule, an audience condition, or the rollout. Use it to check an edit took effect, or to see what a page shows someone."""
+        principal = current_principal()
+        try:
+            _require(principal, "loop:read", "read loops")
+            try:
+                with refusals():
+                    preview = await service().preview_loop(
+                        principal.tenant_id, loop, unit, properties
+                    )
+            except LoopNotFoundError:
+                raise await refused_loop(principal, loop)
+        except Refusal as refusal:
+            return _refused(refusal)
+        return _result(_preview_text(preview), PreviewView(**preview))
 
     async def metrics_list() -> Annotated[CallToolResult, MetricList]:
         """List the workspace's metrics: what each stands for, its type and window, and the loops that use it."""
@@ -2104,6 +2181,7 @@ def register(
         (loops_list, _READ),
         (loop_get, _READ),
         (loop_results, _READ),
+        (loop_preview, _READ),
         (metrics_list, _READ),
         (changes_list, _READ),
         (change_get, _READ),

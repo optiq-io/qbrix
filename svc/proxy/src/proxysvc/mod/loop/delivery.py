@@ -6,6 +6,7 @@ from datetime import datetime
 from datetime import time
 from typing import Annotated
 from typing import Any
+from typing import Literal
 from zoneinfo import ZoneInfo
 from zoneinfo import ZoneInfoNotFoundError
 
@@ -158,15 +159,38 @@ class Delivery(BaseModel):
         return not self.audience and self.rollout == 100 and self.schedule.always
 
     def decide(self, loop_id: str, unit: str, properties: dict, now: datetime) -> bool:
-        """whether the loop decides for this request. rollout buckets the unit
-        with the loop's id, so a unit keeps its bucket on a loop and is placed
+        """whether the loop decides for this request."""
+        return self.excluded_by(loop_id, unit, properties, now) is None
+
+    def excluded_by(
+        self, loop_id: str, unit: str, properties: dict, now: datetime
+    ) -> Exclusion | None:
+        """the first part of the delivery this request falls outside of, or
+        None when the loop decides for it. rollout buckets the unit with the
+        loop's id, so a unit keeps its bucket on a loop and is placed
         independently on every other one."""
         if not self.schedule.open(now):
-            return False
-        if not all(condition.holds(properties) for condition in self.audience):
-            return False
-        return self.rollout == 100 or bucket(f"{loop_id}:{unit}") < self.rollout
+            return _OUTSIDE_SCHEDULE
+        for condition in self.audience:
+            if not condition.holds(properties):
+                return Exclusion(part="audience", condition=condition)
+        if self.rollout == 100 or bucket(f"{loop_id}:{unit}") < self.rollout:
+            return None
+        return _OUTSIDE_ROLLOUT
 
+
+class Exclusion(BaseModel):
+    """which part of a delivery left a request out: the schedule, one
+    condition of the audience, or the rollout."""
+
+    model_config = ConfigDict(frozen=True)
+
+    part: Literal["schedule", "audience", "rollout"]
+    condition: Condition | None = None
+
+
+_OUTSIDE_SCHEDULE = Exclusion(part="schedule")
+_OUTSIDE_ROLLOUT = Exclusion(part="rollout")
 
 EVERYONE = Delivery()
 

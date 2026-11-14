@@ -22,6 +22,7 @@ from proxysvc.core.error import ExperimentNotFoundError
 from proxysvc.core.error import LoopNotFoundError
 from proxysvc.core.events import EventEmitter
 from proxysvc.mod.agent.service import classify_select_error
+from proxysvc.mod.loop.delivery import Exclusion
 from proxysvc.mod.loop.route import LoopRoute
 from proxysvc.mod.loop.route import LoopRouteCache
 from proxysvc.mod.loop.route import RouteOption
@@ -63,9 +64,28 @@ def _answer(
     option: RouteOption, request_id: str | None, reason: LoopSelectReason
 ) -> dict:
     return {
-        "option": {"key": option.key, "name": option.name, "config": option.config},
+        "option": _option(option),
         "request_id": request_id,
         "reason": reason.value,
+    }
+
+
+def _option(option: RouteOption) -> dict:
+    return {"key": option.key, "name": option.name, "config": option.config}
+
+
+def _preview(
+    reason: LoopSelectReason,
+    option: RouteOption | None,
+    *,
+    exclusion: Exclusion | None = None,
+    defaults: list[str] | None = None,
+) -> dict:
+    return {
+        "reason": reason.value,
+        "option": _option(option) if option is not None else None,
+        "excluded_by": exclusion.model_dump() if exclusion is not None else None,
+        "defaults": defaults,
     }
 
 
@@ -135,6 +155,50 @@ class LoopSelectService:
         self._count_outcome(tenant_id, route.cycle.id, SelectOutcome.OK)
         self._count_reason(tenant_id, route.id, reason)
         return answer
+
+    async def preview(
+        self,
+        tenant_id: str,
+        loop: str,
+        unit: Any,
+        properties: Any = None,
+        *,
+        now: datetime,
+    ) -> dict:
+        """what select would answer for this context, recording nothing: no
+        decision, no count, no usage. a live loop's option is the engine's to
+        choose, so it is left out; the exclusion names the part of the
+        delivery a request falls outside of, and defaults the declared
+        properties the engine would learn as their default."""
+        properties = _check_context(unit, properties)
+        route = await self._routes.get(tenant_id, loop)
+        if route is None:
+            raise LoopNotFoundError(f"no loop with the key or id {loop!r}")
+
+        reason = LoopSelectReason(route.state)
+        if route.state not in _DECIDING:
+            return _preview(reason, route.fallback)
+        exclusion = route.delivery.excluded_by(route.id, unit, properties, now)
+        if exclusion is not None:
+            return _preview(
+                LoopSelectReason.OUTSIDE_DELIVERY, route.fallback, exclusion=exclusion
+            )
+        context = route.cycle.context
+        defaults = (
+            [
+                prop.name
+                for prop in context.root
+                if not context.readable(prop.name, properties.get(prop.name))
+            ]
+            if context is not None
+            else None
+        )
+        option = (
+            route.options[route.committed]
+            if reason is LoopSelectReason.COMMITTED
+            else None
+        )
+        return _preview(reason, option, defaults=defaults)
 
     async def _decide(
         self,
