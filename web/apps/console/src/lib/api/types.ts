@@ -719,6 +719,50 @@ export interface CreateLoopBody {
   fallback: string;
 }
 
+export type LoopEditPart = "brief" | "cycle" | "delivery" | "context";
+
+/** POST /v1/loops/{loop}/edits and /edits/check; a part left out is not edited */
+export interface LoopEditsBody {
+  brief?: {
+    purpose?: string;
+    /** a member's id or email */
+    owner?: string;
+  };
+  /** past draft these start one new cycle; on a draft they edit the brief */
+  cycle?: {
+    options?: { name: string; key?: string; config: Record<string, unknown> }[];
+    engine?: string;
+    /** a metric's name or id */
+    metric?: string;
+  };
+  /** a part given replaces that whole part */
+  delivery?: Partial<LoopDelivery> & { fallback?: string };
+  /** null clears it */
+  context?: { context: ContextSchema | null };
+  reason?: string;
+}
+
+export interface LoopPlannedChange {
+  /** null in a check */
+  id: string | null;
+  kind: string;
+  parts: LoopEditPart[];
+  undoable: boolean;
+}
+
+/** POST /v1/loops/{loop}/edits/check */
+export interface LoopEditsPlan {
+  changes: LoopPlannedChange[];
+  /** the number of the cycle it starts */
+  cycle: number | null;
+}
+
+/** POST /v1/loops/{loop}/edits */
+export interface LoopEdited extends LoopEditsPlan {
+  loop: Loop;
+  serving_within_seconds: number;
+}
+
 export type MetricType = "conversion" | "count" | "value" | "score";
 
 export interface MetricLoop {

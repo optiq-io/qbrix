@@ -1553,6 +1553,18 @@ def register(
                 description="The new cycle's engine, such as spinoza or leibniz:1; the current one when left out."
             ),
         ] = None,
+        metric: Annotated[
+            Optional[str],
+            Field(
+                description="The metric the loop improves from this cycle on, by name or id, of any type; the current one when left out. The cycle pins its newest version."
+            ),
+        ] = None,
+        context: Annotated[
+            Optional[list[ContextPropertyInput]],
+            Field(
+                description="The properties the new cycle's engine learns from, replacing the whole context; the current one when left out."
+            ),
+        ] = None,
         fallback: Annotated[
             Optional[str],
             Field(
@@ -1560,7 +1572,7 @@ def register(
             ),
         ] = None,
     ) -> Annotated[CallToolResult, LoopChanged] | InputRequiredResult:
-        """Start a new cycle of a live or paused loop with new options, a new engine, or both. The new cycle learns afresh; the current one ends and its results stay readable, and its open decisions keep teaching it. A paused loop stays paused. This can't be undone."""
+        """Start a new cycle of a live or paused loop with new options, a new engine, a new metric or a new context, all together in one call: one cycle carries every change that needs one. The new cycle learns afresh; the current one ends and its results stay readable, and its open decisions keep teaching it. A paused loop stays paused. This can't be undone."""
         arguments = {
             "loop": loop,
             "reason": reason,
@@ -1570,6 +1582,12 @@ def register(
                 else None
             ),
             "engine": engine,
+            "metric": metric,
+            "context": (
+                [prop.model_dump(exclude_none=True) for prop in context]
+                if context is not None
+                else None
+            ),
             "fallback": fallback,
         }
 
@@ -1584,9 +1602,16 @@ def register(
                         {
                             "options": arguments["options"],
                             "engine": engine,
+                            "metric": metric,
                             "fallback": fallback,
+                            **(
+                                {"context": arguments["context"]}
+                                if context is not None
+                                else {}
+                            ),
                         },
                         reason=reason,
+                        also=("context.update",) if context is not None else (),
                     )
             except LoopStateError as e:
                 found = await service().get_loop(principal.tenant_id, loop)
@@ -1814,6 +1839,55 @@ def register(
             )
 
         return await once("context_update", arguments, call, ctx, loop_answered)
+
+    async def brief_update(
+        ctx: Context,
+        loop: LoopRef,
+        reason: Reason,
+        purpose: Annotated[
+            Optional[str],
+            Field(description="What the loop is for; kept when left out."),
+        ] = None,
+        owner: Annotated[
+            Optional[str],
+            Field(
+                description="The email or id of the workspace member who owns the loop from now on; kept when left out."
+            ),
+        ] = None,
+    ) -> Annotated[CallToolResult, LoopChanged] | InputRequiredResult:
+        """Change a loop's brief: what it is for and who owns it, in any state. To change its options, engine or metric, start a new cycle with cycle_start. This can be undone."""
+        arguments = {"loop": loop, "reason": reason, "purpose": purpose, "owner": owner}
+
+        async def call(principal: ConnectionPrincipal) -> CallToolResult:
+            _require(principal, "loop:write", "change a loop's brief")
+            with refusals():
+                updated = await make(
+                    principal,
+                    "brief.update",
+                    loop,
+                    {"purpose": purpose, "owner": owner},
+                    reason=reason,
+                )
+            if updated is None:
+                raise await refused_loop(principal, loop)
+            if isinstance(updated, Waiting):
+                return await asked(
+                    principal,
+                    updated.change,
+                    lambda change, _: LoopChanged(
+                        status="waiting", change=change, loop=updated.value
+                    ),
+                )
+            value = updated.value
+            change = changed(updated, "loop", value["key"])
+            return _result(
+                f"Changed the brief of {value['key']}. Purpose: "
+                f"{value['purpose'] or 'none given'}. Owner: {value['owner']['name']}. "
+                f"Change {change['id']}, can be undone: {change['url']}",
+                LoopChanged(status="applied", change=change, loop=value),
+            )
+
+        return await once("brief_update", arguments, call, ctx, loop_answered)
 
     async def loop_resume(
         ctx: Context, loop: LoopRef, reason: Reason
@@ -2048,6 +2122,7 @@ def register(
         (cycle_reset, _DESTRUCTIVE),
         (delivery_update, _DESTRUCTIVE),
         (context_update, _DESTRUCTIVE),
+        (brief_update, _DESTRUCTIVE),
         (metric_create, _CREATE),
         (note_add, _CREATE),
         (change_undo, _DESTRUCTIVE),

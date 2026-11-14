@@ -30,6 +30,7 @@ KINDS: tuple[Kind, ...] = (
     Kind("cycle.start", "ask", on_loop=True),
     Kind("loop.retire", "ask", on_loop=True),
     Kind("loop.rename", "notify", on_loop=True),
+    Kind("brief.update", "notify", on_loop=True),
     Kind("loop.pause", "notify", on_loop=True),
     Kind("loop.resume", "notify", on_loop=True),
     Kind("loop.commit", "notify", on_loop=True),
