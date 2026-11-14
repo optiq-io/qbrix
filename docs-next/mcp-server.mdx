@@ -44,10 +44,11 @@ The first time the client calls qbrix, it opens your browser to sign in and appr
 | `loop_retire` | Retires a live, committed or paused loop once its choice has left the product. Apps that still call it get its fallback. |
 | `loop_pause` | Pauses a live or committed loop: everyone gets its fallback until it is resumed. |
 | `loop_resume` | Resumes a paused loop to the state it was paused from. |
-| `cycle_start` | Starts a new cycle of a live or paused loop with new options, a new engine, or both. |
+| `cycle_start` | Starts a new cycle of a live or paused loop with new options, a new engine, a new metric or a new context, all in one call. With a context, it asks first if either `cycle_start` or `context_update` does. |
 | `cycle_reset` | Starts a new cycle with the same options, engine and fallback, learning afresh. |
 | `delivery_update` | Changes [who a loop decides for](/docs/loops#who-gets-what): its audience, rollout and schedule, and the fallback everyone else gets. Any state but retired. |
 | `context_update` | Declares [what a loop learns from](/docs/loops#what-a-loop-learns-from), and answers with which declared properties the last day's decisions carried. On Leibniz, once launched, it starts a new cycle and asks first like `cycle_start`. Any state but retired. |
+| `brief_update` | Changes [a loop's brief](/docs/loops#its-brief): what it is for and who owns it, in any state. |
 | `metric_create` | Creates a metric with what it stands for, its type and its window. |
 | `note_add` | Adds a note to a loop's history. A note stays: a correction is a new note. |
 | `change_undo` | Undoes an earlier change by writing its inverse as a new change, at your level for the change it undoes. |

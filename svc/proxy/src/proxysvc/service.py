@@ -33,6 +33,10 @@ from proxysvc.mod.gate.config import FeatureGateConfig
 from proxysvc.mod.gate.schema import GateConfigPatchRequest
 from proxysvc.mod.gate.schema import GateConfigRequest
 from proxysvc.mod.pin.service import PinService
+from proxysvc.mod.loop.edit import UNSET
+from proxysvc.mod.loop.edit import StagedContext
+from proxysvc.mod.loop.edit import Edited
+from proxysvc.mod.loop.edit import Edits
 from proxysvc.mod.loop.outcome import LoopOutcomeService
 from proxysvc.mod.loop.read import LoopReadService
 from proxysvc.mod.loop.result import LoopResultService
@@ -708,6 +712,8 @@ class ProxyService:
         *,
         options: list[dict[str, Any]] | None = None,
         engine: str | None = None,
+        metric: str | None = None,
+        context: StagedContext = UNSET,
         fallback: str | None = None,
         actor: Actor,
         reason: str | None = None,
@@ -717,9 +723,39 @@ class ProxyService:
             ref,
             options=options,
             engine=engine,
+            metric=metric,
+            context=context,
             fallback=fallback,
             actor=actor,
             reason=reason,
+        )
+
+    async def update_brief(
+        self,
+        tenant_id: str,
+        ref: str,
+        *,
+        purpose: str | None = None,
+        owner: str | None = None,
+        actor: Actor,
+        reason: str | None = None,
+    ) -> Applied | None:
+        return await self._loop_service.update_brief(
+            tenant_id, ref, purpose=purpose, owner=owner, actor=actor, reason=reason
+        )
+
+    async def apply_edits(
+        self,
+        tenant_id: str,
+        ref: str,
+        edits: Edits,
+        *,
+        actor: Actor,
+        reason: str | None = None,
+        check: bool = False,
+    ) -> Edited | None:
+        return await self._loop_service.apply_edits(
+            tenant_id, ref, edits, actor=actor, reason=reason, check=check
         )
 
     async def update_context(

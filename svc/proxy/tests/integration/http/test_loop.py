@@ -1624,7 +1624,7 @@ class TestStartCycle:
     @pytest.mark.parametrize(
         "body, message",
         [
-            ({}, "needs new options, a new engine or both"),
+            ({}, "needs new options, a new engine, a new metric or a new context"),
             ({"options": HEADLINE["options"][:1]}, "at least 2 options"),
             ({"engine": "nope"}, "nope"),
         ],
