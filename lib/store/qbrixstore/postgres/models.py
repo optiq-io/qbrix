@@ -493,6 +493,52 @@ class Change(Base):
     tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="changes")
 
 
+class Alert(Base):
+    """a loop qbrix found unhealthy: a safety pause or a warning, from when it
+    opened until it ended, and how it ended. not a change: a warning alters
+    nothing, and an alert has no undo."""
+
+    __tablename__ = "alerts"
+    __table_args__ = (
+        Index("ix_alerts_tenant_id_opened_at", "tenant_id", "opened_at", "id"),
+        # one open alert per loop and signal, however many passes race to open it
+        Index(
+            "uq_alerts_open",
+            "loop_id",
+            "signal",
+            unique=True,
+            postgresql_where=text("resolved_at IS NULL"),
+            sqlite_where=text("resolved_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: uuid4().hex
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("tenants.id"), nullable=False
+    )
+    loop_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("loops.id", ondelete="CASCADE"), nullable=False
+    )
+    cycle_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    signal: Mapped[str] = mapped_column(String(32), nullable=False)
+    evidence: Mapped[dict] = mapped_column(JSON, nullable=False)
+    opened_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    clear_since: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # cleared, resumed or retired
+    resolution: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    resolved_kind: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    resolved_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
 class Metric(Base):
     """what a loop improves. its type and range are fixed; what it means and
     how long a decision waits for it are versioned."""

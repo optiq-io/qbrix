@@ -123,6 +123,7 @@ class LoopOutcomeService:
             value = _check_value(route.metric, value)
         except InvalidOutcomeError:
             self._events.dispatch(self._count_invalid(tenant_id, decision.cycle_id))
+            self._stamp(tenant_id, decision.cycle_id, route.metric.window_ms)
             raise
 
         now_ms = int(time.time() * 1000)
@@ -151,7 +152,29 @@ class LoopOutcomeService:
                 source=SOURCE,
             )
         )
+        self._stamp(tenant_id, decision.cycle_id, route.metric.window_ms, now_ms)
         return {"id": event_id, "at_ms": at_ms}
+
+    def _stamp(
+        self,
+        tenant_id: str,
+        cycle_id: str,
+        window_ms: int,
+        now_ms: int | None = None,
+    ) -> None:
+        """note that an outcome arrived, off the request path: losing the
+        stamp to a redis failure must never lose the outcome."""
+        self._events.dispatch(
+            self._record_intake(tenant_id, cycle_id, window_ms, now_ms)
+        )
+
+    async def _record_intake(
+        self, tenant_id: str, cycle_id: str, window_ms: int, now_ms: int | None
+    ) -> None:
+        try:
+            await self._redis.record_intake(tenant_id, cycle_id, window_ms, now_ms)
+        except Exception as e:
+            logger.warning(f"outcome intake stamp failed for {cycle_id}: {e}")
 
     async def _count_invalid(self, tenant_id: str, cycle_id: str) -> None:
         try:

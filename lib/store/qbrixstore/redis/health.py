@@ -12,6 +12,20 @@ DECISION_ERROR_WINDOW_MINUTES = 10
 DECISION_ERROR_RATE = 0.05
 DECISION_ERROR_MIN_CALLS = 100
 
+INTAKE_TTL_PAST_WINDOW_SEC = 24 * 60 * 60
+
+OUTCOMES_STOPPED_MIN_DECISIONS = 100
+OUTCOMES_STOPPED_GAP_FACTOR = 10
+OUTCOMES_STOPPED_MIN_MINUTES = 30
+OUTCOMES_STOPPED_ACTIVE_MINUTES = 60
+
+NOT_LEARNED_RATE = 0.10
+NOT_LEARNED_MIN_OUTCOMES = 100
+NOT_LEARNED_WINDOW_MINUTES = 60
+NOT_LEARNED_LEDGER_STALE_MS = 5 * 60 * 1000
+
+ALERT_CLEAR_HOLD_MINUTES = 10
+
 
 class SelectOutcome(str, Enum):
     OK = "ok"
@@ -98,3 +112,18 @@ class OutcomeHealth:
     not_learned: int = 0
     by_reason: dict[str, int] = field(default_factory=dict)
     last_arrival_ms: int | None = None
+
+
+@dataclass(frozen=True)
+class Intake:
+    """what a cycle received at the proxy: its decisions, its outcomes valid
+    or not, the decisions since the last outcome, and when that arrived.
+
+    written as calls arrive, never by the sealer, so a stalled ledger can't
+    make a working integration look silent.
+    """
+
+    decisions: int = 0
+    outcomes: int = 0
+    since_outcome: int = 0
+    last_outcome_ms: int | None = None

@@ -8,6 +8,7 @@ import pytest
 
 import proxysvc.runtime as runtime_module
 from proxysvc.config import ProxySettings
+from proxysvc.mod.safety.alert import AlertPass
 from proxysvc.runtime import ProxyRuntime
 
 pytestmark = pytest.mark.unit
@@ -79,7 +80,8 @@ async def test_the_watch_runs_with_next_on_and_stops_with_the_runtime(watches):
     async with ProxyRuntime(_settings(next_enabled=True, safety_interval_sec=15)):
         (watch,) = watches
         assert watch.started and not watch.stopped
-        assert watch.kwargs == {"interval_sec": 15}
+        assert watch.kwargs["interval_sec"] == 15
+        assert isinstance(watch.kwargs["alerts"], AlertPass)
 
     assert watch.stopped
 

@@ -14,6 +14,8 @@ from redis.exceptions import WatchError
 
 from qbrixstore.config import RedisSettings
 from qbrixstore.event import MilestoneEvent
+from qbrixstore.redis.health import INTAKE_TTL_PAST_WINDOW_SEC
+from qbrixstore.redis.health import Intake
 from qbrixstore.redis.health import LEDGER_PROGRESS_TTL_SEC
 from qbrixstore.redis.health import LedgerProgress
 from qbrixstore.redis.health import LoopSelectReason
@@ -424,8 +426,12 @@ class RedisClient:
         outcome: SelectOutcome,
         reason: SelectErrorReason | None = None,
         minute: int | None = None,
+        window_ms: int | None = None,
     ) -> None:
-        """count one select call in its minute bucket, and its reason if any."""
+        """count one select call in its minute bucket, and its reason if any.
+
+        with the window of the metric it decides for, an answered call is also
+        counted as one of the cycle's decisions."""
         if minute is None:
             minute = int(time.time()) // 60
         keys = [self._select_health_key(tenant_id, experiment_id, minute, outcome)]
@@ -447,7 +453,62 @@ class RedisClient:
             pipe.sadd(erroring, f"{tenant_id}:{experiment_id}")
             # noinspection PyAsyncCall
             pipe.expire(erroring, SELECT_HEALTH_TTL_SEC)
+        if outcome is SelectOutcome.OK and window_ms is not None:
+            intake = self._intake_key(tenant_id, experiment_id)
+            # noinspection PyAsyncCall
+            pipe.hincrby(intake, "decisions", 1)
+            # noinspection PyAsyncCall
+            pipe.hincrby(intake, "since_outcome", 1)
+            # noinspection PyAsyncCall
+            pipe.pexpire(intake, _intake_ttl_ms(window_ms))
         await pipe.execute()
+
+    @staticmethod
+    def _intake_key(tenant_id: str, experiment_id: str) -> str:
+        return f"qbrix:tenant:{tenant_id}:health:intake:{experiment_id}"
+
+    async def record_intake(
+        self,
+        tenant_id: str,
+        experiment_id: str,
+        window_ms: int,
+        at_ms: int | None = None,
+    ) -> None:
+        """count one outcome the proxy received for a cycle, valid or not, and
+        start counting decisions since it again."""
+        if at_ms is None:
+            at_ms = int(time.time() * 1000)
+        intake = self._intake_key(tenant_id, experiment_id)
+        pipe = self.client.pipeline(transaction=False)
+        # noinspection PyAsyncCall
+        pipe.hincrby(intake, "outcomes", 1)
+        # noinspection PyAsyncCall
+        pipe.hset(intake, mapping={"since_outcome": 0, "last_ms": at_ms})
+        # noinspection PyAsyncCall
+        pipe.pexpire(intake, _intake_ttl_ms(window_ms))
+        await pipe.execute()
+
+    async def intakes(
+        self, cycles: Sequence[tuple[str, str]]
+    ) -> dict[tuple[str, str], Intake]:
+        """each (tenant, cycle)'s intake in one round trip; a cycle that
+        received nothing in its window reads as empty."""
+        pipe = self.client.pipeline(transaction=False)
+        for tenant_id, experiment_id in cycles:
+            # noinspection PyAsyncCall
+            pipe.hgetall(self._intake_key(tenant_id, experiment_id))
+        found = await pipe.execute() if cycles else []
+        return {
+            cycle: Intake(
+                decisions=int(fields.get("decisions", 0)),
+                outcomes=int(fields.get("outcomes", 0)),
+                since_outcome=int(fields.get("since_outcome", 0)),
+                last_outcome_ms=(
+                    int(fields["last_ms"]) if "last_ms" in fields else None
+                ),
+            )
+            for cycle, fields in zip(cycles, found)
+        }
 
     @staticmethod
     def _erroring_key(minute: int) -> str:
@@ -746,3 +807,50 @@ class RedisClient:
             by_reason=by_reason,
             last_arrival_ms=int(last_arrival) if last_arrival is not None else None,
         )
+
+    async def outcomes_health(
+        self,
+        cycles: Sequence[tuple[str, str]],
+        window_minutes: int,
+        dispositions: Sequence[OutcomeDisposition],
+        now_minute: int | None = None,
+    ) -> dict[tuple[str, str], OutcomeHealth]:
+        """``outcome_health`` for many (tenant, cycle) pairs in one round trip,
+        reading only ``dispositions`` and no last arrival."""
+        if now_minute is None:
+            now_minute = int(time.time()) // 60
+        minutes = range(now_minute - window_minutes + 1, now_minute + 1)
+        pipe = self.client.pipeline(transaction=False)
+        for tenant_id, experiment_id in cycles:
+            # noinspection PyAsyncCall
+            pipe.mget(
+                [
+                    self._outcome_health_key(tenant_id, experiment_id, m, d)
+                    for m in minutes
+                    for d in dispositions
+                ]
+            )
+        found = await pipe.execute() if cycles and dispositions else []
+        healths = {}
+        for cycle, values in zip(cycles, found):
+            learned = 0
+            by_reason: dict[str, int] = {}
+            for disposition, value in zip(list(dispositions) * len(minutes), values):
+                if not value:
+                    continue
+                if disposition is OutcomeDisposition.LEARNED:
+                    learned += int(value)
+                else:
+                    by_reason[disposition.value] = by_reason.get(
+                        disposition.value, 0
+                    ) + int(value)
+            healths[cycle] = OutcomeHealth(
+                learned=learned,
+                not_learned=sum(by_reason.values()),
+                by_reason=by_reason,
+            )
+        return healths
+
+
+def _intake_ttl_ms(window_ms: int) -> int:
+    return window_ms + INTAKE_TTL_PAST_WINDOW_SEC * 1000

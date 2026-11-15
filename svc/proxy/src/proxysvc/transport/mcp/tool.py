@@ -1025,7 +1025,10 @@ def register(
             return _refused(refusal)
         if detail == "concise" and results["share"]:
             results = {**results, "share": {**results["share"], "series": None}}
-        lines = []
+        lines = [
+            f"Open alert since {alert['opened_at']} · {_sentence(alert)}"
+            for alert in results["health"]["alerts"]
+        ]
         if results["cycle"] is None:
             lines.append("A draft: no decisions yet. Launch it with loop_launch.")
         else:
