@@ -17,6 +17,7 @@ logger = get_logger(__name__)
 def next_routes(app: FastAPI, settings: ProxySettings) -> None:
     if not settings.next_enabled:
         return
+    from proxysvc.transport.http.router.alert import router as alert_router
     from proxysvc.transport.http.router.change import router as change_router
     from proxysvc.transport.http.router.connection import router as connection_router
     from proxysvc.transport.http.router.engine import router as engine_router
@@ -42,6 +43,7 @@ def next_routes(app: FastAPI, settings: ProxySettings) -> None:
     app.include_router(pin_router, prefix="/api/v1")
     app.include_router(change_router, prefix="/api/v1")
     app.include_router(milestone_router, prefix="/api/v1")
+    app.include_router(alert_router, prefix="/api/v1")
     app.include_router(summary_router, prefix="/api/v1")
     app.include_router(inbox_router, prefix="/api/v1")
     app.include_router(status_router, prefix="/api/v1")

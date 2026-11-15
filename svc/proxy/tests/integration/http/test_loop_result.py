@@ -434,6 +434,7 @@ class TestHealth:
         health = (await _results(api))["health"]
 
         assert health == {
+            "alerts": [],
             "decision_errors": 1,
             "outcomes": {"learned": 5, "late": 2, "duplicate": 1, "earlier_cycle": 0},
             "last_outcome_at": "2026-01-01T00:00:00+00:00",

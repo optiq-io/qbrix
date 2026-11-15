@@ -18,6 +18,7 @@ from proxysvc.core.actor import Actor
 from proxysvc.core.error import LoopStateError
 from proxysvc.mod.loop.repository import LoopRepository
 from proxysvc.mod.loop.service import LoopService
+from proxysvc.mod.safety.alert import AlertPass
 from proxysvc.mod.safety.rule import evidence
 from proxysvc.mod.safety.rule import unhealthy
 
@@ -43,13 +44,23 @@ class SafetyWatch:
     pass reads only the cycles that had an error in the window, so a quiet
     install costs one read. the window never reaches back before the loop
     went live, so errors from before a resume never pause it again. the
-    watch never resumes a loop; a person does.
+    watch never resumes a loop; a person does. the warnings' pass runs under
+    the same lease, at most once a minute.
     """
 
-    def __init__(self, redis: RedisClient, loops: LoopService, *, interval_sec: float):
+    def __init__(
+        self,
+        redis: RedisClient,
+        loops: LoopService,
+        *,
+        interval_sec: float,
+        alerts: AlertPass | None = None,
+    ):
         self._redis = redis
         self._loops = loops
         self._interval_sec = interval_sec
+        self._alerts = alerts
+        self._alert_minute: int | None = None
         self._holder = uuid4().hex
         self._task: asyncio.Task | None = None
 
@@ -75,6 +86,12 @@ class SafetyWatch:
             return
         now = time.time() if now is None else now
         now_minute = int(now) // 60
+        await self._pause_failing(now, now_minute)
+        if self._alerts is not None and self._alert_minute != now_minute:
+            self._alert_minute = now_minute
+            await self._alerts.run_once(now)
+
+    async def _pause_failing(self, now: float, now_minute: int) -> None:
         erroring = await self._redis.erroring(
             DECISION_ERROR_WINDOW_MINUTES, now_minute=now_minute
         )

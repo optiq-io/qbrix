@@ -61,6 +61,7 @@ def build_http_server(settings: ProxySettings, runtime: ProxyRuntime) -> uvicorn
     """
     from proxysvc.transport.http.app import app
     from proxysvc.transport.http.router.agent import set_proxy_service as set_agent
+    from proxysvc.transport.http.router.alert import set_proxy_service as set_alert
     from proxysvc.transport.http.router.change import set_proxy_service as set_change
     from proxysvc.transport.http.router.connection import (
         set_proxy_service as set_connection,
@@ -96,6 +97,7 @@ def build_http_server(settings: ProxySettings, runtime: ProxyRuntime) -> uvicorn
         set_loop,
         set_change,
         set_milestone,
+        set_alert,
         set_summary,
         set_inbox,
         set_select,

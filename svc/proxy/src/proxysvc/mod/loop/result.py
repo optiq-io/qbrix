@@ -35,6 +35,8 @@ from proxysvc.mod.loop.stat import columns
 from proxysvc.mod.loop.stat import lift
 from proxysvc.mod.loop.stat import option_range
 from proxysvc.mod.loop.stat import step_for
+from proxysvc.mod.safety.read import OPEN_LIMIT
+from proxysvc.mod.safety.read import read_alerts
 
 T = TypeVar("T")
 
@@ -187,6 +189,17 @@ class LoopResultService:
     ) -> dict | None:
         async with get_session() as session:
             loop = await LoopRepository(session, tenant_id).resolve(ref)
+            alerts = (
+                await read_alerts(
+                    session,
+                    tenant_id,
+                    loop_ids=[loop.id],
+                    open=True,
+                    limit=OPEN_LIMIT,
+                )
+                if loop is not None
+                else []
+            )
         if loop is None:
             return None
         cycle = _pick_cycle(loop, cycle_number)
@@ -207,7 +220,7 @@ class LoopResultService:
             **ledger,
             "calls": calls,
             "decisions_per_second": _rate(_decisions(recent), cycle, now),
-            "health": health,
+            "health": {"alerts": alerts, **health},
         }
 
     async def context(self, tenant_id: str, ref: str) -> dict | None:

@@ -13,6 +13,7 @@ from proxysvc.mod.auth import AuthService
 from proxysvc.mod.auth import create_auth_service
 from proxysvc.mod.auth import init_operators
 from proxysvc.mod.loop.upgrade import follow_minors
+from proxysvc.mod.safety.alert import AlertPass
 from proxysvc.mod.safety.watch import SafetyWatch
 from proxysvc.service import ProxyService
 
@@ -97,6 +98,7 @@ class ProxyRuntime:
                 self._proxy_service.redis,
                 self._proxy_service.loops,
                 interval_sec=self._settings.safety_interval_sec,
+                alerts=AlertPass(self._proxy_service.redis),
             )
             await self._safety.start()
 

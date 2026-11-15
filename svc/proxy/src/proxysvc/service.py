@@ -46,6 +46,7 @@ from proxysvc.mod.loop.route import LoopRouteCache
 from proxysvc.mod.loop.select import LoopSelectService
 from proxysvc.mod.inbox.service import InboxService
 from proxysvc.mod.milestone.service import MilestoneService
+from proxysvc.mod.safety.read import AlertReadService
 from proxysvc.mod.summary.service import SummaryService
 from proxysvc.mod.loop.service import LoopService
 from proxysvc.mod.metric.service import DEFAULT_WINDOW_SECONDS
@@ -85,6 +86,7 @@ class ProxyService:
         self._loop_outcome_service: LoopOutcomeService | None = None
         self._loop_result_service: LoopResultService | None = None
         self._milestone_service: MilestoneService | None = None
+        self._alert_read_service = AlertReadService()
         self._summary_service: SummaryService | None = None
         self._experiment_service: ExperimentService | None = None
         self._connection_service: ConnectionService | None = None
@@ -896,6 +898,18 @@ class ProxyService:
     ) -> dict:
         return await self._milestone_service.list_milestones(
             tenant_id, loop=loop, metric=metric, kinds=kinds, since=since, limit=limit
+        )
+
+    async def list_alerts(
+        self,
+        tenant_id: str,
+        *,
+        loop: str | None = None,
+        open: bool | None = None,
+        limit: int,
+    ) -> dict:
+        return await self._alert_read_service.list_alerts(
+            tenant_id, loop=loop, open=open, limit=limit
         )
 
     async def workspace_summary(

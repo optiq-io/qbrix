@@ -152,7 +152,12 @@ class LoopSelectService:
         except Exception as e:
             self._count_outcome(tenant_id, route.cycle.id, *_classify(e))
             raise
-        self._count_outcome(tenant_id, route.cycle.id, SelectOutcome.OK)
+        self._count_outcome(
+            tenant_id,
+            route.cycle.id,
+            SelectOutcome.OK,
+            window_ms=route.metric.window_ms,
+        )
         self._count_reason(tenant_id, route.id, reason)
         return answer
 
@@ -276,9 +281,11 @@ class LoopSelectService:
         cycle_id: str,
         outcome: SelectOutcome,
         reason: SelectErrorReason | None = None,
+        *,
+        window_ms: int | None = None,
     ) -> None:
         self._events.dispatch(
-            self._record_outcome(tenant_id, cycle_id, outcome, reason)
+            self._record_outcome(tenant_id, cycle_id, outcome, reason, window_ms)
         )
 
     async def _record_reason(
@@ -322,8 +329,11 @@ class LoopSelectService:
         cycle_id: str,
         outcome: SelectOutcome,
         reason: SelectErrorReason | None,
+        window_ms: int | None,
     ) -> None:
         try:
-            await self._redis.record_select(tenant_id, cycle_id, outcome, reason)
+            await self._redis.record_select(
+                tenant_id, cycle_id, outcome, reason, window_ms=window_ms
+            )
         except Exception as e:
             logger.warning(f"select health count failed for {cycle_id}: {e}")

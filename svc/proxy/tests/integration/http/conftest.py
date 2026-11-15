@@ -325,6 +325,7 @@ async def wired_app(
     from proxysvc.transport.http.router.milestone import (
         set_proxy_service as set_milestone,
     )
+    from proxysvc.transport.http.router.alert import set_proxy_service as set_alert
     from proxysvc.transport.http.router.oauth import set_proxy_service as set_oauth
     from proxysvc.transport.http.router.outcome import (
         set_proxy_service as set_outcome,
@@ -400,6 +401,7 @@ async def wired_app(
     set_loop(svc)
     set_change(svc)
     set_milestone(svc)
+    set_alert(svc)
     set_summary(svc)
     set_inbox(svc)
     set_select(svc)
@@ -436,6 +438,7 @@ async def wired_app(
     set_loop(None)  # type: ignore[arg-type]
     set_change(None)  # type: ignore[arg-type]
     set_milestone(None)  # type: ignore[arg-type]
+    set_alert(None)  # type: ignore[arg-type]
     set_summary(None)  # type: ignore[arg-type]
     set_inbox(None)  # type: ignore[arg-type]
     set_select(None)  # type: ignore[arg-type]

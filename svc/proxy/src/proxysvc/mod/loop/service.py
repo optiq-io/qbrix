@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Awaitable
 from collections.abc import Callable
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -58,6 +59,10 @@ from proxysvc.mod.loop.serialize import loop_to_dict
 from proxysvc.mod.loop.serialize import option_to_dict
 from proxysvc.mod.metric.repository import MetricRepository
 from proxysvc.mod.people import People
+from proxysvc.mod.safety.rule import DECISION_ERRORS
+from proxysvc.mod.safety.service import RESUMED
+from proxysvc.mod.safety.service import RETIRED
+from proxysvc.mod.safety.service import AlertService
 
 KEY_MAX_LENGTH = 64
 MIN_OPTIONS = 2
@@ -1117,6 +1122,16 @@ class LoopService:
         someone resumes it. a committed loop keeps its option for the resume,
         and decisions already made still seal and teach."""
         refused = "only a live or committed loop can be paused"
+
+        async def safety_pause(session: AsyncSession, loop: Loop) -> None:
+            if actor.kind == "qbrix":
+                await AlertService(session, tenant_id).open(
+                    loop.id,
+                    DECISION_ERRORS,
+                    evidence or {},
+                    cycle_id=loop.cycles[-1].id if loop.cycles else None,
+                )
+
         return await self._transition(
             tenant_id,
             ref,
@@ -1129,6 +1144,7 @@ class LoopService:
             evidence=evidence,
             undoing=undoing,
             check=_refusing(refused, _PAUSE_FIXES),
+            then=safety_pause,
         )
 
     async def resume_loop(
@@ -1140,7 +1156,14 @@ class LoopService:
         reason: str | None = None,
         undoing: Undoing | None = None,
     ) -> Applied | None:
-        """back to the state the loop was paused from, deciding again from now."""
+        """back to the state the loop was paused from, deciding again from now.
+        resuming a loop qbrix paused is what ends its alert."""
+
+        async def recover(session: AsyncSession, loop: Loop) -> None:
+            await AlertService(session, tenant_id).resolve_loop(
+                loop.id, RESUMED, actor, signals=[DECISION_ERRORS]
+            )
+
         return await self._transition(
             tenant_id,
             ref,
@@ -1156,6 +1179,7 @@ class LoopService:
             reason=reason,
             evidence=None,
             undoing=undoing,
+            then=recover,
         )
 
     async def commit_loop(
@@ -1231,6 +1255,10 @@ class LoopService:
         the decisions it already made keep sealing and teaching until their
         windows close."""
         refused = "only a live, committed or paused loop can be retired"
+
+        async def end_alerts(session: AsyncSession, loop: Loop) -> None:
+            await AlertService(session, tenant_id).resolve_loop(loop.id, RETIRED, actor)
+
         return await self._transition(
             tenant_id,
             ref,
@@ -1244,6 +1272,7 @@ class LoopService:
             undoing=None,
             check=_refusing(refused, _RETIRE_FIXES),
             end_cycle=True,
+            then=end_alerts,
         )
 
     async def start_cycle(
@@ -1430,6 +1459,7 @@ class LoopService:
         undoing: Undoing | None,
         check: Callable[[Loop], None] | None = None,
         end_cycle: bool = False,
+        then: Callable[[AsyncSession, Loop], Awaitable[None]] | None = None,
     ) -> Applied | None:
         async with get_session() as session:
             repo = LoopRepository(session, tenant_id)
@@ -1463,6 +1493,8 @@ class LoopService:
                 evidence=evidence,
                 undoing=undoing,
             )
+            if then is not None:
+                await then(session, loop)
         await self._routes.put(tenant_id, route)
         return Applied.of(loop_dict, change)
 

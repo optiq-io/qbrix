@@ -549,7 +549,41 @@ class Outcomes(BaseModel):
     earlier_cycle: int
 
 
+class AlertLoop(BaseModel):
+    id: str
+    key: str
+    name: str
+
+
+class AlertPiece(BaseModel):
+    """one part of an alert's sentence: a text, or the name of its loop."""
+
+    kind: Literal["text", "loop"]
+    text: Optional[str] = None
+    name: Optional[str] = None
+
+
+class AlertResolver(BaseModel):
+    kind: str
+    user_id: Optional[str] = None
+    name: Optional[str] = None
+
+
+class Alert(BaseModel):
+    id: str
+    signal: Literal["decision_errors", "outcomes_stopped", "outcomes_not_learned"]
+    opened_at: str
+    resolved_at: Optional[str] = None
+    resolution: Optional[Literal["cleared", "resumed", "retired"]] = None
+    resolved_by: Optional[AlertResolver] = None
+    loop: AlertLoop
+    cycle_id: Optional[str] = None
+    evidence: dict
+    pieces: list[AlertPiece]
+
+
 class Health(BaseModel):
+    alerts: list[Alert]
     decision_errors: int
     outcomes: Outcomes
     last_outcome_at: Optional[str] = None

@@ -1029,6 +1029,25 @@ class TestCycles:
         assert entry["reason"] == "the page changed"
         assert "Claude Code reset Checkout headline." in listed.content[0].text
 
+    async def test_results_lead_with_an_open_alert(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await wired_app.svc.loops.pause_loop(
+                TENANT,
+                "checkout-headline",
+                actor=Actor.qbrix(),
+                evidence={"signal": "decision_errors", "rate": 0.12},
+            )
+            results = await _call(client, "loop_results", {"loop": "checkout-headline"})
+
+        (alert,) = results.structured_content["health"]["alerts"]
+        assert alert["signal"] == "decision_errors"
+        first = results.content[0].text.splitlines()[0]
+        assert first.startswith("Open alert since ")
+        assert first.endswith(
+            "qbrix paused Checkout headline: 12% of its decisions failed."
+        )
+
     async def test_the_earlier_cycle_stays_readable(self, mcp, wired_app):
         async with _session(mcp, wired_app) as client:
             await _live(client)
