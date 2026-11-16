@@ -27,10 +27,16 @@ from qbrixstore.redis.health import OutcomeHealth
 
 from proxysvc.core.actor import Actor
 from proxysvc.mod.safety.repository import AlertRepository
+from proxysvc.mod.safety.rule import CALLS_STOPPED
+from proxysvc.mod.safety.rule import DAY_HOURS
+from proxysvc.mod.safety.rule import HOUR_MS
 from proxysvc.mod.safety.rule import NOT_LEARNED
 from proxysvc.mod.safety.rule import OUTCOMES_NOT_LEARNED
 from proxysvc.mod.safety.rule import OUTCOMES_STOPPED
 from proxysvc.mod.safety.rule import WARNINGS
+from proxysvc.mod.safety.rule import calls_evidence
+from proxysvc.mod.safety.rule import calls_silent
+from proxysvc.mod.safety.rule import calls_stopped
 from proxysvc.mod.safety.rule import not_learned_evidence
 from proxysvc.mod.safety.rule import outcomes_not_learned
 from proxysvc.mod.safety.rule import outcomes_stopped
@@ -56,10 +62,18 @@ class _Watched:
 
 @dataclass(frozen=True)
 class _Verdict:
+    """``recovered`` is what ends an open alert, for a signal where that is
+    not simply its opening rule no longer holding."""
+
     watched: _Watched
     signal: str
     unhealthy: bool
     evidence: dict
+    recovered: bool | None = None
+
+    @property
+    def clear(self) -> bool:
+        return not self.unhealthy if self.recovered is None else self.recovered
 
 
 def _ms(at: datetime | None) -> int:
@@ -83,6 +97,12 @@ class AlertPass:
     warning ends once its signal has stayed clear for the hold, so a value
     sitting on its threshold can't flap. a loop that stops deciding keeps its
     open warnings, judged again when it serves again.
+
+    calls stopped compares a loop's last full hour with the same hour
+    yesterday, and ends only when calls arrive, never because yesterday was
+    quiet. while nobody was counting calls, every loop looks silent, so it
+    opens nothing until the pass has run without a gap since the last full
+    hour began.
     """
 
     def __init__(self, redis: RedisClient):
@@ -91,6 +111,7 @@ class AlertPass:
     async def run_once(self, now: float) -> None:
         now_ms = int(now * 1000)
         now_minute = int(now) // 60
+        counting_since_ms = await self._redis.counting_since(now_ms)
         watched = await self._watched()
         if not watched:
             return
@@ -98,6 +119,9 @@ class AlertPass:
         intakes = await self._redis.intakes(cycles)
         deciding = await self._deciding(watched, intakes, now_minute)
         learnable = await self._learnable(watched, intakes, now_minute)
+        hour = now_minute // 60
+        calls = await self._hourly_calls(watched, hour)
+        counted_through = counting_since_ms <= (hour - 1) * HOUR_MS
 
         verdicts: dict[str, list[_Verdict]] = defaultdict(list)
         for w in watched:
@@ -132,7 +156,43 @@ class AlertPass:
                         not_learned_evidence(health, now_ms),
                     )
                 )
+            hours = calls[(w.tenant_id, w.loop_id)]
+            last_hour, this_hour = hours[hour - 1], hours[hour]
+            yesterday = hours[hour - 1 - DAY_HOURS]
+            verdicts[w.tenant_id].append(
+                _Verdict(
+                    w,
+                    CALLS_STOPPED,
+                    counted_through
+                    and calls_stopped(
+                        last_hour=last_hour,
+                        this_hour=this_hour,
+                        yesterday=yesterday,
+                        hour=hour,
+                        serving_since_ms=w.serving_since_ms,
+                    ),
+                    calls_evidence(yesterday=yesterday, hour=hour, now_ms=now_ms),
+                    recovered=not calls_silent(
+                        last_hour=last_hour, this_hour=this_hour
+                    ),
+                )
+            )
         await self._apply(verdicts, datetime.fromtimestamp(now, timezone.utc))
+
+    async def _hourly_calls(
+        self, watched: list[_Watched], hour: int
+    ) -> dict[tuple[str, str], dict[int, int]]:
+        """each watched loop's calls in the same hour yesterday, the last
+        full hour and this one so far."""
+        by_tenant: dict[str, list[str]] = defaultdict(list)
+        for w in watched:
+            by_tenant[w.tenant_id].append(w.loop_id)
+        hours = (hour - 1 - DAY_HOURS, hour - 1, hour)
+        calls: dict[tuple[str, str], dict[int, int]] = {}
+        for tenant_id, loop_ids in by_tenant.items():
+            counts = await self._redis.loops_hourly_calls(tenant_id, loop_ids, hours)
+            calls |= {(tenant_id, loop_id): c for loop_id, c in counts.items()}
+        return calls
 
     async def _watched(self) -> list[_Watched]:
         async with get_session() as session:
@@ -245,7 +305,9 @@ async def _judge(
         else:
             alert.clear_since = None
     elif alert is not None:
-        if alert.clear_since is None:
+        if not verdict.clear:
+            alert.clear_since = None
+        elif alert.clear_since is None:
             alert.clear_since = now
         elif now - _aware(alert.clear_since) >= HOLD:
             await alerts.resolve(alert, CLEARED, Actor.qbrix(), at=now)

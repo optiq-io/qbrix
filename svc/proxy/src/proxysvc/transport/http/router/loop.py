@@ -475,7 +475,9 @@ class EditsResponse(EditsPlan):
     serving_within_seconds: int
 
 
-AlertSignal = Literal["decision_errors", "outcomes_stopped", "outcomes_not_learned"]
+AlertSignal = Literal[
+    "decision_errors", "outcomes_stopped", "outcomes_not_learned", "calls_stopped"
+]
 
 
 class OpenAlert(BaseModel):

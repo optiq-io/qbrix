@@ -10,7 +10,11 @@ invariants verified:
   warnings change nothing and write no change. a safety pause opens one
   decision_errors alert in the pause's transaction; resuming resolves it as
   resumed and retiring as retired, both naming who. GET /api/v1/alerts and a
-  loop's health read the one record, scoped to the workspace.
+  loop's health read the one record, scoped to the workspace. calls stopped
+  opens when a loop serving for over a day had no call since the last full
+  hour began and 60 in the same hour yesterday, ends only when calls arrive
+  and stay for the hold, and opens nothing until qbrix has counted without a
+  gap since that hour began.
 """
 
 from __future__ import annotations
@@ -33,6 +37,7 @@ from qbrixstore.postgres.models import Change
 from qbrixstore.postgres.models import Cycle
 from qbrixstore.postgres.models import Loop
 from qbrixstore.postgres.session import get_session
+from qbrixstore.redis.client import COUNTING_KEY
 from qbrixstore.redis.health import LedgerProgress
 from qbrixstore.redis.health import LoopSelectReason
 from qbrixstore.redis.health import OutcomeDisposition
@@ -41,6 +46,7 @@ from qbrixstore.redis.health import SelectOutcome
 from proxysvc.core.actor import Actor
 from proxysvc.mod.safety.alert import AlertPass
 from proxysvc.mod.safety.repository import AlertRepository
+from proxysvc.mod.safety.rule import CALLS_STOPPED
 from proxysvc.mod.safety.rule import DECISION_ERRORS
 from proxysvc.mod.safety.rule import OUTCOMES_NOT_LEARNED
 from proxysvc.mod.safety.rule import OUTCOMES_STOPPED
@@ -536,3 +542,156 @@ class TestIntake:
 
         assert found["id"]
         assert len(wired_app.metric_spy.events) == 1
+
+
+HOUR_SEC = 60 * 60
+DAY_MINUTES = 26 * 60
+
+
+@pytest.fixture
+def at() -> float:
+    """twenty minutes into the current hour, so a test's passes stay in it."""
+    return (int(time.time()) // HOUR_SEC) * HOUR_SEC + 20 * 60
+
+
+async def _called(wired_app, loop: dict, n: int, at: float) -> None:
+    for _ in range(n):
+        await wired_app.svc.redis.record_loop_select(
+            TENANT, loop["id"], LoopSelectReason.LIVE, minute=int(at) // 60
+        )
+
+
+async def _counting_since(wired_app, since: float, at: float) -> None:
+    await wired_app.svc.redis.client.hset(
+        COUNTING_KEY,
+        mapping={"since": int(since * 1000), "last": int(at * 1000) - 30_000},
+    )
+
+
+async def _silent_since_yesterday(wired_app, at: float, *, calls: int = 60) -> dict:
+    """a loop serving for over a day, with ``calls`` in the same hour
+    yesterday as the last full hour, and none since."""
+    loop = await _loop(wired_app, live_minutes=DAY_MINUTES)
+    await _called(wired_app, loop, calls, at - 25 * HOUR_SEC)
+    await _counting_since(wired_app, at - 2 * HOUR_SEC, at)
+    return loop
+
+
+class TestCallsStopped:
+    async def test_a_silent_hour_after_a_busy_one_yesterday_opens_one_warning(
+        self, api, wired_app, at
+    ):
+        loop = await _silent_since_yesterday(wired_app, at)
+        changes = await _changes(loop["id"])
+
+        await _pass(wired_app).run_once(at)
+        await _pass(wired_app).run_once(at + 60)
+
+        (alert,) = await _alerts()
+        assert alert.signal == CALLS_STOPPED
+        assert alert.loop_id == loop["id"]
+        assert alert.evidence["calls_same_hour_yesterday"] == 60
+        assert (
+            alert.evidence["silent_since"]
+            == datetime.fromtimestamp(at - 20 * 60 - HOUR_SEC, timezone.utc).isoformat()
+        )
+        assert await _changes(loop["id"]) == changes
+        reloaded = await wired_app.svc.get_loop(TENANT, loop["key"])
+        assert reloaded["state"] == "live"
+
+    async def test_a_quiet_hour_yesterday_opens_nothing(self, api, wired_app, at):
+        await _silent_since_yesterday(wired_app, at, calls=59)
+
+        await _pass(wired_app).run_once(at)
+
+        assert await _alerts() == []
+
+    async def test_a_loop_serving_for_less_than_a_day_opens_nothing(
+        self, api, wired_app, at
+    ):
+        loop = await _silent_since_yesterday(wired_app, at)
+        await _serving_since(loop["id"], minutes_ago=23 * 60)
+
+        await _pass(wired_app).run_once(at)
+
+        assert await _alerts() == []
+
+    async def test_a_paused_loop_opens_nothing(self, api, wired_app, at):
+        loop = await _silent_since_yesterday(wired_app, at)
+        await wired_app.svc.loops.pause_loop(TENANT, loop["key"], actor=ADA)
+
+        await _pass(wired_app).run_once(at)
+
+        assert await _alerts() == []
+
+    async def test_a_committed_loop_is_watched_too(self, api, wired_app, at):
+        loop = await _silent_since_yesterday(wired_app, at)
+        await wired_app.svc.loops.commit_loop(
+            TENANT, loop["key"], option="control", actor=ADA
+        )
+        await _serving_since(loop["id"], minutes_ago=DAY_MINUTES)
+
+        await _pass(wired_app).run_once(at)
+
+        (alert,) = await _alerts()
+        assert alert.signal == CALLS_STOPPED
+
+    async def test_calls_arriving_resolve_it_after_the_hold(self, api, wired_app, at):
+        loop = await _silent_since_yesterday(wired_app, at)
+        await _pass(wired_app).run_once(at)
+        await _called(wired_app, loop, 1, at + 60)
+
+        await _pass(wired_app).run_once(at + 60)
+        await _pass(wired_app).run_once(at + 60 + 9 * 60)
+        (alert,) = await _alerts()
+        assert alert.resolved_at is None and alert.clear_since is not None
+
+        await _pass(wired_app).run_once(at + 60 + 10 * 60)
+        (alert,) = await _alerts()
+        assert alert.resolution == "cleared"
+        assert alert.resolved_kind == "qbrix"
+
+    async def test_a_quiet_hour_yesterday_never_resolves_an_open_one(
+        self, api, wired_app, at
+    ):
+        await _silent_since_yesterday(wired_app, at)
+        await _pass(wired_app).run_once(at)
+
+        later = at + HOUR_SEC
+        await _counting_since(wired_app, at - 2 * HOUR_SEC, later)
+        await _pass(wired_app).run_once(later)
+        await _pass(wired_app).run_once(later + 15 * 60)
+
+        (alert,) = await _alerts()
+        assert alert.resolved_at is None and alert.clear_since is None
+
+    async def test_nothing_opens_until_qbrix_counted_since_the_last_full_hour(
+        self, api, wired_app, at
+    ):
+        await _silent_since_yesterday(wired_app, at)
+        await _counting_since(wired_app, at - 30 * 60, at)
+
+        await _pass(wired_app).run_once(at)
+        assert await _alerts() == []
+
+        await wired_app.svc.redis.client.delete(COUNTING_KEY)
+        await _pass(wired_app).run_once(at + 60)
+        assert await _alerts() == []
+
+        await _counting_since(wired_app, at - HOUR_SEC - 20 * 60, at + 120)
+        await _pass(wired_app).run_once(at + 120)
+        (alert,) = await _alerts()
+        assert alert.signal == CALLS_STOPPED
+
+    async def test_reads_in_pieces(self, api, wired_app, at):
+        await _silent_since_yesterday(wired_app, at, calls=1240)
+        await _pass(wired_app).run_once(at)
+
+        resp = await api.get("/api/v1/alerts")
+
+        assert resp.status_code == 200, resp.text
+        (alert,) = resp.json()["alerts"]
+        assert alert["signal"] == CALLS_STOPPED
+        assert alert["pieces"][1]["text"] == (
+            " stopped receiving calls: none in an hour that had 1,240 yesterday."
+        )

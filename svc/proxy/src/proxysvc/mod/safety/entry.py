@@ -7,6 +7,7 @@ from qbrixstore.postgres.models import Alert
 
 from proxysvc.mod.milestone.entry import LoopName
 from proxysvc.mod.people import People
+from proxysvc.mod.safety.rule import CALLS_STOPPED
 from proxysvc.mod.safety.rule import DECISION_ERRORS
 from proxysvc.mod.safety.rule import OUTCOMES_NOT_LEARNED
 from proxysvc.mod.safety.rule import OUTCOMES_STOPPED
@@ -55,6 +56,15 @@ def _pieces(alert: Alert, loop: LoopName) -> list[dict]:
             _text(
                 f" couldn't learn from {evidence.get('rate', 0):.0%} of its outcomes"
                 " in the last hour."
+            ),
+        ]
+    if alert.signal == CALLS_STOPPED:
+        yesterday = evidence.get("calls_same_hour_yesterday", 0)
+        return [
+            named,
+            _text(
+                f" stopped receiving calls: none in an hour that had {yesterday:,}"
+                " yesterday."
             ),
         ]
     return [named, _text(f": {alert.signal}.")]

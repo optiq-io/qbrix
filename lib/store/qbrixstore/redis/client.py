@@ -14,9 +14,11 @@ from redis.exceptions import WatchError
 
 from qbrixstore.config import RedisSettings
 from qbrixstore.event import MilestoneEvent
+from qbrixstore.redis.health import COUNTING_GAP_MS
 from qbrixstore.redis.health import INTAKE_TTL_PAST_WINDOW_SEC
 from qbrixstore.redis.health import Intake
 from qbrixstore.redis.health import LEDGER_PROGRESS_TTL_SEC
+from qbrixstore.redis.health import LOOP_CALLS_TTL_SEC
 from qbrixstore.redis.health import LedgerProgress
 from qbrixstore.redis.health import LoopSelectReason
 from qbrixstore.redis.health import OUTCOME_HEALTH_TTL_SEC
@@ -35,6 +37,7 @@ _LEARNING_ATTEMPTS = 5
 SEALER_MARK_KEY = "qbrix:sealer:sealed_up_to"
 LEDGER_PROGRESS_KEY = "qbrix:ledger:progress"
 FIRST_SEALS_DUE_KEY = "qbrix:milestone:first_seal_due"
+COUNTING_KEY = "qbrix:health:counting"
 
 
 def _stream_id(message_id: str) -> tuple[int, int]:
@@ -625,16 +628,59 @@ class RedisClient:
         reason: LoopSelectReason,
         minute: int | None = None,
     ) -> None:
-        """count one answered select call for a loop by its reason, in its minute."""
+        """count one answered select call for a loop by its reason, in its
+        minute, and whatever its reason in its hour."""
         if minute is None:
             minute = int(time.time()) // 60
         key = self._loop_select_key(tenant_id, loop_id, minute, reason)
+        hourly = self._loop_calls_key(tenant_id, loop_id, minute // 60)
         pipe = self.client.pipeline(transaction=False)
         # noinspection PyAsyncCall
         pipe.incr(key)
         # noinspection PyAsyncCall
         pipe.expire(key, SELECT_HEALTH_TTL_SEC)
+        # noinspection PyAsyncCall
+        pipe.incr(hourly)
+        # noinspection PyAsyncCall
+        pipe.expire(hourly, LOOP_CALLS_TTL_SEC)
         await pipe.execute()
+
+    @staticmethod
+    def _loop_calls_key(tenant_id: str, loop_id: str, hour: int) -> str:
+        return f"qbrix:tenant:{tenant_id}:health:loop_calls:{loop_id}:{hour}"
+
+    async def loops_hourly_calls(
+        self, tenant_id: str, loop_ids: Sequence[str], hours: Sequence[int]
+    ) -> dict[str, dict[int, int]]:
+        """each loop's answered select calls in each of ``hours``, counted
+        since the epoch in whole hours, in one round trip."""
+        slots = [(loop_id, hour) for loop_id in loop_ids for hour in hours]
+        keys = [self._loop_calls_key(tenant_id, *slot) for slot in slots]
+        values = await self.client.mget(keys) if keys else []
+        counts: dict[str, dict[int, int]] = {
+            loop_id: {hour: 0 for hour in hours} for loop_id in loop_ids
+        }
+        for (loop_id, hour), value in zip(slots, values):
+            if value:
+                counts[loop_id][hour] = int(value)
+        return counts
+
+    async def counting_since(self, now_ms: int) -> int:
+        """mark that qbrix is counting calls at ``now_ms``, and return since
+        when it has without a gap longer than ``COUNTING_GAP_MS``.
+
+        written by the alert pass, which runs on one replica at a time, so
+        an install that was down, or couldn't reach redis, starts again."""
+        since, last = await self.client.hmget(COUNTING_KEY, "since", "last")
+        if since is None or last is None or now_ms - int(last) > COUNTING_GAP_MS:
+            since = now_ms
+        pipe = self.client.pipeline(transaction=False)
+        # noinspection PyAsyncCall
+        pipe.hset(COUNTING_KEY, mapping={"since": int(since), "last": now_ms})
+        # noinspection PyAsyncCall
+        pipe.expire(COUNTING_KEY, LOOP_CALLS_TTL_SEC)
+        await pipe.execute()
+        return int(since)
 
     async def loop_selects(
         self,
