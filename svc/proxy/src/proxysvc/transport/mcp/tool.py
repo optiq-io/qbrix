@@ -53,6 +53,7 @@ from proxysvc.mod.loop.service import starts_cycle
 from proxysvc.mod.metric.serialize import window_label
 from proxysvc.mod.safety.read import OPEN_LIMIT
 from proxysvc.mod.safety.read import RECOVERED_SHOWN
+from proxysvc.mod.safety.rule import CALLS_STOPPED
 from proxysvc.mod.safety.rule import DECISION_ERRORS
 from proxysvc.mod.safety.rule import OUTCOMES_NOT_LEARNED
 from proxysvc.mod.safety.rule import OUTCOMES_STOPPED
@@ -499,11 +500,13 @@ _SIGNAL_WORDS = {
     DECISION_ERRORS: "qbrix paused it",
     OUTCOMES_STOPPED: "outcomes stopped",
     OUTCOMES_NOT_LEARNED: "outcomes not learned",
+    CALLS_STOPPED: "calls stopped",
 }
 
 _CLEARED_WORDS = {
     OUTCOMES_STOPPED: "outcomes arriving again",
     OUTCOMES_NOT_LEARNED: "outcomes learned again",
+    CALLS_STOPPED: "calls arriving again",
 }
 
 
@@ -533,6 +536,13 @@ def _alert_value(alert: dict) -> str:
             f"{evidence.get('rate', 0):.0%} of the last hour's "
             f"{evidence.get('outcomes', 0):,} outcomes couldn't be learned from"
             + (f" ({reasons})" if reasons else "")
+        )
+    if signal == CALLS_STOPPED:
+        since = evidence.get("silent_since")
+        value = f"no calls since {_moment(since, time=True)}" if since else "no calls"
+        return (
+            f"{value}; {evidence.get('calls_same_hour_yesterday', 0):,} in the same"
+            " hour yesterday"
         )
     if signal == DECISION_ERRORS and "calls" in evidence:
         return f"{_failed(evidence)} failed"

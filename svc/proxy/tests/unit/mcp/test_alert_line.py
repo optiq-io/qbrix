@@ -64,6 +64,15 @@ def _ended(signal: str, resolution: str, at: str, by: dict | None = None) -> dic
             "qbrix paused it. 6.1% of 114 calls failed.",
         ),
         ("decision_errors", {}, "qbrix paused it."),
+        (
+            "calls_stopped",
+            {
+                "silent_since": "2026-11-16T02:00:00+00:00",
+                "calls_same_hour_yesterday": 1240,
+            },
+            "calls stopped. no calls since 16 Nov 02:00 UTC; 1,240 in the same "
+            "hour yesterday.",
+        ),
     ],
 )
 def test_an_open_alert_says_its_signal_and_value(signal, evidence, said):

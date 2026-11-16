@@ -8,18 +8,27 @@ invariants verified:
   has only the whole-window test, and the clock starts at the latest of the
   last outcome and when the loop started serving. outcomes not learned warns
   above 10% of at least 100 outcomes, counting late, duplicate and invalid
-  but never train_error or earlier_cycle.
+  but never train_error or earlier_cycle. calls stopped warns when a loop
+  serving through both hours had no call since the last full hour began and
+  at least 60 in the same hour yesterday.
 """
 
 from __future__ import annotations
+
+from datetime import datetime
+from datetime import timezone
 
 import pytest
 
 from qbrixstore.redis.health import Intake
 from qbrixstore.redis.health import OutcomeHealth
 
+from proxysvc.mod.safety.rule import CALLS_STOPPED
 from proxysvc.mod.safety.rule import OUTCOMES_NOT_LEARNED
 from proxysvc.mod.safety.rule import OUTCOMES_STOPPED
+from proxysvc.mod.safety.rule import calls_evidence
+from proxysvc.mod.safety.rule import calls_silent
+from proxysvc.mod.safety.rule import calls_stopped
 from proxysvc.mod.safety.rule import not_learned_evidence
 from proxysvc.mod.safety.rule import outcomes_not_learned
 from proxysvc.mod.safety.rule import outcomes_stopped
@@ -142,3 +151,54 @@ class TestOutcomesNotLearned:
         assert found["outcomes"] == 95
         assert found["reasons"] == {"late": 15}
         assert found["window_minutes"] == 60
+
+
+HOUR = NOW_MS // HOUR_MS
+YESTERDAY_START_MS = (HOUR - 25) * HOUR_MS
+
+
+def _calls(
+    *,
+    last_hour: int = 0,
+    this_hour: int = 0,
+    yesterday: int = 60,
+    serving_since_ms: int = YESTERDAY_START_MS,
+) -> bool:
+    return calls_stopped(
+        last_hour=last_hour,
+        this_hour=this_hour,
+        yesterday=yesterday,
+        hour=HOUR,
+        serving_since_ms=serving_since_ms,
+    )
+
+
+class TestCallsStopped:
+    def test_a_silent_hour_after_60_calls_yesterday_warns(self):
+        assert _calls()
+
+    def test_59_calls_yesterday_warn_nothing(self):
+        assert not _calls(yesterday=59)
+
+    def test_a_call_in_either_hour_warns_nothing(self):
+        assert not _calls(last_hour=1)
+        assert not _calls(this_hour=1)
+
+    def test_a_loop_not_serving_for_all_of_both_hours_warns_nothing(self):
+        assert not _calls(serving_since_ms=YESTERDAY_START_MS + MINUTE_MS)
+
+    def test_silence_is_no_call_since_the_last_full_hour_began(self):
+        assert calls_silent(last_hour=0, this_hour=0)
+        assert not calls_silent(last_hour=0, this_hour=3)
+
+    def test_the_evidence_names_yesterdays_calls_and_the_hours(self):
+        found = calls_evidence(yesterday=240, hour=HOUR, now_ms=NOW_MS)
+
+        assert found["signal"] == CALLS_STOPPED
+        assert found["calls_same_hour_yesterday"] == 240
+        assert found["silent_since"] == _iso((HOUR - 1) * HOUR_MS)
+        assert found["yesterday_hour_start"] == _iso(YESTERDAY_START_MS)
+
+
+def _iso(ms: int) -> str:
+    return datetime.fromtimestamp(ms / 1000, timezone.utc).isoformat()

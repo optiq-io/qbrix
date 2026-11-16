@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from datetime import timezone
 
+from qbrixstore.redis.health import CALLS_STOPPED_MIN_CALLS
 from qbrixstore.redis.health import DECISION_ERROR_MIN_CALLS
 from qbrixstore.redis.health import DECISION_ERROR_RATE
 from qbrixstore.redis.health import Intake
@@ -19,7 +20,11 @@ from qbrixstore.redis.health import SelectHealth
 DECISION_ERRORS = "decision_errors"
 OUTCOMES_STOPPED = "outcomes_stopped"
 OUTCOMES_NOT_LEARNED = "outcomes_not_learned"
-WARNINGS = (OUTCOMES_STOPPED, OUTCOMES_NOT_LEARNED)
+CALLS_STOPPED = "calls_stopped"
+WARNINGS = (OUTCOMES_STOPPED, OUTCOMES_NOT_LEARNED, CALLS_STOPPED)
+
+HOUR_MS = 60 * 60 * 1000
+DAY_HOURS = 24
 
 # train_error may still learn, and earlier_cycle says nothing of this cycle's
 # wiring; unattributed joins when track ships
@@ -127,6 +132,41 @@ def not_learned_evidence(health: OutcomeHealth, now_ms: int) -> dict:
             if health.by_reason.get(d.value)
         },
         "window_minutes": NOT_LEARNED_WINDOW_MINUTES,
+        "checked_at": _iso(now_ms / 1000),
+    }
+
+
+def calls_silent(*, last_hour: int, this_hour: int) -> bool:
+    """no call since the last full hour began."""
+    return last_hour == 0 and this_hour == 0
+
+
+def calls_stopped(
+    *,
+    last_hour: int,
+    this_hour: int,
+    yesterday: int,
+    hour: int,
+    serving_since_ms: int,
+) -> bool:
+    """a loop deciding through the last full hour and the same hour
+    yesterday had no call since the last full hour began, and at least 60
+    in the same hour yesterday. ``hour`` is the current one, in whole hours
+    since the epoch, so a quiet night compares with the night before."""
+    yesterday_start_ms = (hour - 1 - DAY_HOURS) * HOUR_MS
+    return (
+        calls_silent(last_hour=last_hour, this_hour=this_hour)
+        and yesterday >= CALLS_STOPPED_MIN_CALLS
+        and serving_since_ms <= yesterday_start_ms
+    )
+
+
+def calls_evidence(*, yesterday: int, hour: int, now_ms: int) -> dict:
+    return {
+        "signal": CALLS_STOPPED,
+        "calls_same_hour_yesterday": yesterday,
+        "silent_since": _iso((hour - 1) * HOUR_MS / 1000),
+        "yesterday_hour_start": _iso((hour - 1 - DAY_HOURS) * HOUR_MS / 1000),
         "checked_at": _iso(now_ms / 1000),
     }
 
