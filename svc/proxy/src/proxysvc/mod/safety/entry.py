@@ -11,8 +11,16 @@ from proxysvc.mod.safety.rule import DECISION_ERRORS
 from proxysvc.mod.safety.rule import OUTCOMES_NOT_LEARNED
 from proxysvc.mod.safety.rule import OUTCOMES_STOPPED
 
+SAFETY_PAUSE = "safety_pause"
+WARNING = "warning"
 
-def _iso(at: datetime | None) -> str | None:
+
+def kind_of(signal: str) -> str:
+    """a decision errors alert is a safety pause; every other is a warning."""
+    return SAFETY_PAUSE if signal == DECISION_ERRORS else WARNING
+
+
+def iso(at: datetime | None) -> str | None:
     if at is None:
         return None
     if at.tzinfo is None:
@@ -69,8 +77,8 @@ def alert_entry(alert: Alert, loop: LoopName, people: People) -> dict:
     return {
         "id": alert.id,
         "signal": alert.signal,
-        "opened_at": _iso(alert.opened_at),
-        "resolved_at": _iso(alert.resolved_at),
+        "opened_at": iso(alert.opened_at),
+        "resolved_at": iso(alert.resolved_at),
         "resolution": alert.resolution,
         "resolved_by": _resolved_by(alert, people),
         "loop": {"id": alert.loop_id, "key": loop.key, "name": loop.name},

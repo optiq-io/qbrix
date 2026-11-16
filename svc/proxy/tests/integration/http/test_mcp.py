@@ -15,7 +15,10 @@ invariants verified:
   when the question is closed; an answer is taken once, only for its own
   call and connection, and doesn't count as a second change. a
   viewer's connection reads and can't change. a loop paused by qbrix says who paused it, when and why, in
-  loop_get and loops_list. workspace_summary reads the same as the service,
+  loop_get and loops_list. an open alert leads loop_get and loop_results
+  with its signal's value, marks the loop in loops_list, and a recovery in
+  the last week follows in loop_get; the structured content round-trips its
+  schema, and no line says "error rate" or a bandit word. workspace_summary reads the same as the service,
   in product words, an open safety pause first. delivery_update changes who
   a loop decides for, says so in one line that loop_get repeats, waits when
   it asks first and applies when approved. every refusal says what to do
@@ -50,8 +53,15 @@ from qbrixstore.postgres.models import Tenant
 from qbrixstore.postgres.models import User
 
 from proxysvc.core.actor import Actor
+from proxysvc.mod.safety.repository import AlertRepository
+from proxysvc.mod.safety.rule import OUTCOMES_NOT_LEARNED
+from proxysvc.mod.safety.rule import OUTCOMES_STOPPED
+from proxysvc.mod.safety.service import CLEARED
+from proxysvc.mod.safety.service import AlertService
 from proxysvc.next import next_routes
 from proxysvc.transport.mcp.server import MCP_PATH
+from proxysvc.transport.mcp.schema import LoopPage
+from proxysvc.transport.mcp.schema import LoopView
 from proxysvc.transport.mcp.server import build_mcp
 
 TENANT = "tenant-a"
@@ -1043,10 +1053,8 @@ class TestCycles:
         (alert,) = results.structured_content["health"]["alerts"]
         assert alert["signal"] == "decision_errors"
         first = results.content[0].text.splitlines()[0]
-        assert first.startswith("Open alert since ")
-        assert first.endswith(
-            "qbrix paused Checkout headline: 12% of its decisions failed."
-        )
+        assert first.startswith("Needs a look since ")
+        assert first.endswith(": qbrix paused it.")
 
     async def test_the_earlier_cycle_stays_readable(self, mcp, wired_app):
         async with _session(mcp, wired_app) as client:
@@ -2334,6 +2342,126 @@ FORBIDDEN = (
 )
 
 
+STOPPED = {
+    "signal": OUTCOMES_STOPPED,
+    "decisions_since_outcome": 240,
+    "usual_decisions_per_outcome": 18.0,
+}
+NOT_LEARNED = {
+    "signal": OUTCOMES_NOT_LEARNED,
+    "rate": 0.25,
+    "not_learned": 50,
+    "outcomes": 200,
+    "reasons": {"late": 40, "duplicate": 10},
+}
+
+
+async def _open(wired_app, signal: str, evidence: dict) -> None:
+    loop = await wired_app.svc.get_loop(TENANT, "checkout-headline")
+    async with session_module.get_session() as session:
+        await AlertService(session, TENANT).open(loop["id"], signal, evidence)
+
+
+async def _clear(wired_app, signal: str) -> None:
+    loop = await wired_app.svc.get_loop(TENANT, "checkout-headline")
+    async with session_module.get_session() as session:
+        alert = await AlertRepository(session, TENANT).open_for(loop["id"], signal)
+        await AlertService(session, TENANT).resolve(alert, CLEARED, Actor.qbrix())
+
+
+class TestAlerts:
+
+    async def test_loop_get_leads_with_outcomes_stopped(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await _open(wired_app, OUTCOMES_STOPPED, STOPPED)
+            result = await _call(client, "loop_get", {"loop": "checkout-headline"})
+
+        first = result.content[0].text.splitlines()[0]
+        assert first.startswith("Needs a look since ")
+        assert first.endswith(
+            ": outcomes stopped. 240 decisions since the last outcome; "
+            "usually one every 18."
+        )
+        view = LoopView.model_validate(result.structured_content)
+        assert [alert.signal for alert in view.alerts] == ["outcomes_stopped"]
+        assert view.recovered == []
+
+    async def test_loop_get_reads_a_recovery_from_the_last_week(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await _open(wired_app, OUTCOMES_STOPPED, STOPPED)
+            await _clear(wired_app, OUTCOMES_STOPPED)
+            result = await _call(client, "loop_get", {"loop": "checkout-headline"})
+
+        lines = result.content[0].text.splitlines()
+        assert lines[0].startswith("checkout-headline · ")
+        assert lines[1].startswith("Recovered ")
+        assert lines[1].endswith(
+            ": outcomes arriving again, after under a minute (outcomes stopped)."
+        )
+        view = LoopView.model_validate(result.structured_content)
+        assert view.alerts == []
+        assert [alert.resolution for alert in view.recovered] == ["cleared"]
+
+    async def test_a_safety_pause_is_said_once(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await wired_app.svc.loops.pause_loop(
+                TENANT,
+                "checkout-headline",
+                actor=Actor.qbrix(),
+                evidence=EVIDENCE,
+            )
+            result = await _call(client, "loop_get", {"loop": "checkout-headline"})
+
+        lines = result.content[0].text.splitlines()
+        assert lines[0].startswith("checkout-headline · ")
+        assert lines[1].startswith("Paused by qbrix at ")
+        assert not any(line.startswith("Needs a look") for line in lines)
+        assert len(result.structured_content["alerts"]) == 1
+
+    async def test_loops_list_marks_the_loop(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await _open(wired_app, OUTCOMES_STOPPED, STOPPED)
+            await _open(wired_app, OUTCOMES_NOT_LEARNED, NOT_LEARNED)
+            result = await _call(client, "loops_list")
+
+        line = result.content[0].text.splitlines()[0]
+        assert " · needs a look (outcomes stopped, outcomes not learned)" in line
+        page = LoopPage.model_validate(result.structured_content)
+        assert [alert.signal for alert in page.loops[0].alerts] == [
+            "outcomes_stopped",
+            "outcomes_not_learned",
+        ]
+
+    async def test_says_no_error_rate_or_bandit_words(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await _open(wired_app, OUTCOMES_NOT_LEARNED, NOT_LEARNED)
+            await _open(wired_app, OUTCOMES_STOPPED, STOPPED)
+            await _clear(wired_app, OUTCOMES_STOPPED)
+            texts = [
+                (await _call(client, tool, args)).content[0].text
+                for tool, args in (
+                    ("loop_get", {"loop": "checkout-headline"}),
+                    ("loops_list", {}),
+                    ("loop_results", {"loop": "checkout-headline"}),
+                    ("workspace_summary", {}),
+                )
+            ]
+
+        assert (
+            "25% of the last hour's 200 outcomes couldn't be learned from "
+            "(late 40, duplicate 10)" in texts[0]
+        )
+        for text in texts:
+            assert "error rate" not in text.lower()
+            for word in FORBIDDEN:
+                assert word not in text.lower(), word
+
+
 class TestWorkspaceSummary:
 
     async def test_reads_the_same_as_the_service(self, mcp, wired_app):
@@ -2370,8 +2498,8 @@ class TestWorkspaceSummary:
         assert lines[0].startswith("Since ")
         assert "1 live, 1 paused, 0 committed loops" in lines[0]
         assert lines[1].startswith("Search ranking (search-ranking) · paused")
-        assert "qbrix paused it" in text
-        assert "23.8% of 629 calls failed; still paused" in text
+        assert ": qbrix paused it. 23.8% of 629 calls failed." in lines[2], lines[2]
+        assert lines[2].startswith("  Needs a look since ")
         assert "Mustafa via Claude Code (" in text
         assert "Checkout headline (checkout-headline) · live" in text
         for word in FORBIDDEN:

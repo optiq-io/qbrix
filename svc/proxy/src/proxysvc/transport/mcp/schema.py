@@ -9,9 +9,11 @@ from pydantic import BaseModel
 from proxysvc.core.autonomy import Level
 from proxysvc.transport.http.router.change import ChangeEntry
 from proxysvc.transport.http.router.change import ChangePage
+from proxysvc.transport.http.router.loop import Alert
 from proxysvc.transport.http.router.loop import HistoryEntry
 from proxysvc.transport.http.router.loop import LoopResults
 from proxysvc.transport.http.router.loop import LoopSummary
+from proxysvc.transport.http.router.loop import OpenAlert
 from proxysvc.transport.http.router.loop import PreviewResponse
 from proxysvc.transport.http.router.loop import ResultsResponse
 from proxysvc.transport.http.router.loop import Share
@@ -39,6 +41,8 @@ class Wiring(BaseModel):
 
 class LoopView(Loop):
     latest_change: Optional[HistoryEntry] = None
+    alerts: list[Alert]
+    recovered: list[Alert]
     wire: Wiring
     autonomy: dict[str, Level]
     declined: list[ChangeEntry]
@@ -46,6 +50,7 @@ class LoopView(Loop):
 
 class LoopListItem(Loop):
     latest_change: Optional[HistoryEntry] = None
+    alerts: list[OpenAlert] = []
     results: Optional[LoopResults] = None
 
 

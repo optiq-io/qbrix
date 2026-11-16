@@ -16,8 +16,7 @@ from proxysvc.mod.loop.repository import LoopRepository
 from proxysvc.mod.loop.result import LoopResultService
 from proxysvc.mod.milestone.service import MilestoneService
 from proxysvc.mod.people import People
-from proxysvc.mod.summary.entry import ALERT_KINDS
-from proxysvc.mod.summary.entry import alerts
+from proxysvc.mod.safety.read import read_alerts
 from proxysvc.mod.summary.entry import by_who
 
 WEEK = timedelta(days=7)
@@ -25,6 +24,7 @@ REACH = timedelta(days=30)
 OLD_DRAFT = timedelta(days=7)
 SHOWN = ("live", "paused", "committed")
 MILESTONES_MAX = 1000
+ALERTS_MAX = 1000
 
 
 def _now() -> datetime:
@@ -55,8 +55,9 @@ def _share_now(loop: Loop, summary: dict | None, now: datetime) -> dict | None:
 
 class SummaryService:
     """the workspace since a moment, as facts: for each loop that is live,
-    paused or committed, its share then and now, lift, safety pauses and
-    their recoveries, milestones and changes by who; the drafts; and the
+    paused or committed, its share then and now, lift, the alerts open at
+    any time in the range and how they ended, milestones and changes by who;
+    the drafts; and the
     workspace's change counts. nothing ranks, judges or words them.
 
     every source is read once for all loops, whatever their number.
@@ -103,8 +104,13 @@ class SummaryService:
             ids = [loop.id for loop in loops]
             repo = ChangeRepository(session, tenant_id)
             changes = await repo.in_range("loop", ids, since)
-            at_since = await repo.latest_for_each(
-                "loop", ids, kinds=ALERT_KINDS, before=since
+            found_alerts = await read_alerts(
+                session,
+                tenant_id,
+                loop_ids=ids,
+                open=None,
+                limit=ALERTS_MAX,
+                since=since,
             )
             rows = await repo.count_workspace(since)
             people = await People.load(
@@ -122,6 +128,9 @@ class SummaryService:
         per_loop: dict[str, list] = {loop_id: [] for loop_id in ids}
         for change in changes:
             per_loop[change.target_id].append(change)
+        alerts: dict[str, list] = {loop_id: [] for loop_id in ids}
+        for alert in reversed(found_alerts):
+            alerts[alert["loop"]["id"]].append(alert)
         milestones: dict[str, list] = {loop_id: [] for loop_id in ids}
         for milestone in reached["milestones"]:
             if milestone["loop"]["id"] in milestones:
@@ -149,7 +158,7 @@ class SummaryService:
                     },
                     "lift": (summaries.get(loop.id) or {}).get("lift"),
                     "early": (summaries.get(loop.id) or {}).get("early", False),
-                    "alerts": alerts(at_since.get(loop.id), per_loop[loop.id], people),
+                    "alerts": alerts[loop.id],
                     "milestones": milestones[loop.id],
                     "changes": by_who(per_loop[loop.id][::-1], people),
                 }

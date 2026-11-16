@@ -51,7 +51,11 @@ from proxysvc.mod.engine.catalog import engine_catalog
 from proxysvc.mod.loop.delivery import delivery_of
 from proxysvc.mod.loop.service import starts_cycle
 from proxysvc.mod.metric.serialize import window_label
+from proxysvc.mod.safety.read import OPEN_LIMIT
+from proxysvc.mod.safety.read import RECOVERED_SHOWN
 from proxysvc.mod.safety.rule import DECISION_ERRORS
+from proxysvc.mod.safety.rule import OUTCOMES_NOT_LEARNED
+from proxysvc.mod.safety.rule import OUTCOMES_STOPPED
 from proxysvc.service import ProxyService
 from proxysvc.transport.http.router.change import ChangePage
 from proxysvc.transport.http.router.engine import EngineList
@@ -461,7 +465,7 @@ def _moved(loop: dict) -> float:
 
 
 def _open_alert(loop: dict) -> bool:
-    return any(alert["recovered"] is None for alert in loop["alerts"])
+    return any(alert["resolved_at"] is None for alert in loop["alerts"])
 
 
 def _options_share(at: dict) -> str:
@@ -491,18 +495,108 @@ def _week_share(loop: dict, since: str) -> str:
     return "; ".join(parts) or "no decisions yet"
 
 
+_SIGNAL_WORDS = {
+    DECISION_ERRORS: "qbrix paused it",
+    OUTCOMES_STOPPED: "outcomes stopped",
+    OUTCOMES_NOT_LEARNED: "outcomes not learned",
+}
+
+_CLEARED_WORDS = {
+    OUTCOMES_STOPPED: "outcomes arriving again",
+    OUTCOMES_NOT_LEARNED: "outcomes learned again",
+}
+
+
+def _signal_words(signal: str) -> str:
+    return _SIGNAL_WORDS.get(signal, signal.replace("_", " "))
+
+
+def _alert_value(alert: dict) -> str:
+    """the signal's value from the alert's evidence, in product words."""
+    evidence = alert["evidence"] or {}
+    signal = alert["signal"]
+    if signal == OUTCOMES_STOPPED:
+        value = (
+            f"{evidence.get('decisions_since_outcome', 0):,} decisions "
+            "since the last outcome"
+        )
+        usual = evidence.get("usual_decisions_per_outcome")
+        return value + (
+            f"; usually one every {usual:g}" if usual else "; none yet this cycle"
+        )
+    if signal == OUTCOMES_NOT_LEARNED:
+        reasons = ", ".join(
+            f"{reason} {count}"
+            for reason, count in (evidence.get("reasons") or {}).items()
+        )
+        return (
+            f"{evidence.get('rate', 0):.0%} of the last hour's "
+            f"{evidence.get('outcomes', 0):,} outcomes couldn't be learned from"
+            + (f" ({reasons})" if reasons else "")
+        )
+    if signal == DECISION_ERRORS and "calls" in evidence:
+        return f"{_failed(evidence)} failed"
+    return ""
+
+
+def _sentence_of(alert: dict) -> str:
+    value = _alert_value(alert)
+    return f"{_signal_words(alert['signal'])}." + (f" {value}." if value else "")
+
+
+def _lasted(alert: dict) -> str:
+    opened = datetime.fromisoformat(alert["opened_at"])
+    ended = datetime.fromisoformat(alert["resolved_at"])
+    minutes = max(0, int((ended - opened).total_seconds() // 60))
+    if minutes < 1:
+        return "under a minute"
+    if minutes < 60:
+        return f"{minutes} minute{'s' if minutes != 1 else ''}"
+    hours, minutes = divmod(minutes, 60)
+    if hours < 48:
+        return f"{hours}h {minutes:02d}m"
+    return f"{hours // 24} days"
+
+
+def _how_it_ended(alert: dict) -> str:
+    resolution = alert["resolution"]
+    if resolution == "retired":
+        return "the loop was retired"
+    if resolution == "resumed":
+        by = alert["resolved_by"] or {}
+        who = by.get("name") or "qbrix"
+        if by.get("kind") == "connection":
+            who += " through a connection"
+        return f"resumed by {who}"
+    return _CLEARED_WORDS.get(alert["signal"], "healthy again")
+
+
+def _needs_a_look_line(alert: dict) -> str:
+    """an open alert, first in what an agent reads about its loop."""
+    return (
+        f"Needs a look since {_moment(alert['opened_at'], time=True)}: "
+        f"{_sentence_of(alert)}"
+    )
+
+
+def _recovered_line(alert: dict) -> str:
+    """an alert that ended: when, how, and how long it was open."""
+    verb = "Ended" if alert["resolution"] == "retired" else "Recovered"
+    return (
+        f"{verb} {_moment(alert['resolved_at'], time=True)}: "
+        f"{_how_it_ended(alert)}, after {_lasted(alert)} "
+        f"({_signal_words(alert['signal'])})."
+    )
+
+
 def _alert_line(alert: dict) -> str:
-    line = f"qbrix paused it {_moment(alert['opened_at'], time=True)}"
-    evidence = _decision_errors(alert)
-    if evidence:
-        line += f": {_failed(evidence)} failed"
-    recovered = alert["recovered"]
-    if recovered is None:
-        return f"{line}; still paused, everyone gets the fallback until a person resumes it"
-    who = recovered["who"]["name"] or "qbrix"
-    if recovered["via"]:
-        who += f" via {recovered['via']}"
-    return f"{line}; resumed by {who} {_moment(recovered['at'], time=True)}"
+    if alert["resolved_at"] is None:
+        return _needs_a_look_line(alert)
+    return _recovered_line(alert)
+
+
+def _list_alerts_line(alerts: list[dict]) -> str:
+    return f"needs a look ({', '.join(_signal_words(a['signal']) for a in alerts)})"
 
 
 def _group_line(group: dict) -> str:
@@ -897,7 +991,7 @@ def register(
         limit: Annotated[int, Field(ge=1, le=LIMIT_MAX)] = LIMIT_DEFAULT,
         detail: DetailArg = "concise",
     ) -> Annotated[CallToolResult, LoopPage]:
-        """List the workspace's loops, newest first: each loop's key, name, state, metric, share of decisions now, and its latest change with who made it."""
+        """List the workspace's loops, newest first: each loop's key, name, state, metric, whether it needs a look and why (its open alerts), share of decisions now, and its latest change with who made it."""
         principal = current_principal()
         try:
             _require(principal, "loop:read", "read loops")
@@ -914,6 +1008,8 @@ def register(
         lines = []
         for loop in loops:
             line = _loop_line(loop)
+            if loop["alerts"]:
+                line += f" · {_list_alerts_line(loop['alerts'])}"
             share = _share_line((loop.get("results") or {}).get("share") or [])
             if share:
                 line += f" · share {share}"
@@ -936,7 +1032,7 @@ def register(
     async def loop_get(
         loop: LoopRef, detail: DetailArg = "concise"
     ) -> Annotated[CallToolResult, LoopView]:
-        """Read one loop: its purpose, options, metric, owner, who it decides for (its delivery) and what everyone else gets (its fallback), state (and the option it is committed to, if committed) and current cycle, its latest change, who paused it, when and why if it is paused, this connection's autonomy for each change to the loop, its most recent declined changes with the reasons given, and how to wire it: the select and outcome calls for this loop in Python and JavaScript."""
+        """Read one loop, leading with what needs a look: each open alert (outcomes stopped, outcomes not learned, or a safety pause) with its value, then alerts that recovered in the last 7 days. Then its purpose, options, metric, owner, who it decides for (its delivery) and what everyone else gets (its fallback), state (and the option it is committed to, if committed) and current cycle, its latest change, who paused it, when and why if it is paused, this connection's autonomy for each change to the loop, its most recent declined changes with the reasons given, and how to wire it: the select and outcome calls for this loop in Python and JavaScript."""
         principal = current_principal()
         try:
             _require(principal, "loop:read", "read loops")
@@ -955,8 +1051,22 @@ def register(
             limit=DECLINES_SHOWN,
         )
         declines = declined["changes"]
+        lately = await service().list_alerts(
+            principal.tenant_id,
+            loop=found["id"],
+            limit=OPEN_LIMIT,
+            since=datetime.now(timezone.utc) - RECOVERED_SHOWN,
+        )
+        open_alerts = [a for a in lately["alerts"] if a["resolved_at"] is None][::-1]
+        recovered = sorted(
+            (a for a in lately["alerts"] if a["resolved_at"] is not None),
+            key=lambda a: a["resolved_at"],
+            reverse=True,
+        )
         view = LoopView(
             **_concise(found, detail),
+            alerts=open_alerts,
+            recovered=recovered,
             wire=wire,
             autonomy=levels,
             declined=declines,
@@ -969,9 +1079,16 @@ def register(
         paused = _paused_line(
             found["state"], await latest_pause(principal.tenant_id, found)
         )
+        looks = [
+            _needs_a_look_line(alert)
+            for alert in open_alerts
+            if not (paused and alert["signal"] == DECISION_ERRORS)
+        ]
         text = (
-            f"{_loop_line(found)}\n"
+            "".join(f"{line}\n" for line in looks)
+            + f"{_loop_line(found)}\n"
             + (f"{paused}\n" if paused else "")
+            + "".join(f"{_recovered_line(alert)}\n" for alert in recovered)
             + f"Purpose: {found['purpose'] or '(none)'}\n"
             f"{_delivery_line(found, datetime.now(timezone.utc))}\n"
             f"{_context_line(found)}\n"
@@ -1004,7 +1121,7 @@ def register(
         ] = "24h",
         detail: DetailArg = "concise",
     ) -> Annotated[CallToolResult, ResultsView]:
-        """Read a loop's results for one cycle: each option's share of decisions, lift over an even split (marked early while its range is filling), decisions waiting to seal, calls by state, and health."""
+        """Read a loop's results for one cycle: each option's share of decisions, lift over an even split (marked early while its range is filling), decisions waiting to seal, calls by state, and health, led by the loop's open alerts."""
         principal = current_principal()
         try:
             _require(principal, "loop:read", "read loops")
@@ -1025,10 +1142,7 @@ def register(
             return _refused(refusal)
         if detail == "concise" and results["share"]:
             results = {**results, "share": {**results["share"], "series": None}}
-        lines = [
-            f"Open alert since {alert['opened_at']} · {_sentence(alert)}"
-            for alert in results["health"]["alerts"]
-        ]
+        lines = [_needs_a_look_line(alert) for alert in results["health"]["alerts"]]
         if results["cycle"] is None:
             lines.append("A draft: no decisions yet. Launch it with loop_launch.")
         else:
@@ -1323,7 +1437,7 @@ def register(
             ),
         ] = None,
     ) -> Annotated[CallToolResult, WeekSummary]:
-        """Read the workspace since a date, 7 days by default, in one call: for each live, paused and committed loop, each option's share of decisions then and now, lift over an even split, safety pauses and who resumed them, milestones, and its changes grouped by who made them and through which client; the drafts; and the workspace's change counts. Facts only: it ranks nothing and calls no option better."""
+        """Read the workspace since a date, 7 days by default, in one call: for each live, paused and committed loop, each option's share of decisions then and now, lift over an even split, its alerts open at any time since then (safety pauses and warnings) and how each ended, milestones, and its changes grouped by who made them and through which client; the drafts; and the workspace's change counts. Facts only: it ranks nothing and calls no option better."""
         principal = current_principal()
         try:
             _require(principal, "loop:read", "read loops")

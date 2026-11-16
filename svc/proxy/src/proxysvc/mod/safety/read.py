@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Collection
+from datetime import datetime
+from datetime import timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,8 +14,10 @@ from proxysvc.mod.milestone.entry import LoopName
 from proxysvc.mod.people import People
 from proxysvc.mod.safety.entry import alert_entry
 from proxysvc.mod.safety.repository import AlertRepository
+from proxysvc.mod.safety.repository import Newest
 
 OPEN_LIMIT = 50
+RECOVERED_SHOWN = timedelta(days=7)
 
 
 async def read_alerts(
@@ -23,10 +27,13 @@ async def read_alerts(
     loop_ids: Collection[str] | None,
     open: bool | None,
     limit: int,
+    since: datetime | None = None,
+    newest: Newest = "opened",
 ) -> list[dict]:
-    """alerts as entries, newest first, with loop names as they are now."""
+    """alerts as entries, newest first, with loop names as they are now.
+    since leaves out those that ended before it."""
     found = await AlertRepository(session, tenant_id).list(
-        loop_ids=loop_ids, open=open, limit=limit
+        loop_ids=loop_ids, open=open, limit=limit, since=since, newest=newest
     )
     names = await LoopRepository(session, tenant_id).names(
         {alert.loop_id for alert in found}
@@ -53,6 +60,7 @@ class AlertReadService:
         loop: str | None = None,
         open: bool | None = None,
         limit: int,
+        since: datetime | None = None,
     ) -> dict:
         async with get_session() as session:
             loop_ids = None
@@ -62,6 +70,11 @@ class AlertReadService:
                     raise LoopNotFoundError(f"no loop with the key or id {loop!r}")
                 loop_ids = [found.id]
             alerts = await read_alerts(
-                session, tenant_id, loop_ids=loop_ids, open=open, limit=limit
+                session,
+                tenant_id,
+                loop_ids=loop_ids,
+                open=open,
+                limit=limit,
+                since=since,
             )
         return {"alerts": alerts}
