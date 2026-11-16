@@ -14,7 +14,7 @@ from proxysvc.transport.http.auth.dependencies import get_current_tenant_id
 from proxysvc.transport.http.auth.dependencies import get_person
 from proxysvc.transport.http.auth.dependencies import require_scopes
 from proxysvc.transport.http.router.change import ChangeEntry
-from proxysvc.transport.http.router.summary import Alert
+from proxysvc.transport.http.router.loop import Alert
 
 router = APIRouter(prefix="/inbox", tags=["inbox"])
 
@@ -50,9 +50,10 @@ class LoopRef(BaseModel):
 
 class InboxItem(BaseModel):
     """one item, in one shape: a change carries change (and asked while it
-    waits), an alert carries its loop and alert."""
+    waits), an alert carries its loop and alert, recovered once it has
+    resolved_at."""
 
-    kind: Literal["change", "safety_pause"]
+    kind: Literal["change", "safety_pause", "warning"]
     at: str
     change: Optional[ChangeEntry] = None
     asked: Optional[Asked] = None
@@ -82,8 +83,9 @@ async def read_inbox(
     user=Depends(require_scopes(["loop:read"])),
 ):
     """the reader's inbox: changes waiting on them, oldest first; what their
-    connections did at act and notify in the last seven days, newest first;
-    the workspace's loops paused by qbrix; and suggestions."""
+    connections did at act and notify in the last seven days, and the
+    workspace's alerts that recovered in them, newest first; the workspace's
+    open alerts, safety pauses and warnings, oldest first; and suggestions."""
     found = await get_proxy_service().inbox(tenant_id, actor.user_id, user.role)
     return Inbox(**found)
 

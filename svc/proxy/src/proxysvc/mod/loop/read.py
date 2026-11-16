@@ -14,12 +14,14 @@ from proxysvc.mod.loop.result import LoopResultService
 from proxysvc.mod.loop.serialize import cycle_to_dict
 from proxysvc.mod.loop.serialize import loop_to_dict
 from proxysvc.mod.people import People
+from proxysvc.mod.safety.entry import iso
+from proxysvc.mod.safety.repository import AlertRepository
 
 
 class LoopReadService:
     """loops as people, agents and the console read them: one loop, the list
-    with each loop's latest change and results, a loop's cycles and its
-    history.
+    with each loop's latest change, open alerts and results, a loop's cycles
+    and its history.
 
     every read is a fixed number of queries, whatever the page holds.
     """
@@ -67,6 +69,13 @@ class LoopReadService:
             latest = await ChangeRepository(session, tenant_id).latest_for_each(
                 "loop", [loop.id for loop in loops]
             )
+            alerts: dict[str, list[dict]] = {loop.id: [] for loop in loops}
+            for alert in await AlertRepository(session, tenant_id).open_on(
+                list(alerts)
+            ):
+                alerts[alert.loop_id].append(
+                    {"signal": alert.signal, "opened_at": iso(alert.opened_at)}
+                )
             people = await People.load(
                 session,
                 tenant_id,
@@ -81,6 +90,7 @@ class LoopReadService:
                         if loop.id in latest
                         else None
                     ),
+                    "alerts": alerts[loop.id],
                 }
                 for loop in loops
             ]

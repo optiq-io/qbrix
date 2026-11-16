@@ -10,11 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from proxysvc.mod.change.repository import ChangeRepository
 from proxysvc.mod.change.service import workspace_rows
-from proxysvc.mod.loop.repository import LoopRepository
-from proxysvc.mod.summary.entry import ALERT_KINDS
-from proxysvc.mod.summary.entry import SAFETY_PAUSE
-from proxysvc.mod.summary.entry import is_safety_pause
-from proxysvc.mod.summary.entry import opened
+from proxysvc.mod.safety.entry import kind_of
+from proxysvc.mod.safety.read import OPEN_LIMIT
+from proxysvc.mod.safety.read import RECOVERED_SHOWN
+from proxysvc.mod.safety.read import read_alerts
 
 Section = Literal["waiting", "notified", "alerts", "suggestions"]
 
@@ -123,8 +122,18 @@ class NotifiedSource:
         ]
 
 
-class SafetyPauseSource:
-    """the workspace's loops qbrix paused that no one has resumed yet."""
+def _alert_item(alert: dict, at: str) -> dict:
+    return _item(
+        kind_of(alert["signal"]),
+        datetime.fromisoformat(at),
+        loop=alert["loop"],
+        alert=alert,
+    )
+
+
+class OpenAlertSource:
+    """the workspace's open alerts, safety pauses and warnings alike, for
+    every member."""
 
     section: Section = "alerts"
     needs_change = False
@@ -132,23 +141,37 @@ class SafetyPauseSource:
     async def items(
         self, session: AsyncSession, reader: Reader, now: datetime
     ) -> list[dict]:
-        loops = await LoopRepository(session, reader.tenant_id).with_states(("paused",))
-        latest = await ChangeRepository(session, reader.tenant_id).latest_for_each(
-            "loop", [loop.id for loop in loops], kinds=ALERT_KINDS
+        alerts = await read_alerts(
+            session, reader.tenant_id, loop_ids=None, open=True, limit=OPEN_LIMIT
         )
-        items = []
-        for loop in loops:
-            pause = latest.get(loop.id)
-            if is_safety_pause(pause):
-                items.append(
-                    _item(
-                        SAFETY_PAUSE,
-                        pause.created_at,
-                        loop={"id": loop.id, "key": loop.key, "name": loop.name},
-                        alert=opened(pause),
-                    )
-                )
-        return items
+        return [_alert_item(alert, alert["opened_at"]) for alert in alerts]
 
 
-SOURCES: tuple[Source, ...] = (WaitingSource(), NotifiedSource(), SafetyPauseSource())
+class RecoveredAlertSource:
+    """alerts that ended lately, kept for a week marked recovered, for every
+    member."""
+
+    section: Section = "notified"
+    needs_change = False
+
+    async def items(
+        self, session: AsyncSession, reader: Reader, now: datetime
+    ) -> list[dict]:
+        alerts = await read_alerts(
+            session,
+            reader.tenant_id,
+            loop_ids=None,
+            open=False,
+            limit=NOTIFIED_MAX,
+            since=now - RECOVERED_SHOWN,
+            newest="resolved",
+        )
+        return [_alert_item(alert, alert["resolved_at"]) for alert in alerts]
+
+
+SOURCES: tuple[Source, ...] = (
+    WaitingSource(),
+    NotifiedSource(),
+    OpenAlertSource(),
+    RecoveredAlertSource(),
+)

@@ -8,56 +8,11 @@ from proxysvc.mod.change.serialize import history_entry
 from proxysvc.mod.change.serialize import who_made
 from proxysvc.mod.people import People
 
-PAUSE = "loop.pause"
-RESUME = "loop.resume"
-ALERT_KINDS = (PAUSE, RESUME)
-SAFETY_PAUSE = "safety_pause"
 CHANGES_SHOWN = 20
-
-
-def is_safety_pause(change: Change | None) -> bool:
-    return change is not None and change.kind == PAUSE and change.actor_kind == "qbrix"
 
 
 def _via(change: Change) -> str | None:
     return (change.client_name or "a client") if change.connection_id else None
-
-
-def opened(change: Change) -> dict:
-    evidence = change.evidence or {}
-    return {
-        "kind": SAFETY_PAUSE,
-        "signal": evidence.get("signal"),
-        "opened_at": change.created_at.isoformat(),
-        "evidence": change.evidence,
-        "change_id": change.id,
-        "recovered": None,
-    }
-
-
-def alerts(
-    at_since: Change | None, changes: Sequence[Change], people: People
-) -> list[dict]:
-    """a loop's safety pauses in the range: one already open at since, and
-    each qbrix opened in it. a person resuming the loop is its recovery.
-    changes run oldest first."""
-    found: list[dict] = []
-    current = opened(at_since) if is_safety_pause(at_since) else None
-    if current:
-        found.append(current)
-    for change in changes:
-        if is_safety_pause(change):
-            current = opened(change)
-            found.append(current)
-        elif change.kind == RESUME and current is not None:
-            current["recovered"] = {
-                "at": change.created_at.isoformat(),
-                "who": who_made(change, people),
-                "via": _via(change),
-                "change_id": change.id,
-            }
-            current = None
-    return found
 
 
 def by_who(changes: Sequence[Change], people: People) -> list[dict]:

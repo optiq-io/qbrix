@@ -4,10 +4,11 @@ invariants verified:
   the read carries each live, paused and committed loop, never a draft or a
   retired loop, with its share at since and now, lift as the loops list has
   it, milestones in the range and its changes grouped by who: a person by
-  name, a connection as its person via its client, qbrix by itself. a safety
-  pause is an open alert until a person resumes the loop, which is its
-  recovery; one opened before since and still open is there too, and a
-  person's own pause is never an alert. drafts are counted, and those older
+  name, a connection as its person via its client, qbrix by itself. alerts
+  are the record's: every safety pause and warning open at any time in the
+  range, with how it ended, a resume naming who; one opened before since and
+  still open is there, one that ended before since is not, and a person's own
+  pause is never an alert. drafts are counted, and those older
   than a week named. change counts cover the range. since defaults to seven
   days, and one in the future or further back than thirty days is refused
   with what to pass. the number of queries doesn't grow with the loops. it is
@@ -27,12 +28,16 @@ from sqlalchemy import update
 import proxysvc.config
 import qbrixstore.postgres.session as _session_module
 from qbrixstore.event import MilestoneEvent
+from qbrixstore.postgres.models import Alert
 from qbrixstore.postgres.models import Change
 from qbrixstore.postgres.models import Cycle
 from qbrixstore.postgres.models import Loop
 from qbrixstore.postgres.models import User
 
 from proxysvc.core.actor import Actor
+from proxysvc.mod.safety.rule import OUTCOMES_STOPPED
+from proxysvc.mod.safety.service import CLEARED
+from proxysvc.mod.safety.service import AlertService
 from proxysvc.next import next_routes
 
 from svc.proxy.tests.integration.http.conftest import as_tenant
@@ -150,6 +155,33 @@ async def _safety_pause(wired_app, ref: str) -> dict:
             evidence=EVIDENCE,
         )
     ).change
+
+
+async def _warning(loop_id: str) -> str:
+    async with _session_module.get_session() as session:
+        alert = await AlertService(session, TENANT).open(
+            loop_id,
+            OUTCOMES_STOPPED,
+            {"signal": OUTCOMES_STOPPED, "decisions_since_outcome": 240},
+        )
+        return alert.id
+
+
+async def _clear(alert_id: str) -> None:
+    async with _session_module.get_session() as session:
+        alert = await session.get(Alert, alert_id)
+        await AlertService(session, TENANT).resolve(alert, CLEARED, Actor.qbrix())
+
+
+async def _backdate_alert(
+    alert_id: str, *, opened_days_ago: int, resolved_days_ago: int | None = None
+) -> None:
+    now = datetime.now(timezone.utc)
+    values = {"opened_at": now - timedelta(days=opened_days_ago)}
+    if resolved_days_ago is not None:
+        values["resolved_at"] = now - timedelta(days=resolved_days_ago)
+    async with _session_module.get_session() as session:
+        await session.execute(update(Alert).where(Alert.id == alert_id).values(values))
 
 
 async def _summary(api, **params) -> dict:
@@ -307,37 +339,47 @@ class TestChangesByWho:
 class TestAlerts:
     async def test_a_safety_pause_is_open_until_a_person_resumes(self, wired_app, api):
         loop = await _live(wired_app, "Checkout CTA")
-        pause = await _safety_pause(wired_app, loop["key"])
+        await _safety_pause(wired_app, loop["key"])
 
-        opened = _loop(await _summary(api), loop["key"])["alerts"]
-        resume = (
-            await wired_app.svc.resume_loop(TENANT, loop["key"], actor=ADA)
-        ).change
-        closed = _loop(await _summary(api), loop["key"])["alerts"]
+        [opened] = _loop(await _summary(api), loop["key"])["alerts"]
+        await wired_app.svc.resume_loop(TENANT, loop["key"], actor=ADA)
+        [closed] = _loop(await _summary(api), loop["key"])["alerts"]
 
-        assert opened == [
-            {
-                "kind": "safety_pause",
-                "signal": "decision_errors",
-                "opened_at": opened[0]["opened_at"],
-                "evidence": EVIDENCE,
-                "change_id": pause["id"],
-                "recovered": None,
-            }
-        ]
-        assert closed[0]["recovered"]["change_id"] == resume["id"]
-        assert closed[0]["recovered"]["who"]["name"] == "Ada"
+        assert opened["signal"] == "decision_errors"
+        assert opened["evidence"] == EVIDENCE
+        assert opened["resolved_at"] is None
+        assert closed["id"] == opened["id"]
+        assert closed["resolution"] == "resumed"
+        assert closed["resolved_by"]["name"] == "Ada"
 
-    async def test_a_pause_from_before_since_still_open_is_there(self, wired_app, api):
+    async def test_a_warning_and_how_it_ended(self, wired_app, api):
         loop = await _live(wired_app, "Checkout CTA")
-        pause = await _safety_pause(wired_app, loop["key"])
-        await _backdate_change(pause["id"], 9)
+        alert_id = await _warning(loop["id"])
+        await _clear(alert_id)
+
+        [alert] = _loop(await _summary(api), loop["key"])["alerts"]
+
+        assert alert["id"] == alert_id
+        assert alert["signal"] == "outcomes_stopped"
+        assert alert["resolution"] == "cleared"
+        assert alert["resolved_by"]["kind"] == "qbrix"
+
+    async def test_one_open_from_before_since_is_there(self, wired_app, api):
+        loop = await _live(wired_app, "Checkout CTA")
+        alert_id = await _warning(loop["id"])
+        await _backdate_alert(alert_id, opened_days_ago=9)
 
         alerts = _loop(await _summary(api), loop["key"])["alerts"]
 
-        assert [(a["change_id"], a["recovered"]) for a in alerts] == [
-            (pause["id"], None)
-        ]
+        assert [(a["id"], a["resolved_at"]) for a in alerts] == [(alert_id, None)]
+
+    async def test_one_that_ended_before_since_is_not(self, wired_app, api):
+        loop = await _live(wired_app, "Checkout CTA")
+        alert_id = await _warning(loop["id"])
+        await _clear(alert_id)
+        await _backdate_alert(alert_id, opened_days_ago=10, resolved_days_ago=9)
+
+        assert _loop(await _summary(api), loop["key"])["alerts"] == []
 
     async def test_a_persons_pause_is_no_alert(self, wired_app, api):
         loop = await _live(wired_app, "Checkout CTA")

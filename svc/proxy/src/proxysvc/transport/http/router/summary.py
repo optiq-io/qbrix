@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
-from typing import Literal
 from typing import Optional
 
 from fastapi import APIRouter
@@ -16,6 +14,7 @@ from proxysvc.transport.http.auth.dependencies import get_current_tenant_id
 from proxysvc.transport.http.auth.dependencies import require_scopes
 from proxysvc.transport.http.exception import SummaryRangeException
 from proxysvc.transport.http.router.change import ChangeCounts
+from proxysvc.transport.http.router.loop import Alert
 from proxysvc.transport.http.router.loop import HistoryEntry
 from proxysvc.transport.http.router.loop import Who
 from proxysvc.transport.http.router.milestone import Milestone
@@ -57,22 +56,6 @@ class ShareAt(BaseModel):
 class ShareThenNow(BaseModel):
     then: Optional[ShareAt] = None
     now: Optional[ShareAt] = None
-
-
-class Recovery(BaseModel):
-    at: str
-    who: Who
-    via: Optional[str] = None
-    change_id: str
-
-
-class Alert(BaseModel):
-    kind: Literal["safety_pause"]
-    signal: Optional[str] = None
-    opened_at: str
-    evidence: Optional[dict[str, Any]] = None
-    change_id: str
-    recovered: Optional[Recovery] = None
 
 
 class ChangesByWho(BaseModel):
@@ -128,9 +111,9 @@ async def workspace_summary(
     _scoped=Depends(require_scopes(["loop:read"])),
 ):
     """the workspace since a moment, seven days back by default: each live,
-    paused and committed loop's share then and now, lift, safety pauses and
-    their recoveries, milestones and changes by who; the drafts; and the
-    workspace's change counts."""
+    paused and committed loop's share then and now, lift, the alerts open at
+    any time in the range and how they ended, milestones and changes by who;
+    the drafts; and the workspace's change counts."""
     try:
         found = await get_proxy_service().workspace_summary(tenant_id, since)
     except SummaryRangeError as e:

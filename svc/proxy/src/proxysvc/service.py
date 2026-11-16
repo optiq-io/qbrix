@@ -907,9 +907,10 @@ class ProxyService:
         loop: str | None = None,
         open: bool | None = None,
         limit: int,
+        since: datetime | None = None,
     ) -> dict:
         return await self._alert_read_service.list_alerts(
-            tenant_id, loop=loop, open=open, limit=limit
+            tenant_id, loop=loop, open=open, limit=limit, since=since
         )
 
     async def workspace_summary(

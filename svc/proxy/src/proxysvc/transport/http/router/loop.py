@@ -475,8 +475,17 @@ class EditsResponse(EditsPlan):
     serving_within_seconds: int
 
 
+AlertSignal = Literal["decision_errors", "outcomes_stopped", "outcomes_not_learned"]
+
+
+class OpenAlert(BaseModel):
+    signal: AlertSignal
+    opened_at: str
+
+
 class LoopListItem(LoopSummary):
     latest_change: Optional[HistoryEntry] = None
+    alerts: list[OpenAlert] = []
     results: Optional[LoopResults] = None
 
 
@@ -571,7 +580,7 @@ class AlertResolver(BaseModel):
 
 class Alert(BaseModel):
     id: str
-    signal: Literal["decision_errors", "outcomes_stopped", "outcomes_not_learned"]
+    signal: AlertSignal
     opened_at: str
     resolved_at: Optional[str] = None
     resolution: Optional[Literal["cleared", "resumed", "retired"]] = None
@@ -630,7 +639,8 @@ async def list_loops(
     tenant_id: str = Depends(get_current_tenant_id),
     _scoped=Depends(require_scopes(["loop:read"])),
 ):
-    """the workspace's loops, newest first, each with its latest change."""
+    """the workspace's loops, newest first, each with its latest change and
+    its open alerts."""
     try:
         page = await get_proxy_service().list_loops(
             tenant_id, states=state or (), cursor=cursor, limit=limit

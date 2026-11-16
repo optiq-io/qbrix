@@ -7,10 +7,11 @@ invariants verified:
   undo counts under the kind it undoes. no one sees another person's waiting
   changes, an admin included. an answered change leaves at once. notified
   holds what the reader's connections did at act and notify in the last
-  seven days, newest first, with undo, and nothing else. alerts hold the
-  workspace's loops paused by qbrix until a person resumes them, for every
-  role; a person's pause is no alert. a viewer gets alerts only and a count
-  of nothing. the count equals waiting and runs one statement. a source added
+  seven days, newest first, with undo, and the workspace's alerts that
+  recovered in them, for every role. alerts hold the workspace's open alerts,
+  safety pauses and warnings alike, for every role, until they recover; a
+  person's pause is no alert. a viewer gets alerts only and a count of
+  nothing. the count equals waiting and runs one statement. a source added
   to the registry lands in its section. it is never another workspace's, and
   with next off the routes don't exist.
 """
@@ -28,11 +29,16 @@ from sqlalchemy import update
 
 import proxysvc.config
 import qbrixstore.postgres.session as _session_module
+from qbrixstore.postgres.models import Alert
 from qbrixstore.postgres.models import Change
 
 from proxysvc.core.actor import Actor
 from proxysvc.mod.change.proposal import Waiting
 from proxysvc.mod.inbox import source
+from proxysvc.mod.safety.repository import AlertRepository
+from proxysvc.mod.safety.rule import OUTCOMES_STOPPED
+from proxysvc.mod.safety.service import CLEARED
+from proxysvc.mod.safety.service import AlertService
 from proxysvc.next import next_routes
 
 from svc.proxy.tests.integration.http.conftest import as_tenant
@@ -63,6 +69,11 @@ EVIDENCE = {
     "window_start": "2026-10-27T09:51:00+00:00",
     "window_end": "2026-10-27T10:01:12+00:00",
     "reasons": {"motor_unavailable": 150},
+}
+STOPPED = {
+    "signal": OUTCOMES_STOPPED,
+    "decisions_since_outcome": 240,
+    "usual_decisions_per_outcome": 18.0,
 }
 
 
@@ -136,6 +147,31 @@ async def _backdate(change_id: str, days: int) -> None:
             update(Change)
             .where(Change.id == change_id)
             .values(created_at=datetime.now(timezone.utc) - timedelta(days=days))
+        )
+
+
+async def _warning(loop: dict) -> str:
+    async with _session_module.get_session() as session:
+        alert = await AlertService(session, TENANT).open(
+            loop["id"], OUTCOMES_STOPPED, STOPPED
+        )
+        return alert.id
+
+
+async def _clear(loop: dict) -> None:
+    async with _session_module.get_session() as session:
+        alert = await AlertRepository(session, TENANT).open_for(
+            loop["id"], OUTCOMES_STOPPED
+        )
+        await AlertService(session, TENANT).resolve(alert, CLEARED, Actor.qbrix())
+
+
+async def _backdate_resolved(alert_id: str, days: int) -> None:
+    async with _session_module.get_session() as session:
+        await session.execute(
+            update(Alert)
+            .where(Alert.id == alert_id)
+            .values(resolved_at=datetime.now(timezone.utc) - timedelta(days=days))
         )
 
 
@@ -293,18 +329,87 @@ class TestAlerts:
             "key": loop["key"],
             "name": loop["name"],
         }
+        assert item["at"] == item["alert"]["opened_at"]
         assert item["alert"]["signal"] == "decision_errors"
         assert item["alert"]["evidence"]["rate"] == 0.238
-        assert item["alert"]["change_id"] == pause["id"]
+        assert item["alert"]["resolved_at"] is None
+        assert pause["kind"] == "loop.pause"
 
-    async def test_a_resumed_loop_leaves(self, wired_app, api):
+    @pytest.mark.parametrize("role", ["member", "admin", "viewer"])
+    async def test_a_warning_is_an_alert_for_everyone(self, wired_app, api, role):
+        loop = await _live(api)
+        alert_id = await _warning(loop)
+
+        inbox = await _inbox(wired_app, api, BEN, role)
+
+        [item] = inbox["alerts"]
+        assert item["kind"] == "warning"
+        assert item["alert"]["id"] == alert_id
+        assert item["alert"]["signal"] == "outcomes_stopped"
+        assert item["alert"]["evidence"]["decisions_since_outcome"] == 240
+        assert item["alert"]["pieces"][0] == {
+            "kind": "loop",
+            "name": loop["name"],
+            "text": None,
+        }
+        assert inbox["notified"] == []
+
+    async def test_open_alerts_oldest_first(self, wired_app, api):
+        first = await _live(api, "First")
+        second = await _live(api, "Second")
+        await _warning(first)
+        await _safety_pause(wired_app, second)
+
+        alerts = (await _inbox(wired_app, api))["alerts"]
+
+        assert [item["loop"]["key"] for item in alerts] == [
+            first["key"],
+            second["key"],
+        ]
+
+    async def test_a_cleared_warning_moves_to_notified_as_recovered(
+        self, wired_app, api
+    ):
+        loop = await _live(api)
+        alert_id = await _warning(loop)
+        await _clear(loop)
+
+        inbox = await _inbox(wired_app, api, BEN, "viewer")
+
+        assert inbox["alerts"] == []
+        [item] = inbox["notified"]
+        assert item["kind"] == "warning"
+        assert item["at"] == item["alert"]["resolved_at"]
+        assert item["alert"]["id"] == alert_id
+        assert item["alert"]["resolution"] == "cleared"
+        assert item["alert"]["resolved_by"]["kind"] == "qbrix"
+
+    async def test_a_resumed_safety_pause_names_who_resumed_it(self, wired_app, api):
         loop = await _live(api)
         await _safety_pause(wired_app, loop)
 
-        resp = await api.post(f"/api/v1/loops/{loop['key']}/resume", json={})
-        assert resp.status_code == 200, resp.text
+        await wired_app.svc.resume_loop(TENANT, loop["key"], actor=Actor.member(ADA))
 
-        assert (await _inbox(wired_app, api))["alerts"] == []
+        inbox = await _inbox(wired_app, api)
+        assert inbox["alerts"] == []
+        [item] = inbox["notified"]
+        assert item["kind"] == "safety_pause"
+        assert item["alert"]["resolution"] == "resumed"
+        assert item["alert"]["resolved_by"]["kind"] == "member"
+        assert item["alert"]["resolved_by"]["user_id"] == ADA
+
+    async def test_a_recovery_stays_seven_days(self, wired_app, api):
+        recent = await _live(api, "Recent")
+        old = await _live(api, "Old")
+        await _warning(recent)
+        await _clear(recent)
+        old_id = await _warning(old)
+        await _clear(old)
+        await _backdate_resolved(old_id, 8)
+
+        notified = (await _inbox(wired_app, api))["notified"]
+
+        assert [item["loop"]["key"] for item in notified] == [recent["key"]]
 
     async def test_a_persons_pause_is_no_alert(self, wired_app, api):
         loop = await _live(api)

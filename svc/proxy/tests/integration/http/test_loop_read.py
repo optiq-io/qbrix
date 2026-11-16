@@ -5,7 +5,8 @@ invariants verified:
   owner's name, its metric's type and window, its current cycle once
   launched, and its latest change in a fixed number of queries. the list filters by state, pages newest first by an opaque cursor
   that neither repeats nor skips a loop when others are created between pages,
-  and carries each loop's latest change in a fixed number of queries. a loop's
+  and carries each loop's latest change and its open alerts, oldest first,
+  in a fixed number of queries. a loop's
   cycles list newest first with their options as they were. its history lists
   every change newest first with who, via and why: a connection reads as its
   person via its client, a change by qbrix has no person, and a deleted user is
@@ -26,6 +27,10 @@ from qbrixstore.postgres.models import User
 
 from proxysvc.core.actor import Actor
 from proxysvc.mod.change.repository import ChangeRepository
+from proxysvc.mod.safety.rule import OUTCOMES_NOT_LEARNED
+from proxysvc.mod.safety.rule import OUTCOMES_STOPPED
+from proxysvc.mod.safety.service import CLEARED
+from proxysvc.mod.safety.service import AlertService
 from proxysvc.next import next_routes
 
 from svc.proxy.tests.integration.http.conftest import as_tenant
@@ -105,6 +110,11 @@ async def _pause_by_qbrix(wired_app, ref: str) -> None:
         TENANT, ref, actor=Actor.qbrix(), reason="decision errors", evidence=EVIDENCE
     )
     assert paused is not None
+
+
+async def _warn(loop_id: str, signal: str) -> None:
+    async with _session_module.get_session() as session:
+        await AlertService(session, TENANT).open(loop_id, signal, {"signal": signal})
 
 
 async def _record(loop_id: str, kind: str, actor: Actor, reason: str) -> None:
@@ -317,15 +327,36 @@ class TestList:
         assert loop["latest_change"]["kind"] == "loop.pause"
         assert loop["latest_change"]["evidence"] == EVIDENCE
 
+    async def test_each_loop_carries_its_open_alerts(self, loops):
+        quiet = await _launch(loops, (await _create(loops, "Quiet"))["key"])
+        loud = await _launch(loops, (await _create(loops, "Loud"))["key"])
+        await _warn(loud["id"], OUTCOMES_STOPPED)
+        await _warn(loud["id"], OUTCOMES_NOT_LEARNED)
+        await _warn(quiet["id"], OUTCOMES_STOPPED)
+        async with _session_module.get_session() as session:
+            await AlertService(session, TENANT).resolve_loop(
+                quiet["id"], CLEARED, Actor.qbrix()
+            )
+
+        page = await _get(loops, "")
+        alerts = {loop["key"]: loop["alerts"] for loop in page["loops"]}
+
+        assert alerts["quiet"] == []
+        assert [alert["signal"] for alert in alerts["loud"]] == [
+            OUTCOMES_STOPPED,
+            OUTCOMES_NOT_LEARNED,
+        ]
+        assert all(alert["opened_at"] for alert in alerts["loud"])
+
     async def test_reads_the_same_number_of_queries_for_one_loop_or_many(self, loops):
-        await _create(loops, "Only")
-        await _launch(loops, "only")
+        only = await _launch(loops, (await _create(loops, "Only"))["key"])
+        await _warn(only["id"], OUTCOMES_STOPPED)
         with _counting() as one:
             await _get(loops, "")
 
         for n in range(5):
-            await _create(loops, f"More {n}")
-            await _launch(loops, f"more-{n}")
+            more = await _launch(loops, (await _create(loops, f"More {n}"))["key"])
+            await _warn(more["id"], OUTCOMES_STOPPED)
         with _counting() as many:
             page = await _get(loops, "")
 

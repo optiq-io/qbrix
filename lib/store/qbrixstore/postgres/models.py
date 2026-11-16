@@ -501,6 +501,7 @@ class Alert(Base):
     __tablename__ = "alerts"
     __table_args__ = (
         Index("ix_alerts_tenant_id_opened_at", "tenant_id", "opened_at", "id"),
+        Index("ix_alerts_tenant_id_resolved_at", "tenant_id", "resolved_at"),
         # one open alert per loop and signal, however many passes race to open it
         Index(
             "uq_alerts_open",
