@@ -13,6 +13,7 @@ from proxysvc.transport.http.auth import util
 from proxysvc.transport.http.constant import AGENT_PATH_PREFIX
 from proxysvc.transport.http.constant import OUTCOME_PATH
 from proxysvc.transport.http.constant import SELECT_PATH
+from proxysvc.transport.http.constant import TRACK_PATH
 from proxysvc.transport.http.exception import BaseAPIException
 from proxysvc.transport.http.exception import UnauthorizedException
 from proxysvc.transport.http.exception import RateLimitedException
@@ -56,6 +57,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             AGENT_PATH_PREFIX,
             SELECT_PATH,
             OUTCOME_PATH,
+            TRACK_PATH,
         }
 
     async def dispatch(self, request: Request, call_next):

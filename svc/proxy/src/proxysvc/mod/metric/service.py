@@ -18,6 +18,7 @@ from proxysvc.mod.change.repository import ChangeRepository
 from proxysvc.mod.change.undo import Undoing
 from proxysvc.mod.loop.repository import LoopRepository
 from proxysvc.mod.metric.repository import MetricRepository
+from proxysvc.mod.metric.route import MetricRouteCache
 from proxysvc.mod.metric.serialize import metric_to_dict
 
 DEFAULT_WINDOW_SECONDS = 24 * 60 * 60
@@ -35,6 +36,9 @@ class MetricService:
 
     a metric is created at version 1.0; its type and range never change.
     """
+
+    def __init__(self, routes: MetricRouteCache):
+        self._routes = routes
 
     @staticmethod
     async def create_metric(
@@ -128,8 +132,8 @@ class MetricService:
                 for metric in metrics
             ]
 
-    @staticmethod
     async def delete_metric(
+        self,
         tenant_id: str,
         metric_id: str,
         *,
@@ -159,4 +163,5 @@ class MetricService:
                 before=before,
                 undoing=undoing,
             )
+        await self._routes.drop(tenant_id, before["name"])
         return True

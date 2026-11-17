@@ -496,6 +496,13 @@ class InvalidRequestIdException(BadRequestException):
     code = "INVALID_REQUEST_ID"
 
 
+class InvalidDecisionsException(BadRequestException):
+    """a decisions token with no decision that verifies in this workspace."""
+
+    detail = "invalid decisions"
+    code = "INVALID_DECISIONS"
+
+
 class InvalidCursorException(BadRequestException):
     """a page cursor that no previous page returned."""
 

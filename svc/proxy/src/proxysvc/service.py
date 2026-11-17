@@ -44,12 +44,15 @@ from proxysvc.mod.loop.read import LoopReadService
 from proxysvc.mod.loop.result import LoopResultService
 from proxysvc.mod.loop.route import LoopRouteCache
 from proxysvc.mod.loop.select import LoopSelectService
+from proxysvc.mod.loop.track import LoopTrackService
+from proxysvc.mod.loop.track import TrackEvent
 from proxysvc.mod.inbox.service import InboxService
 from proxysvc.mod.milestone.service import MilestoneService
 from proxysvc.mod.safety.read import AlertReadService
 from proxysvc.mod.summary.service import SummaryService
 from proxysvc.mod.loop.service import LoopService
 from proxysvc.mod.metric.service import DEFAULT_WINDOW_SECONDS
+from proxysvc.mod.metric.route import MetricRouteCache
 from proxysvc.mod.metric.service import MetricService
 from proxysvc.mod.oauth.cimd import CIMDFetcher
 from proxysvc.mod.oauth.service import OAuthService
@@ -84,6 +87,7 @@ class ProxyService:
         self._loop_service: LoopService | None = None
         self._loop_select_service: LoopSelectService | None = None
         self._loop_outcome_service: LoopOutcomeService | None = None
+        self._loop_track_service: LoopTrackService | None = None
         self._loop_result_service: LoopResultService | None = None
         self._milestone_service: MilestoneService | None = None
         self._alert_read_service = AlertReadService()
@@ -163,7 +167,8 @@ class ProxyService:
             settings=self._settings,
             entitlements=self._entitlements,
         )
-        self._metric_service = MetricService()
+        metric_routes = MetricRouteCache(self._redis.client, self._settings)
+        self._metric_service = MetricService(metric_routes)
         loop_routes = LoopRouteCache(self._redis.client, self._settings)
         self._loop_service = LoopService(redis=self._redis, routes=loop_routes)
         self._loop_select_service = LoopSelectService(
@@ -177,6 +182,13 @@ class ProxyService:
         self._loop_outcome_service = LoopOutcomeService(
             redis=self._redis,
             routes=loop_routes,
+            events=self._events,
+            settings=self._settings,
+        )
+        self._loop_track_service = LoopTrackService(
+            redis=self._redis,
+            routes=loop_routes,
+            metrics=metric_routes,
             events=self._events,
             settings=self._settings,
         )
@@ -935,6 +947,14 @@ class ProxyService:
         return await self._loop_outcome_service.outcome(
             tenant_id, request_id, value, event_id, at
         )
+
+    async def track(self, tenant_id: str, event: TrackEvent) -> dict:
+        return await self._loop_track_service.track(tenant_id, event)
+
+    async def track_batch(
+        self, tenant_id: str, events: list[TrackEvent]
+    ) -> list[dict | Exception]:
+        return await self._loop_track_service.track_batch(tenant_id, events)
 
     # agent
 

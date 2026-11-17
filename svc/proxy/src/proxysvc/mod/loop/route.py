@@ -14,6 +14,8 @@ from proxysvc.mod.loop.delivery import EVERYONE
 from proxysvc.mod.loop.delivery import Delivery
 from proxysvc.mod.loop.delivery import delivery_of
 from proxysvc.mod.loop.serialize import option_to_dict
+from proxysvc.mod.metric.route import RouteMetric
+from proxysvc.mod.metric.route import route_metric_of
 
 _NAMESPACE = "qbrix:tenant"
 
@@ -46,15 +48,6 @@ def _route_cycle(cycle: Cycle) -> RouteCycle:
     )
 
 
-class RouteMetric(BaseModel):
-    id: str
-    version: str
-    type: str
-    score_lo: float | None = None
-    score_hi: float | None = None
-    window_ms: int
-
-
 class LoopRoute(BaseModel):
     """what select needs to answer for a loop, without reading postgres.
 
@@ -83,7 +76,6 @@ def route_of(loop: Loop) -> LoopRoute:
         cycle.options if cycle else [option_to_dict(option) for option in loop.options]
     )
     keys = [option["key"] for option in options]
-    version = loop.metric.versions[-1]
     return LoopRoute(
         id=loop.id,
         key=loop.key,
@@ -95,14 +87,7 @@ def route_of(loop: Loop) -> LoopRoute:
         ),
         fallback=next(o for o in options if o["key"] == loop.fallback_key),
         delivery=delivery_of(loop.delivery),
-        metric=RouteMetric(
-            id=loop.metric.id,
-            version=f"{version.major}.{version.minor}",
-            type=loop.metric.type,
-            score_lo=loop.metric.score_lo,
-            score_hi=loop.metric.score_hi,
-            window_ms=version.window_sec * 1000,
-        ),
+        metric=route_metric_of(loop.metric),
     )
 
 

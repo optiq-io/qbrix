@@ -59,6 +59,7 @@ from proxysvc.transport.http.exception.base import LoopNotRetirableException
 from proxysvc.transport.http.exception.base import LoopNotCyclableException
 from proxysvc.transport.http.exception.base import LoopRetiredException
 from proxysvc.transport.http.exception.base import InvalidDecisionContextException
+from proxysvc.transport.http.exception.base import InvalidDecisionsException
 from proxysvc.transport.http.exception.base import InvalidOutcomeException
 from proxysvc.transport.http.exception.base import InvalidRequestIdException
 from proxysvc.transport.http.exception.base import InvalidCursorException
@@ -130,6 +131,7 @@ __all__ = [
     "LoopNotCyclableException",
     "LoopRetiredException",
     "InvalidDecisionContextException",
+    "InvalidDecisionsException",
     "InvalidOutcomeException",
     "InvalidRequestIdException",
     "InvalidCursorException",
