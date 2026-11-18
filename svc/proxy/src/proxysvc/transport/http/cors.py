@@ -13,6 +13,7 @@ from proxysvc.config import settings
 from proxysvc.transport.http.constant import AGENT_PATH_PREFIX
 from proxysvc.transport.http.constant import OUTCOME_PATH
 from proxysvc.transport.http.constant import SELECT_PATH
+from proxysvc.transport.http.constant import TRACK_PATH
 
 __all__ = [
     "ScopedCORSMiddleware",
@@ -66,6 +67,7 @@ AGENT_CORS_PREFIXES = (
     AGENT_PATH_PREFIX,
     SELECT_PATH,
     OUTCOME_PATH,
+    TRACK_PATH,
     "/oauth/",
     "/.well-known/oauth-",
     "/mcp",

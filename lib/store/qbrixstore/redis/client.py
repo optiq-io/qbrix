@@ -813,6 +813,63 @@ class RedisClient:
         values = await self.client.mget(keys) if keys else []
         return sum(int(value) for value in values if value)
 
+    @staticmethod
+    def _metric_outcome_key(
+        tenant_id: str, metric_id: str, minute: int, disposition: OutcomeDisposition
+    ) -> str:
+        return (
+            f"qbrix:tenant:{tenant_id}:health:metric:{metric_id}"
+            f":{minute}:{disposition.value}"
+        )
+
+    async def count_metric_outcomes(
+        self,
+        tenant_id: str,
+        metric_id: str,
+        counts: dict[OutcomeDisposition, int],
+        minute: int | None = None,
+    ) -> None:
+        """count a metric's outcomes by how they ended, across every loop
+        that improves it."""
+        if minute is None:
+            minute = int(time.time()) // 60
+        pipe = self.client.pipeline(transaction=False)
+        for disposition, count in counts.items():
+            if count <= 0:
+                continue
+            key = self._metric_outcome_key(tenant_id, metric_id, minute, disposition)
+            # noinspection PyAsyncCall
+            pipe.incrby(key, count)
+            # noinspection PyAsyncCall
+            pipe.expire(key, OUTCOME_HEALTH_TTL_SEC)
+        await pipe.execute()
+
+    async def metric_outcomes(
+        self,
+        tenant_id: str,
+        metric_id: str,
+        window_minutes: int,
+        now_minute: int | None = None,
+    ) -> dict[str, int]:
+        """a metric's outcome counts by disposition over the last
+        ``window_minutes`` minutes, the current one included."""
+        if now_minute is None:
+            now_minute = int(time.time()) // 60
+        minutes = range(now_minute - window_minutes + 1, now_minute + 1)
+        dispositions = list(OutcomeDisposition)
+        keys = [
+            self._metric_outcome_key(tenant_id, metric_id, m, d)
+            for m in minutes
+            for d in dispositions
+        ]
+        values = await self.client.mget(keys) if keys else []
+        counts: dict[str, int] = {}
+        for i, value in enumerate(values):
+            if value:
+                name = dispositions[i % len(dispositions)].value
+                counts[name] = counts.get(name, 0) + int(value)
+        return counts
+
     async def outcome_health(
         self,
         tenant_id: str,

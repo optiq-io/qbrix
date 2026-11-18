@@ -206,6 +206,7 @@ class TestNextSwitch:
             "/api/v1/loops/{loop}/results",
             "/api/v1/select",
             "/api/v1/outcome",
+            "/api/v1/track",
             "/api/v1/connections",
             "/api/v1/connections/{connection_id}",
             "/api/v1/connections/{connection_id}/levels",

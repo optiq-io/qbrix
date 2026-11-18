@@ -1,6 +1,6 @@
 ---
 title: Metrics and outcomes
-description: What a loop improves, and how to report what happened after each decision with outcome.
+description: What a loop improves, and how to report what happened after each decision with outcome and track.
 order: 3
 ---
 
@@ -90,8 +90,44 @@ The value must be valid for the loop's metric (see [Metric types](#metric-types)
 | Late: it happened, or reached qbrix, after the window closed | Recorded as late |
 | Invalid for the metric | Refused with an error, and counted |
 | A `request_id` that is altered, or from another workspace | Refused. An outcome is accepted only in the workspace that made the decision. |
+| A tracked event whose decisions are none for its metric | Recorded, crediting nothing |
 
 Many late outcomes mean the window is too short for how long the outcome really takes.
+
+## Events from anywhere: track
+
+The result often happens somewhere other than the decision: an order page, a payment webhook, a backend job. `track` sends an event for a metric, wherever it happens, and qbrix finds the decisions it belongs to.
+
+- **`decisions`** is the decisions token: the `request_id`s a device was served, joined by `.` into one string. Code carries it to where the result happens (a cart attribute, order metadata, a payment's metadata), and the event credits exactly the decisions in it whose loop improves the event's metric. Each `request_id` is signed, so the token can't credit a decision the device never received.
+- **`unit`** is who the event happened to, the same `unit` sent with `select`. It is for events that never passed through a device holding decisions. An event with only a unit is recorded, but matching it to the unit's open decisions isn't available yet, so for now it teaches nothing.
+- **`id`** and **`at`** work as they do for an outcome (see [Retries and timing](#retries-and-timing)).
+
+```bash
+curl -X POST $QBRIX_BASE_URL/api/v1/track \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "metric": "purchase",
+    "value": 1,
+    "decisions": "'"$REQUEST_ID_1.$REQUEST_ID_2"'",
+    "id": "order-8841"
+  }'
+```
+
+```json
+{
+  "id": "order-8841",
+  "at": "2026-11-17T13:09:01.216000Z",
+  "credited": 2
+}
+```
+
+`credited` says how many decisions the event credits. It is `null` for an event sent with only a unit.
+
+- An event that carries decisions is never also matched by its unit. When none of its decisions is for a loop that improves its metric, it is recorded and credits nothing.
+- The same event credits every loop that improves the metric and has a decision in the token. Each loop seals its own decision.
+- A decision made after the event's `at` is never credited.
+- A `request_id` in the token that is altered, or from another workspace, is dropped and counted. The event is refused only when none of them verifies.
 
 ## Metrics API
 
@@ -227,6 +263,34 @@ Admins and members can report outcomes.
 
 The response, `202 Accepted`, returns the outcome's `id` and `at`, as recorded. The example is under [Outcomes](#outcomes).
 
+### Track an event
+
+<Endpoint method="POST" path="/api/v1/track" description="Record an event for a metric, or a batch of up to 500" />
+
+Admins and members can track events.
+
+| Field | Type | Description |
+|---|---|---|
+| `metric` | string | The metric's name |
+| `value` | number | Valid for the metric, as for an outcome |
+| `decisions` | string | The decisions token: `request_id`s joined by `.`, at most 50. Either this or `unit` is required. |
+| `unit` | string | Who the event happened to, at most 256 characters. Either this or `decisions` is required. |
+| `id` | string | Optional. Makes the event idempotent; at most 256 characters. |
+| `at` | string | Optional. When it happened, ISO 8601; UTC when it has no offset. |
+
+The response, `202 Accepted`, returns the event's `id`, `at` and `credited`. The example is under [Events from anywhere](#events-from-anywhere-track).
+
+To send several events in one call, send `{"events": [...]}` with 1 to 500 events. The response, `202 Accepted`, answers each event in order, with what was recorded or the error that refused it. One refused event never refuses the rest:
+
+```json
+{
+  "results": [
+    {"id": "order-8841", "at": "2026-11-17T13:09:01.216000Z", "credited": 1, "error": null},
+    {"id": null, "at": null, "credited": null, "error": {"code": "INVALID_OUTCOME", "detail": "a conversion is 0 or 1, got 2"}}
+  ]
+}
+```
+
 ### Errors
 
 Errors carry a stable `code` and a `detail` that says what was wrong:
@@ -245,4 +309,5 @@ Errors carry a stable `code` and a `detail` that says what was wrong:
 | `404` | `METRIC_NOT_FOUND` | No metric has that name or id |
 | `400` | `INVALID_OUTCOME` | The outcome's value, `id` or `at` is refused. The detail names the rule, such as "a conversion is 0 or 1, got 2". |
 | `400` | `INVALID_REQUEST_ID` | The `request_id` isn't one `select` gave in this workspace |
+| `400` | `INVALID_DECISIONS` | No `request_id` in the decisions token is one `select` gave in this workspace, or it holds more than 50 |
 | `404` | `LOOP_NOT_FOUND` | The loop of the outcome's decision can't be found |

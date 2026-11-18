@@ -1,4 +1,4 @@
-"""the next request path, select and outcome, takes customer frontend traffic,
+"""the next request path, select, outcome and track, takes customer frontend traffic,
 so it shares the agent surface's abuse limiter, open cors policy and scopes on
 both transports."""
 
@@ -12,17 +12,22 @@ from proxysvc.transport.grpc.auth.interceptor import RATE_LIMITED_METHODS
 from proxysvc.transport.http.auth.middleware import AuthMiddleware
 from proxysvc.transport.http.constant import OUTCOME_PATH
 from proxysvc.transport.http.constant import SELECT_PATH
+from proxysvc.transport.http.constant import TRACK_PATH
 from proxysvc.transport.http.cors import AGENT_CORS_PREFIXES
 
 pytestmark = pytest.mark.unit
 
 
-@pytest.mark.parametrize("path", [SELECT_PATH, OUTCOME_PATH])
+@pytest.mark.parametrize("path", [SELECT_PATH, OUTCOME_PATH, TRACK_PATH])
 def test_http_path_is_limited_and_open_to_browsers(path):
     middleware = AuthMiddleware(app=None)
 
     assert path in middleware.rate_limited_paths
     assert path in AGENT_CORS_PREFIXES
+
+
+def test_track_needs_the_scope_outcome_does():
+    assert ENDPOINT_SCOPES[("POST", TRACK_PATH)] == "agent:write"
 
 
 @pytest.mark.parametrize(

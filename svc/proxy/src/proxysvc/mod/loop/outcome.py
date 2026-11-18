@@ -18,9 +18,9 @@ from proxysvc.core.error import LoopNotFoundError
 from proxysvc.core.error import TokenInvalidError
 from proxysvc.core.events import EventEmitter
 from proxysvc.mod.loop.route import LoopRouteCache
-from proxysvc.mod.loop.route import RouteMetric
 from proxysvc.mod.loop.token import Decision
 from proxysvc.mod.loop.token import DecisionToken
+from proxysvc.mod.metric.route import RouteMetric
 
 logger = get_logger(__name__)
 
@@ -29,7 +29,7 @@ MAX_CLOCK_AHEAD_MS = 5 * 60 * 1000
 SOURCE = "outcome"
 
 
-def _check_value(metric: RouteMetric, value: Any) -> float:
+def check_value(metric: RouteMetric, value: Any) -> float:
     """the value as the metric's type accepts it, or the rule it breaks."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise InvalidOutcomeError(f"value must be a number, got {value!r}")
@@ -52,7 +52,7 @@ def _check_value(metric: RouteMetric, value: Any) -> float:
     return float(value)
 
 
-def _check_event_id(event_id: Any) -> str:
+def check_event_id(event_id: Any) -> str:
     if event_id is None:
         return uuid.uuid4().hex
     if not isinstance(event_id, str) or not event_id.strip():
@@ -64,16 +64,33 @@ def _check_event_id(event_id: Any) -> str:
     return event_id
 
 
-def _at_ms(at: datetime | None, decision: Decision, now_ms: int) -> int:
+def event_at_ms(at: datetime | None, now_ms: int) -> int:
+    """when an event happened, arrival when not given; UTC without an offset."""
     if at is None:
         return now_ms
     if at.tzinfo is None:
         at = at.replace(tzinfo=timezone.utc)
     at_ms = int(at.timestamp() * 1000)
-    if at_ms < decision.timestamp_ms:
-        raise InvalidOutcomeError("at is earlier than the decision")
     if at_ms > now_ms + MAX_CLOCK_AHEAD_MS:
         raise InvalidOutcomeError("at is more than 5 minutes ahead of now")
+    return at_ms
+
+
+def decision_ref(decision: Decision) -> dict:
+    """a decision as a metric event carries it."""
+    return {
+        "decision_id": decision.decision_id,
+        "loop_id": decision.loop_id,
+        "cycle_id": decision.cycle_id,
+        "option_index": decision.option_index,
+        "opened_ms": decision.timestamp_ms,
+    }
+
+
+def _at_ms(at: datetime | None, decision: Decision, now_ms: int) -> int:
+    at_ms = event_at_ms(at, now_ms)
+    if at_ms < decision.timestamp_ms:
+        raise InvalidOutcomeError("at is earlier than the decision")
     return at_ms
 
 
@@ -120,14 +137,14 @@ class LoopOutcomeService:
             raise LoopNotFoundError(f"no loop with the id {decision.loop_id!r}")
 
         try:
-            value = _check_value(route.metric, value)
+            value = check_value(route.metric, value)
         except InvalidOutcomeError:
             self._events.dispatch(self._count_invalid(tenant_id, decision.cycle_id))
             self._stamp(tenant_id, decision.cycle_id, route.metric.window_ms)
             raise
 
         now_ms = int(time.time() * 1000)
-        event_id = _check_event_id(event_id)
+        event_id = check_event_id(event_id)
         at_ms = _at_ms(at, decision, now_ms)
 
         self._events.emit_metric(
@@ -136,15 +153,7 @@ class LoopOutcomeService:
                 metric_id=route.metric.id,
                 metric_version=decision.metric_version,
                 value=value,
-                decisions=[
-                    {
-                        "decision_id": decision.decision_id,
-                        "loop_id": decision.loop_id,
-                        "cycle_id": decision.cycle_id,
-                        "option_index": decision.option_index,
-                        "opened_ms": decision.timestamp_ms,
-                    }
-                ],
+                decisions=[decision_ref(decision)],
                 unit=decision.unit,
                 event_id=event_id,
                 at_ms=at_ms,

@@ -331,6 +331,7 @@ async def wired_app(
         set_proxy_service as set_outcome,
     )
     from proxysvc.transport.http.router.pin import set_proxy_service as set_pin
+    from proxysvc.transport.http.router.track import set_proxy_service as set_track
     from proxysvc.transport.http.router.pool import set_proxy_service as set_pool
     from proxysvc.transport.http.router.runtime import set_proxy_service as set_runtime
     from proxysvc.transport.http.router.select import set_proxy_service as set_select
@@ -406,6 +407,7 @@ async def wired_app(
     set_inbox(svc)
     set_select(svc)
     set_outcome(svc)
+    set_track(svc)
     set_connection(svc)
     set_pin(svc)
     set_oauth(svc)
@@ -443,6 +445,7 @@ async def wired_app(
     set_inbox(None)  # type: ignore[arg-type]
     set_select(None)  # type: ignore[arg-type]
     set_outcome(None)  # type: ignore[arg-type]
+    set_track(None)  # type: ignore[arg-type]
     set_connection(None)  # type: ignore[arg-type]
     set_pin(None)  # type: ignore[arg-type]
     set_oauth(None)  # type: ignore[arg-type]

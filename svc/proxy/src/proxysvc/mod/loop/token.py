@@ -57,3 +57,31 @@ class DecisionToken:
             metric_version=payload["mv"],
             timestamp_ms=payload["ts"],
         )
+
+
+DECISIONS_MAX = 50
+
+
+class DecisionsToken:
+    """the decisions a device was served, as one string code can carry to
+    where the outcome happens: their request_ids joined by a dot, which
+    base64url never contains. each is signed on its own, so the token needs
+    no secret of its own and can't credit a decision the device never got."""
+
+    SEPARATOR = "."
+
+    @classmethod
+    def join(cls, request_ids: list[str]) -> str:
+        return cls.SEPARATOR.join(request_ids)
+
+    @classmethod
+    def split(cls, token: str) -> list[str]:
+        entries = [entry for entry in token.split(cls.SEPARATOR) if entry]
+        if not entries:
+            raise TokenInvalidError("the decisions token holds no decision")
+        if len(entries) > DECISIONS_MAX:
+            raise TokenInvalidError(
+                f"a decisions token holds at most {DECISIONS_MAX} decisions, "
+                f"got {len(entries)}"
+            )
+        return list(dict.fromkeys(entries))

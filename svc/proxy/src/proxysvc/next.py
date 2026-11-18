@@ -32,12 +32,14 @@ def next_routes(app: FastAPI, settings: ProxySettings) -> None:
     from proxysvc.transport.http.router.runtime import status_router
     from proxysvc.transport.http.router.select import router as select_router
     from proxysvc.transport.http.router.summary import router as summary_router
+    from proxysvc.transport.http.router.track import router as track_router
 
     app.include_router(metric_router, prefix="/api/v1")
     app.include_router(loop_router, prefix="/api/v1")
     app.include_router(engine_router, prefix="/api/v1")
     app.include_router(select_router, prefix="/api/v1")
     app.include_router(outcome_router, prefix="/api/v1")
+    app.include_router(track_router, prefix="/api/v1")
     app.include_router(connection_router, prefix="/api/v1")
     app.include_router(request_router, prefix="/api/v1")
     app.include_router(pin_router, prefix="/api/v1")
