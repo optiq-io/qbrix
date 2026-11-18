@@ -17,7 +17,7 @@ from proxysvc.mod.connection.service import ConnectionPrincipal
 pytestmark = pytest.mark.unit
 
 _KIND = re.compile(
-    r"^(loop|brief|cycle|delivery|context|metric|note|experiment|pool|gate|connection)\.[a-z]+$"
+    r"^(loop|brief|cycle|delivery|context|engine|metric|note|experiment|pool|gate|connection)\.[a-z]+$"
 )
 
 
@@ -67,6 +67,7 @@ def test_the_defaults_are_the_definitions():
             "cycle.reset",
             "delivery.update",
             "context.update",
+            "engine.version",
             "metric.delete",
         ],
         "ask": ["loop.launch", "cycle.start", "loop.retire"],

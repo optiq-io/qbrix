@@ -22,6 +22,7 @@ from pydantic import BaseModel
 from pydantic import Field
 
 from qbrixcore.engine import ENGINES
+from qbrixcore.engine import EngineSpec
 from qbrixcore.engine.spec import ACCEPTED_FORMS
 
 from proxysvc.config import ProxySettings
@@ -248,6 +249,14 @@ def _context_line(loop: dict) -> str:
     if not context:
         return "Learns from: no context."
     return f"Learns from: {', '.join(prop['name'] for prop in context)}."
+
+
+def _engine_hold_line(cycle: dict) -> str:
+    spec = EngineSpec.parse(cycle["engine"])
+    title = ENGINES.get(spec).title()
+    if spec.minor is not None:
+        return f"it now stays on {title} {cycle['engine_version']}"
+    return f"it now follows {title} {spec.major} and runs {cycle['engine_version']}"
 
 
 def _arrival_line(read: dict) -> str:
@@ -2094,6 +2103,62 @@ def register(
 
         return await once("context_update", arguments, call, ctx, loop_answered)
 
+    async def engine_version(
+        ctx: Context,
+        loop: LoopRef,
+        reason: Reason,
+        engine: Annotated[
+            str,
+            Field(
+                description="The cycle's engine with its major, such as spinoza:1 to follow its minors as qbrix is upgraded, or with the minor the cycle runs, such as spinoza:1.3, to stay on it."
+            ),
+        ],
+    ) -> Annotated[CallToolResult, LoopChanged] | InputRequiredResult:
+        """Switch a launched loop's cycle between following its engine's major and staying on the minor it runs. The cycle and what it learned stay, and this can be undone. Following again moves the cycle to the newest minor qbrix ships. Another engine, major or minor is a new cycle: use cycle_start."""
+        arguments = {"loop": loop, "reason": reason, "engine": engine}
+
+        async def call(principal: ConnectionPrincipal) -> CallToolResult:
+            _require(principal, "loop:write", "change a loop's engine version")
+            try:
+                with refusals():
+                    updated = await make(
+                        principal,
+                        "engine.version",
+                        loop,
+                        {"engine": engine},
+                        reason=reason,
+                    )
+            except LoopStateError as e:
+                found = await service().get_loop(principal.tenant_id, loop)
+                if found["state"] == "retired":
+                    raise error.retired(loop) from e
+                raise Refusal(
+                    f"The loop {found['key']} is a draft; its engine is part of "
+                    f"its brief until it launches. Nothing was changed."
+                ) from e
+            if updated is None:
+                raise await refused_loop(principal, loop)
+            if isinstance(updated, Waiting):
+                return await asked(
+                    principal,
+                    updated.change,
+                    lambda change, _: LoopChanged(
+                        status="waiting", change=change, loop=updated.value
+                    ),
+                )
+            value = updated.value
+            change = changed(updated, "loop", value["key"])
+            cycle = value["cycle"]
+            return _result(
+                f"Kept cycle {cycle['number']} of {value['key']} and what it "
+                f"learned; {_engine_hold_line(cycle)}. Serving moves within "
+                f"{math.ceil(settings.experiment_cache_ttl)} seconds. Change "
+                f"{change['id']}, can be undone: {change['url']}",
+                LoopChanged(status="applied", change=change, loop=value),
+            )
+
+        return await once("engine_version", arguments, call, ctx, loop_answered)
+
     async def brief_update(
         ctx: Context,
         loop: LoopRef,
@@ -2378,6 +2443,7 @@ def register(
         (cycle_reset, _DESTRUCTIVE),
         (delivery_update, _DESTRUCTIVE),
         (context_update, _DESTRUCTIVE),
+        (engine_version, _DESTRUCTIVE),
         (brief_update, _DESTRUCTIVE),
         (metric_create, _CREATE),
         (note_add, _CREATE),

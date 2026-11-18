@@ -308,6 +308,7 @@ class TestSignIn:
                 "cycle.reset",
                 "delivery.update",
                 "context.update",
+                "engine.version",
                 "metric.delete",
             ],
             "ask": ["loop.launch", "cycle.start", "loop.retire"],

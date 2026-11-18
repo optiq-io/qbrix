@@ -38,6 +38,7 @@ KINDS: tuple[Kind, ...] = (
     Kind("cycle.reset", "notify", on_loop=True),
     Kind("delivery.update", "notify", on_loop=True),
     Kind("context.update", "notify", on_loop=True),
+    Kind("engine.version", "notify", on_loop=True),
     Kind("metric.delete", "notify", on_loop=False),
 )
 

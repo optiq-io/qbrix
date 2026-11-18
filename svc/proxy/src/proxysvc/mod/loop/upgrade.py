@@ -1,55 +1,26 @@
 from __future__ import annotations
 
 from sqlalchemy import select
-from sqlalchemy import update
 
 from qbrixcore.engine import ENGINES
 from qbrixcore.engine import EngineError
 from qbrixcore.engine import EngineSpec
-from qbrixcore.engine import EngineVersion
 from qbrixlog import get_logger
 from qbrixstore.postgres.models import Cycle
 from qbrixstore.postgres.models import Loop
 from qbrixstore.postgres.session import get_session
 from qbrixstore.redis.client import RedisClient
 
-from proxysvc.core.actor import Actor
 from proxysvc.core.error import LoopInvalidError
-from proxysvc.mod.change.repository import ChangeRepository
+from proxysvc.mod.loop.minor import move_minor
 from proxysvc.mod.loop.repository import LoopRepository
 from proxysvc.mod.loop.serialize import cycle_record
-from proxysvc.mod.loop.serialize import loop_to_dict
 from proxysvc.mod.loop.service import resolve_engine
-from proxysvc.mod.people import People
-from proxysvc.mod.status import VERSION
 
 logger = get_logger(__name__)
 
-ENGINE_MINOR = "engine.minor"
-
 # a committed loop's cycle still seals its open decisions, and reopening returns to it
 _RUNNING = ("live", "paused", "committed")
-
-
-def _version(text: str) -> EngineVersion:
-    major, minor = text.split(".")
-    return EngineVersion(int(major), int(minor))
-
-
-def minor_line(spec: str, recorded: str) -> str:
-    """what moving a cycle from its recorded minor to the latest one changes,
-    as its history says it: each newer minor's changes, none on a downgrade."""
-    latest = ENGINES.get(spec)
-    old = _version(recorded)
-    line = f"{latest.title()} {recorded} → {latest.version} with qbrix {VERSION}"
-    changes = [
-        engine.changes
-        for engine in ENGINES.versions(latest.name)
-        if engine.version.major == old.major
-        and old < engine.version <= latest.version
-        and engine.changes
-    ]
-    return f"{line}: {'; '.join(changes)}" if changes else line
 
 
 def _behind(cycle: Cycle) -> bool:
@@ -75,31 +46,8 @@ async def _move(
         cycle = loop.cycles[-1] if loop is not None else None
         if cycle is None or cycle.id != cycle_id:
             return False
-        latest = str(ENGINES.get(cycle.engine).version)
-        moved = await session.execute(
-            update(Cycle)
-            .where(
-                Cycle.id == cycle_id,
-                Cycle.ended_at.is_(None),
-                Cycle.engine_version == recorded,
-            )
-            .values(engine_version=latest)
-            .execution_options(synchronize_session=False)
-        )
-        if moved.rowcount != 1:
+        if await move_minor(session, tenant_id, loop, cycle, recorded) is None:
             return False
-        people = await People.load(session, tenant_id, [loop.owner_user_id])
-        before = loop_to_dict(loop, people)
-        after = {**before, "cycle": {**before["cycle"], "engine_version": latest}}
-        await ChangeRepository(session, tenant_id).record(
-            ENGINE_MINOR,
-            "loop",
-            loop.id,
-            Actor.qbrix(),
-            before=before,
-            after=after,
-            reason=minor_line(cycle.engine, recorded),
-        )
         resolved = resolve_engine(cycle.engine, loop.metric, cycle.context_schema)
         record = cycle_record(tenant_id, loop, cycle, resolved)
         # written before the commit: a crash in between moves the cycle again on
