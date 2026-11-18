@@ -54,3 +54,33 @@ def test_a_value_that_is_not_text_reads_as_json():
     assert diff({"audience": {"rollout": 10}}, {"audience": {"rollout": 20}}) == [
         {"field": "audience", "before": '{"rollout": 10}', "after": '{"rollout": 20}'}
     ]
+
+
+def _on(engine: str, version: str, cycle: str = "c1") -> dict:
+    return {
+        "engine": engine,
+        "cycle": {
+            "id": cycle,
+            "number": 1,
+            "engine": engine,
+            "engine_version": version,
+        },
+    }
+
+
+def test_a_switch_reads_as_how_the_cycle_holds_its_version():
+    assert diff(_on("spinoza:1", "1.3"), _on("spinoza:1.3", "1.3")) == [
+        {"field": "engine version", "before": "follows 1.x", "after": "stays on 1.3"}
+    ]
+
+
+def test_a_minor_moving_reads_as_the_versions():
+    assert diff(_on("spinoza:1", "1.0"), _on("spinoza:1", "1.1")) == [
+        {"field": "engine version", "before": "1.0", "after": "1.1"}
+    ]
+
+
+def test_a_new_cycle_on_a_minor_reads_as_its_engine():
+    changed = diff(_on("spinoza:1", "1.3"), _on("spinoza:1.3", "1.3", cycle="c2"))
+
+    assert {"field": "engine", "before": "spinoza:1", "after": "spinoza:1.3"} in changed

@@ -22,6 +22,7 @@ UNDOABLE_KINDS = frozenset(
         "loop.resume",
         "delivery.update",
         "context.update",
+        "engine.version",
         "connection.levels",
     }
 )

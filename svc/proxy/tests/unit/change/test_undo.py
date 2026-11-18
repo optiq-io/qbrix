@@ -29,3 +29,7 @@ def test_other_kinds_answer_by_kind_alone():
     assert is_undoable("delivery.update", FIRST, SECOND)
     assert not is_undoable("cycle.start", FIRST, FIRST)
     assert "begins fresh learning" in not_undoable_reason("cycle.start")
+
+
+def test_an_engine_version_switch_undoes():
+    assert is_undoable("engine.version", FIRST, FIRST)

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
+from qbrixcore.engine import EngineSpec
 from qbrixstore.postgres.models import Change
 
 from proxysvc.mod.change.note import NOTE_KINDS
@@ -144,6 +145,28 @@ def _engine_version(snapshot: dict) -> str | None:
     return cycle["engine_version"] if cycle else None
 
 
+def _engine_hold(snapshot: dict) -> str:
+    """how a cycle holds its engine version: following its major, or staying
+    on the minor it runs."""
+    cycle = snapshot["cycle"]
+    if EngineSpec.parse(cycle["engine"]).minor is not None:
+        return f"stays on {cycle['engine_version']}"
+    return f"follows {cycle['engine_version'].split('.')[0]}.x"
+
+
+def _switched_hold(before: dict, after: dict) -> bool:
+    """whether a change switched a cycle between following its major and
+    staying on a minor, which the engine version says on its own."""
+    cycle_before = before.get("cycle")
+    cycle_after = after.get("cycle")
+    return (
+        cycle_before is not None
+        and cycle_after is not None
+        and cycle_before["id"] == cycle_after["id"]
+        and cycle_before["engine"] != cycle_after["engine"]
+    )
+
+
 def _window(snapshot: dict) -> str | None:
     seconds = snapshot.get("window_seconds")
     return window_label(seconds) if seconds is not None else None
@@ -158,12 +181,22 @@ def diff(before: dict | None, after: dict | None) -> list[dict]:
     delete, has nothing to compare."""
     if before is None or after is None:
         return []
-    pairs = [(field, before.get(field), after.get(field)) for field in _PLAIN_FIELDS]
+    switched = _switched_hold(before, after)
+    pairs = [
+        (field, before.get(field), after.get(field))
+        for field in _PLAIN_FIELDS
+        if not (switched and field == "engine")
+    ]
     pairs.append(("owner", _owner_name(before), _owner_name(after)))
     pairs.append(("metric", _metric_name(before), _metric_name(after)))
     pairs.append(("window", _window(before), _window(after)))
     pairs.append(("cycle", _cycle(before), _cycle(after)))
-    pairs.append(("engine version", _engine_version(before), _engine_version(after)))
+    if switched:
+        pairs.append(("engine version", _engine_hold(before), _engine_hold(after)))
+    else:
+        pairs.append(
+            ("engine version", _engine_version(before), _engine_version(after))
+        )
     changed = [_difference(*pair) for pair in pairs if pair[1] != pair[2]]
 
     options_before = _option_names(before)

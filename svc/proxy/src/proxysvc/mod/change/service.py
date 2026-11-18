@@ -195,12 +195,33 @@ def _restored_part(change: Change, state: dict | None) -> dict | None:
         return state["levels"]
     if change.kind == "experiment.update":
         return {name: state[name] for name in _changed_fields(change)}
+    if change.kind == "engine.version":
+        cycle = state["cycle"]
+        return {"engine": cycle["engine"], "engine_version": cycle["engine_version"]}
     if change.target_type == "loop":
         return {
             name: _restorable_loop_field(state, name)
             for name in _restored_loop_fields(change)
         }
     return {"name": state["name"]}
+
+
+def _check_same_cycle(change: Change, current: dict | None) -> None:
+    """an engine version switch undoes only on the cycle it switched, still
+    on the minor it left: staying pins the minor the cycle runs."""
+    cycle = (current or {}).get("cycle")
+    switched = change.after["cycle"]
+    if cycle is None or cycle["id"] != switched["id"]:
+        raise ChangeConflictError(
+            f"the cycle change {change.id} switched has ended; choose the "
+            f"engine version when you start a cycle"
+        )
+    if cycle["engine_version"] != switched["engine_version"]:
+        raise ChangeConflictError(
+            f"the cycle has moved from {switched['engine_version']} to "
+            f"{cycle['engine_version']} since change {change.id}; stay on "
+            f"{cycle['engine_version']} instead"
+        )
 
 
 def _check_answerable(change: Change, actor: Actor) -> None:
@@ -744,6 +765,10 @@ class ChangeService:
                 actor=actor,
                 reason=reason,
             )
+        if kind == "engine.version":
+            return await loops.update_engine_version(
+                tenant_id, ref, engine=args["engine"], actor=actor, reason=reason
+            )
         if kind == "delivery.update":
             return await loops.update_delivery(
                 tenant_id,
@@ -772,6 +797,8 @@ class ChangeService:
                     raise moved_since(newer)
             return
         current = await _current_state(session, tenant_id, change)
+        if change.kind == "engine.version":
+            _check_same_cycle(change, current)
         if _restored_part(change, current) != _restored_part(change, change.after):
             raise moved_since(later[0])
 
@@ -914,6 +941,16 @@ class ChangeService:
                 tenant_id,
                 target_id,
                 context=before["context"],
+                actor=actor,
+                undoing=undoing,
+            )
+            return restored is not None
+
+        if change.kind == "engine.version":
+            restored = await self._loops.update_engine_version(
+                tenant_id,
+                target_id,
+                engine=before["cycle"]["engine"],
                 actor=actor,
                 undoing=undoing,
             )

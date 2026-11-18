@@ -49,6 +49,7 @@ The first time the client calls qbrix, it opens your browser to sign in and appr
 | `cycle_reset` | Starts a new cycle with the same options, engine and fallback, learning afresh. |
 | `delivery_update` | Changes [who a loop decides for](/docs/loops#who-gets-what): its audience, rollout and schedule, and the fallback everyone else gets. Any state but retired. |
 | `context_update` | Declares [what a loop learns from](/docs/loops#what-a-loop-learns-from), and answers with which declared properties the last day's decisions carried. On Leibniz, once launched, it starts a new cycle and asks first like `cycle_start`. Any state but retired. |
+| `engine_version` | Switches a launched loop's cycle between following its engine's major and staying on the minor it runs, keeping what it learned. See [its engine version](/docs/loops#its-engine-version). |
 | `brief_update` | Changes [a loop's brief](/docs/loops#its-brief): what it is for and who owns it, in any state. |
 | `metric_create` | Creates a metric with what it stands for, its type and its window. |
 | `note_add` | Adds a note to a loop's history. A note stays: a correction is a new note. |

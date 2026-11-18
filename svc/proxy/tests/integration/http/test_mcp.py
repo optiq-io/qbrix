@@ -97,6 +97,7 @@ TOOLS = [
     "cycle_reset",
     "delivery_update",
     "context_update",
+    "engine_version",
     "brief_update",
     "metric_create",
     "note_add",
@@ -1422,6 +1423,11 @@ class TestViewer:
                 "context_update",
                 {"loop": "x", "reason": "go", "context": None},
                 "change a loop's context",
+            ),
+            (
+                "engine_version",
+                {"loop": "x", "reason": "go", "engine": "spinoza:1.0"},
+                "change a loop's engine version",
             ),
             ("metric_create", METRIC, "create metrics"),
             ("note_add", {"loop": "x", "text": "hello"}, "add notes"),
@@ -2785,6 +2791,98 @@ class TestContext:
             )
 
         assert "context.0.values" in _error(result).lower()
+
+
+SWITCH = {"loop": "checkout-headline", "reason": "audit", "engine": "spinoza:1.0"}
+
+
+class TestEngineVersion:
+    async def test_it_keeps_the_cycle_and_can_be_undone(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            result = await _call(client, "engine_version", SWITCH)
+
+        assert not result.is_error, result
+        structured = result.structured_content
+        assert structured["status"] == "applied"
+        assert structured["change"]["kind"] == "engine.version"
+        assert structured["change"]["undoable"] is True
+        assert structured["loop"]["cycle"]["number"] == 1
+        text = result.content[0].text
+        assert text.startswith(
+            "Kept cycle 1 of checkout-headline and what it learned; it now "
+            "stays on Spinoza 1.0."
+        )
+        assert "can be undone" in text
+
+    async def test_following_again_says_the_minor_it_runs(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await _call(client, "engine_version", SWITCH)
+            result = await _call(
+                client, "engine_version", {**SWITCH, "engine": "spinoza:1"}
+            )
+
+        assert "it now follows Spinoza 1 and runs 1.0." in result.content[0].text
+
+    async def test_acting_and_notifying_is_the_default(self, mcp, wired_app):
+        async with _session(mcp, wired_app, levels=None) as client:
+            await _live_by_approval(client, wired_app)
+            result = await _call(client, "engine_version", SWITCH)
+
+        assert result.structured_content["status"] == "applied"
+
+    async def test_asking_first_waits_in_the_inbox(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+        async with _session(
+            mcp, wired_app, levels={**ON_ITS_OWN, "engine.version": "ask"}
+        ) as client:
+            asked = await _call(client, "engine_version", SWITCH)
+
+        assert asked.structured_content["status"] == "waiting"
+        assert asked.content[0].text.startswith(
+            "Waiting for approval: Claude Code asks to change the engine version "
+            "of Checkout headline."
+        )
+        waiting = await wired_app.svc.get_loop(TENANT, "checkout-headline")
+        assert waiting["cycle"]["engine"] == "spinoza:1"
+
+        await _approve(wired_app, asked.structured_content["change"]["id"])
+
+        applied = await wired_app.svc.get_loop(TENANT, "checkout-headline")
+        assert applied["cycle"]["engine"] == "spinoza:1.0"
+        assert applied["cycle"]["number"] == 1
+
+    async def test_another_major_points_at_cycle_start(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            result = await _call(
+                client, "engine_version", {**SWITCH, "engine": "buridan:1"}
+            )
+
+        assert "moving to it starts a cycle" in _error(result)
+
+    async def test_a_draft_is_refused(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _draft(client)
+            result = await _call(client, "engine_version", SWITCH)
+
+        assert _error(result).startswith(
+            "The loop checkout-headline is a draft; its engine is part of its brief"
+        )
+
+    async def test_a_retired_loop_is_refused_with_what_to_do(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            await _call(
+                client, "loop_retire", {"loop": "checkout-headline", "reason": "gone"}
+            )
+            result = await _call(client, "engine_version", SWITCH)
+
+        assert _error(result).startswith(
+            "The loop checkout-headline is retired; nothing was changed."
+        )
 
 
 SIGNUP = {

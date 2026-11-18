@@ -50,6 +50,7 @@ from proxysvc.mod.loop.edit import StagedContext
 from proxysvc.mod.loop.edit import Checked
 from proxysvc.mod.loop.edit import Edited
 from proxysvc.mod.loop.edit import Edits
+from proxysvc.mod.loop.minor import move_minor
 from proxysvc.mod.loop.repository import LoopRepository
 from proxysvc.mod.loop.route import LoopRoute
 from proxysvc.mod.loop.route import LoopRouteCache
@@ -311,6 +312,46 @@ def _engine(engine: str) -> str:
         raise LoopInvalidError(str(e)) from e
 
 
+def _version_switch(cycle: Cycle, engine: str) -> bool:
+    """whether an engine spec only switches the cycle between following its
+    major and staying on the minor it runs, which keeps what it learned."""
+    spec = EngineSpec.parse(engine)
+    running = EngineSpec.parse(cycle.engine)
+    return (
+        spec.name == running.name
+        and spec.major is not None
+        and spec.major == running.major
+        and (spec.minor is None or f"{spec.major}.{spec.minor}" == cycle.engine_version)
+    )
+
+
+def _check_version_switch(cycle: Cycle, engine: str) -> None:
+    spec = EngineSpec.parse(engine)
+    running = EngineSpec.parse(cycle.engine)
+    major = f"{running.name}:{running.major}"
+    stay = f"{major}.{cycle.engine_version.split('.')[1]}"
+    if spec.major is None and spec.name == running.name:
+        raise LoopInvalidError(
+            f"name the major: {major} follows its minors, {stay} stays on the "
+            f"minor the cycle runs"
+        )
+    if not _version_switch(cycle, engine):
+        if spec.name == running.name and spec.major == running.major:
+            raise LoopInvalidError(
+                f"stay on the minor the cycle runs ({cycle.engine_version}), or "
+                f"start a cycle on {engine}"
+            )
+        raise LoopInvalidError(
+            f"{engine} is another engine or major than the cycle's {major}; "
+            f"moving to it starts a cycle"
+        )
+    if engine == cycle.engine:
+        held = (
+            f"stays on {cycle.engine_version}" if running.minor else f"follows {major}"
+        )
+        raise LoopInvalidError(f"nothing changes: the cycle already {held}")
+
+
 async def _owner(session: AsyncSession, tenant_id: str, loop: Loop) -> People:
     return await People.load(session, tenant_id, [loop.owner_user_id])
 
@@ -389,12 +430,14 @@ def _planned(written: _Written, parts: tuple[str, ...], kept: bool) -> dict[str,
 @dataclass(frozen=True, slots=True)
 class _Written:
     """a write done in the caller's session: the caller puts its cycle record
-    and route once the session commits."""
+    and route once the session commits. started says the record is a new
+    cycle's, not the current one's rewritten."""
 
     loop: dict[str, Any]
     change: Change
     route: LoopRoute
     record: dict[str, Any] | None
+    started: bool = False
 
 
 class LoopService:
@@ -852,6 +895,87 @@ class LoopService:
         )
         return _Written(loop_dict, change, route_of(loop), None)
 
+    async def update_engine_version(
+        self,
+        tenant_id: str,
+        ref: str,
+        *,
+        engine: str,
+        actor: Actor,
+        reason: str | None = None,
+        undoing: Undoing | None = None,
+    ) -> Applied | None:
+        """switch the running cycle between following its engine's major and
+        staying on the minor it runs. the cycle and what it learned stay;
+        following again moves it to the latest minor this install ships."""
+        engine = _engine(engine)
+        async with get_session() as session:
+            loop = await LoopRepository(session, tenant_id).resolve(ref)
+            if loop is None:
+                return None
+            written = await self._write_engine_version(
+                session,
+                tenant_id,
+                loop,
+                engine=engine,
+                actor=actor,
+                reason=reason,
+                undoing=undoing,
+            )
+        return await self._publish(tenant_id, written)
+
+    async def _write_engine_version(
+        self,
+        session: AsyncSession,
+        tenant_id: str,
+        loop: Loop,
+        *,
+        engine: str,
+        actor: Actor,
+        reason: str | None,
+        undoing: Undoing | None = None,
+    ) -> _Written:
+        if loop.state == "retired":
+            raise LoopRetiredError(
+                f"its engine version can't change: the loop {loop.key!r} is "
+                f"retired; {_DELIVERY_FIXES['retired']}"
+            )
+        if loop.state == "draft":
+            raise LoopStateError(
+                f"its engine version changes with the brief: the loop "
+                f"{loop.key!r} is a draft"
+            )
+        repo = LoopRepository(session, tenant_id)
+        cycle = loop.cycles[-1]
+        _check_version_switch(cycle, engine)
+        people = await _owner(session, tenant_id, loop)
+        before = loop_to_dict(loop, people)
+        loop.engine = engine
+        cycle.engine = engine
+        loop = await repo.reload(loop)
+        loop_dict = loop_to_dict(loop, people)
+        change = await ChangeRepository(session, tenant_id).record(
+            "engine.version",
+            "loop",
+            loop.id,
+            actor,
+            before=before,
+            after=loop_dict,
+            reason=reason,
+            undoing=undoing,
+        )
+        cycle = loop.cycles[-1]
+        recorded = cycle.engine_version
+        if str(ENGINES.get(engine).version) == recorded or not await move_minor(
+            session, tenant_id, loop, cycle, recorded
+        ):
+            return _Written(loop_dict, change, route_of(loop), None)
+        loop = await repo.reload(loop)
+        cycle = loop.cycles[-1]
+        resolved = resolve_engine(cycle.engine, loop.metric, cycle.context_schema)
+        record = cycle_record(tenant_id, loop, cycle, resolved)
+        return _Written(loop_to_dict(loop, people), change, route_of(loop), record)
+
     async def apply_edits(
         self,
         tenant_id: str,
@@ -884,7 +1008,7 @@ class LoopService:
                     session, tenant_id, loop, edits, context, actor, reason
                 )
                 written = [step for step, _ in steps]
-                cycled = next((w for w in written if w.record is not None), None)
+                cycled = next((w for w in written if w.started), None)
                 edited = Edited(
                     loop=written[-1].loop,
                     changes=[_planned(w, parts, not check) for w, parts in steps],
@@ -894,10 +1018,11 @@ class LoopService:
                     raise Checked(edited)
         except Checked as checked:
             return checked.edited
-        if cycled is not None:
-            await self._redis.set_experiment(
-                tenant_id, cycled.record["id"], cycled.record
-            )
+        for step in written:
+            if step.record is not None:
+                await self._redis.set_experiment(
+                    tenant_id, step.record["id"], step.record
+                )
         await self._routes.put(tenant_id, written[-1].route)
         return edited
 
@@ -999,6 +1124,30 @@ class LoopService:
                 with _part("cycle"):
                     engine = _engine(cycle.engine) if cycle.engine else loop.engine
                 rides = staged_context and _learns_from_context(engine)
+            if (
+                cycle is not None
+                and cycle.options is None
+                and cycle.metric is None
+                and cycle.engine
+                and not rides
+                and _version_switch(loop.cycles[-1], engine)
+            ):
+                with _part("cycle"):
+                    steps.append(
+                        (
+                            await self._write_engine_version(
+                                session,
+                                tenant_id,
+                                loop,
+                                engine=engine,
+                                actor=actor,
+                                reason=reason,
+                            ),
+                            ("cycle",),
+                        )
+                    )
+                loop = await fresh()
+            elif cycle is not None:
                 if rides:
                     with _part("context"):
                         _check_context(loop, context, engine)
@@ -1442,7 +1591,7 @@ class LoopService:
             after=loop_dict,
             reason=reason,
         )
-        return _Written(loop_dict, change, route_of(loop), record)
+        return _Written(loop_dict, change, route_of(loop), record, started=True)
 
     async def _transition(
         self,

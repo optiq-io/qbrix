@@ -134,6 +134,10 @@ On a draft, the brief also holds the options, the engine and the metric, and cha
 
 `cycle_start` over MCP, or `POST /api/v1/loops/{loop}/cycles`, starts a new cycle of a live or paused loop with new options, a new engine, a new metric, a new context, or any of them together. The new cycle pins the metric's newest version, and a metric of any type works: the engine is chosen again for it. The current cycle ends and stays readable. A new cycle can't be undone.
 
+### Its engine version
+
+A cycle on `spinoza:1` follows its major: it takes each new 1.x as qbrix is upgraded. One on `spinoza:1.3` stays exactly on 1.3. Once launched, a loop switches between the two without a new cycle, with `engine_version` over MCP or the engine alone in the `cycle` part of an apply below. The cycle keeps what it learned. Staying pins the minor the cycle runs now; following again moves it to the newest minor qbrix ships. It is one change, `engine.version`, and it can be undone. Another minor, another major or another engine starts a new cycle.
+
 ### Several edits at once
 
 `POST /api/v1/loops/{loop}/edits` applies edits to a loop's brief, cycle, delivery and context together, in one go:
@@ -149,7 +153,7 @@ On a draft, the brief also holds the options, the engine and the metric, and cha
 ```
 
 - **One change per kind.** The brief, delivery and context are a change each, with the same request id, so history shows them as one apply.
-- **At most one new cycle.** Once launched, the options, the engine and the metric start one `cycle.start`. It also takes the fallback, and the context when the new cycle's engine learns from it. A context change alone on Leibniz stays `context.update` and starts the cycle itself.
+- **At most one new cycle.** Once launched, the options, the engine and the metric start one `cycle.start`. It also takes the fallback, and the context when the new cycle's engine learns from it. A context change alone on Leibniz stays `context.update` and starts the cycle itself. An engine that only [switches its version](#its-engine-version) stays `engine.version` and starts nothing.
 - **On a draft nothing starts a cycle.** The cycle part changes the draft's brief.
 - **All or nothing.** If any part is refused, nothing applies, and the message starts with the part: `delivery: rollout: …`.
 
