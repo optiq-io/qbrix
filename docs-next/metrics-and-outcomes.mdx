@@ -48,9 +48,21 @@ A checkout loop improves `purchase`, a conversion with a 2 day window. On Monday
 
 ## Versions
 
-A new metric starts at version `1.0`. Every cycle of a loop records the metric version it runs under, and every decision is sealed by that version's rules.
+A new metric starts at version `1.0`. Every decision records the metric version it was made under and is sealed by that version's rules, and every cycle of a loop records the version it started with.
 
-A metric can't be changed once it is created. To measure something different, create a new metric.
+A metric's window and semantic can change; its type and range can't. Every change is recorded on the metric and in the history of each loop using it, with the reason.
+
+- **A new window** is a minor version (`1.0` to `1.1`). Loops follow it at once, without a new cycle: decisions made from then on wait for the new window, and decisions already open keep theirs.
+- **A new semantic** is one of three:
+  - **Reword:** the same meaning in other words. No new version.
+  - **Same:** the same meaning, said anew, for example because the code now sends it from somewhere else. A minor version.
+  - **New:** a different meaning. A major version (`1.1` to `2.0`) that starts a new cycle on every live, paused or committed loop using the metric, in the same change, so nothing learned under the old meaning mixes with the new. Each loop keeps its state: a committed loop stays committed to the same option. Drafts take the new version when they launch. This can't be undone.
+- When code changes what it sends for a metric, record it here, with the pull request as the reason. A semantic may link the pull request too.
+- **The name** is what code sends, so it can change only until a loop has launched with the metric.
+- **Undo** a window, a reword or the same semantic on the metric's change: it comes back as a new change, a new minor version for anything that made one.
+- **A metric can be deleted while no loop has used it.** Once a loop has, it stays.
+
+To measure something of a different type, create a new metric and start a new cycle with it.
 
 ## Outcomes
 
@@ -138,7 +150,7 @@ export QBRIX_BASE_URL="http://localhost:8000"
 export QBRIX_API_KEY="your-api-key"
 ```
 
-Every role can read metrics. Admins and members can create them ([Roles and limits](/docs/roles-and-limits)). Creating a metric is recorded as a change in the workspace's history.
+Every role can read metrics. Admins and members can create, change and delete them ([Roles and limits](/docs/roles-and-limits)). Each of those is recorded as a change in the workspace's history.
 
 ### Create a metric
 
@@ -246,7 +258,57 @@ curl $QBRIX_BASE_URL/api/v1/metrics/purchase \
   -H "X-API-Key: $QBRIX_API_KEY"
 ```
 
-The response, `200 OK`, is the metric, in the same shape as when it was created.
+The response, `200 OK`, is the metric in the same shape as when it was created, with its `versions`, newest first. Each version has its `version`, `semantic`, `window_seconds`, `created_by` (`{"id", "name"}`), `created_at`, the `reason` given by the change that made it, and `changed`: what moved since the version before, as `{"field", "before", "after"}` for `window` and `semantic`.
+
+### Change a metric
+
+<Endpoint method="PATCH" path="/api/v1/metrics/{metric}" description="Change a metric's window, semantic or name" />
+
+Admins and members can change metrics. Send any of:
+
+| Field | Type | Description |
+|---|---|---|
+| `window_seconds` | integer | A new window, in seconds: a minor version. |
+| `semantic` | string | What the metric stands for now. Sent with `semantic_change`. |
+| `semantic_change` | string | `reword`, `same` or `new`, as in [Versions](#versions). |
+| `name` | string | A new name, only until a loop has launched with the metric. |
+| `reason` | string | Why, recorded in history. Optional. |
+
+```bash
+curl -X PATCH $QBRIX_BASE_URL/api/v1/metrics/purchase \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "semantic": "A paid order, sent from the payment webhook since https://github.com/acme/shop/pull/491",
+    "semantic_change": "new",
+    "reason": "https://github.com/acme/shop/pull/491"
+  }'
+```
+
+Response, `200 OK`: the `metric` as it is now, the `change` (`{"id", "kind", "undoable"}`), and the `cycles` a new semantic started, one per loop:
+
+```json
+{
+  "metric": {"name": "purchase", "version": "2.0", "...": "..."},
+  "change": {"id": "8b1f0c5d0e4a4f6f9a1c2d3e4f5a6b7c", "kind": "metric.update", "undoable": false},
+  "cycles": [{"loop": "checkout-headline", "cycle": 3}]
+}
+```
+
+A change that changes nothing, or a semantic without `semantic_change`, is refused with `400 INVALID_METRIC`. A new name for a metric a loop has launched with is refused with `409 METRIC_IN_USE`, naming the loop.
+
+### Delete a metric
+
+<Endpoint method="DELETE" path="/api/v1/metrics/{metric}" description="Delete a metric no loop has used" />
+
+```bash
+curl -X DELETE $QBRIX_BASE_URL/api/v1/metrics/signup \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"reason": "never wired"}'
+```
+
+Response, `204 No Content`. A metric a loop uses, or ran in an earlier cycle, is refused with `409 METRIC_IN_USE`, naming the loop. Deleting can't be undone.
 
 ### Report an outcome
 
