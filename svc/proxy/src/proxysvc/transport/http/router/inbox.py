@@ -61,11 +61,18 @@ class InboxItem(BaseModel):
     alert: Optional[Alert] = None
 
 
+class WebhookState(BaseModel):
+    """whether alerts also leave the console, for the hint that they don't."""
+
+    configured: bool
+
+
 class Inbox(BaseModel):
     waiting: list[InboxItem]
     notified: list[InboxItem]
     alerts: list[InboxItem]
     suggestions: list[InboxItem]
+    webhook: WebhookState
 
 
 class InboxCount(BaseModel):

@@ -3,3 +3,88 @@ title: Alerts
 description: What qbrix tells you when a loop needs attention.
 order: 6
 ---
+
+## The workspace webhook
+
+Outside the console, alerts reach your team through one webhook per workspace. Until one is added, alerts only reach you in the console.
+
+### Adding it
+
+An admin adds the webhook in the console, under Settings · Alerts. It is a setting, not a change: it doesn't appear in any loop's history, and it can't be set over MCP or with a key, because it carries a secret that should never pass through a chat or a script.
+
+- **On a self-hosted install** the address may be any `http` or `https` URL, including one on your own network, such as an incident tool you run yourself.
+- **In qbrix cloud** the address must be `https` and reach the public internet.
+
+A Slack incoming webhook link works as it is. So does any tool that accepts a JSON post.
+
+Everyone in the workspace can see whether a webhook is set and its last deliveries. The address is shown only up to its host, because the rest of a Slack link is its credential. Only an admin can reveal the whole address or change it.
+
+### The signing secret
+
+When an admin adds the webhook, qbrix shows its signing secret once, starting with `whsec_`. Keep it in the receiving system. qbrix never shows it again, only its last four characters. If it is lost or exposed, regenerate it: the next message is signed with the new secret, and the old one stops matching.
+
+On a self-hosted install the secret is stored encrypted under `PROXY_SECRET_BOX_KEY` (see [configuration](/docs/configuration)). If that key changes, qbrix can no longer read the secret. Sending then fails with "the signing secret can't be read; regenerate it", and nothing goes out unsigned until an admin regenerates it.
+
+### Sending a test
+
+Settings · Alerts has a button that sends a test message at once, such as "Test from Ada · qbrix", and shows the receiver's answer. Settings · Alerts also lists the last 5 deliveries, each with its result: the status the receiver answered, or why there was no answer. Removing the webhook clears that list.
+
+### What each message carries
+
+Every message is a JSON `POST`. Its top level always has a `text` field, the one line Slack shows. The other fields are structured data for any system that reads them:
+
+```json
+{
+  "text": "Test from Ada · qbrix",
+  "kind": "test",
+  "workspace": { "name": "Acme" },
+  "sent_by": { "name": "Ada" },
+  "sent_at": "2026-11-19T09:00:00+00:00"
+}
+```
+
+A delivery counts when the receiver answers with any `2xx` status. Redirects are never followed and count as a failure, and the response body is ignored. qbrix waits up to 10 seconds for an answer.
+
+Each request carries these headers:
+
+| Header | Value |
+|---|---|
+| `qbrix-signature` | `t=<unix seconds>,v1=<hex HMAC-SHA256>` |
+| `qbrix-delivery` | The delivery's id, the same on every retry of one message |
+| `content-type` | `application/json` |
+| `user-agent` | `qbrix/<version>` |
+
+### Verifying the signature
+
+To check that a message came from your qbrix, recompute the signature over the raw request body, exactly as it was received, before parsing it:
+
+1. Split `qbrix-signature` into `t` and `v1`.
+2. Compute the HMAC-SHA256 of `<t>.<raw body>` with your signing secret, as hex.
+3. Compare it with `v1` in constant time. Reject the message if `t` is more than 5 minutes from your clock, so an old message can't be replayed.
+
+```python
+import hashlib
+import hmac
+import time
+
+
+def verify(secret: str, header: str, body: bytes, tolerance: int = 300) -> bool:
+    parts = dict(part.split("=", 1) for part in header.split(","))
+    if abs(time.time() - int(parts["t"])) > tolerance:
+        return False
+    expected = hmac.new(
+        secret.encode(), f"{parts['t']}.".encode() + body, hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(expected, parts["v1"])
+```
+
+```ts
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+export function verify(secret: string, header: string, body: Buffer, tolerance = 300): boolean {
+  const parts = Object.fromEntries(header.split(",").map((p) => p.split("=", 2)));
+  if (Math.abs(Date.now() / 1000 - Number(parts.t)) > tolerance) return false;
+  const expected = createHmac("sha256", secret).update(`${parts.t}.`).update(body).digest("hex");
+  return expected.length === parts.v1.length && timingSafeEqual(Buffer.from(expected), Buffer.from(parts.v1));
+}
+```

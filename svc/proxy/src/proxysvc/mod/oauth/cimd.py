@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-import asyncio
-import ipaddress
 import json
 import logging
-import socket
-from collections.abc import Awaitable
-from collections.abc import Callable
 from urllib.parse import urlsplit
-from urllib.parse import urlunsplit
 
 import httpx
 from cachebox import TTLCache
 
 from proxysvc.core.error import OAuthError
+from proxysvc.core.outbound import HostNotPublicError
+from proxysvc.core.outbound import HostUnresolvedError
+from proxysvc.core.outbound import Resolver
+from proxysvc.core.outbound import pinned_target
+from proxysvc.core.outbound import public_address
+from proxysvc.core.outbound import resolve
 from proxysvc.mod.oauth.client import ClientIdentity
 from proxysvc.mod.oauth.client import documented_client
 
@@ -23,26 +23,10 @@ TIMEOUT_SEC = 5.0
 MAX_BYTES = 64 * 1024
 CACHE_TTL_SEC = 3600
 
-Resolver = Callable[[str], Awaitable[list[str]]]
-
 
 def is_document_url(client_id: str) -> bool:
     """a client_id that is an https url names a client metadata document."""
     return client_id.startswith("https://")
-
-
-async def resolve(host: str) -> list[str]:
-    infos = await asyncio.get_running_loop().getaddrinfo(
-        host, 443, type=socket.SOCK_STREAM
-    )
-    return list(dict.fromkeys(info[4][0] for info in infos))
-
-
-def _public(address: str) -> bool:
-    ip = ipaddress.ip_address(address)
-    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
-        ip = ip.ipv4_mapped
-    return ip.is_global
 
 
 def _refused(description: str) -> OAuthError:
@@ -90,15 +74,14 @@ class CIMDFetcher:
             raise _refused("a client_id url must be https on the default port")
         host = parts.hostname
         try:
-            addresses = await self._resolver(host)
-        except OSError as e:
+            address = await public_address(host, self._resolver)
+        except HostUnresolvedError as e:
             raise _refused(f"the client's host {host} doesn't resolve") from e
-        if not addresses or not all(_public(a) for a in addresses):
-            raise _refused(f"the client's host {host} isn't on the public internet")
-
-        address = addresses[0]
-        netloc = f"[{address}]" if ":" in address else address
-        target = urlunsplit(("https", netloc, parts.path or "/", parts.query, ""))
+        except HostNotPublicError as e:
+            raise _refused(
+                f"the client's host {host} isn't on the public internet"
+            ) from e
+        target = pinned_target(parts, address)
         try:
             async with httpx.AsyncClient(
                 transport=self._transport,
