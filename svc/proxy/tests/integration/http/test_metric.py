@@ -129,8 +129,10 @@ class TestRead:
         by_name = await metrics.get("/api/v1/metrics/purchase")
         by_id = await metrics.get(f"/api/v1/metrics/{created['id']}")
 
-        assert _unstamped(by_name.json()) == _unstamped(created)
-        assert _unstamped(by_id.json()) == _unstamped(created)
+        assert _unstamped(by_name.json()) == _unstamped(by_id.json())
+        assert {
+            k: v for k, v in _unstamped(by_name.json()).items() if k != "versions"
+        } == _unstamped(created)
 
     async def test_unknown_is_not_found(self, metrics):
         resp = await metrics.get("/api/v1/metrics/purchase")

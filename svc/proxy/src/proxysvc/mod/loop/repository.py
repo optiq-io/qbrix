@@ -103,15 +103,15 @@ class LoopRepository:
         response = await self._session.execute(stmt)
         return set(response.scalars().all())
 
-    async def first_using_metric(self, metric_id: str) -> Loop | None:
+    async def using_metric(self, metric_id: str) -> list[Loop]:
         stmt = (
             select(Loop)
+            .options(*_LOADS)
             .where(Loop.tenant_id == self._tenant_id, Loop.metric_id == metric_id)
-            .order_by(Loop.created_at)
-            .limit(1)
+            .order_by(Loop.created_at, Loop.id)
         )
         response = await self._session.execute(stmt)
-        return response.scalar_one_or_none()
+        return list(response.scalars().all())
 
     async def using_metrics(self, metric_ids: Sequence[str]) -> dict[str, list[Loop]]:
         """the loops using each metric, oldest first."""

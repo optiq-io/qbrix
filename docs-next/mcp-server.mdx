@@ -52,6 +52,8 @@ The first time the client calls qbrix, it opens your browser to sign in and appr
 | `engine_version` | Switches a launched loop's cycle between following its engine's major and staying on the minor it runs, keeping what it learned. See [its engine version](/docs/loops#its-engine-version). |
 | `brief_update` | Changes [a loop's brief](/docs/loops#its-brief): what it is for and who owns it, in any state. |
 | `metric_create` | Creates a metric with what it stands for, its type and its window. |
+| `metric_update` | Changes a metric's window, its semantic (reworded, the same meaning or a new one) or, before any loop launched with it, its name. A new semantic starts a new cycle on every loop still deciding, asks first like `cycle_start` when it would, and can't be undone. See [Versions](/docs/metrics-and-outcomes#versions). |
+| `metric_delete` | Deletes a metric no loop has used. |
 | `note_add` | Adds a note to a loop's history. A note stays: a correction is a new note. |
 | `change_undo` | Undoes an earlier change by writing its inverse as a new change, at your level for the change it undoes. |
 

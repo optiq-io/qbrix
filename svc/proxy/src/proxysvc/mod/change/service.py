@@ -163,6 +163,27 @@ def _brief_restored(change: Change) -> dict:
     return restored
 
 
+def _metric_restored(change: Change) -> dict:
+    """what an undo of a metric's change writes back: the name, the window
+    and the semantic it moved. a reword is undone as a reword; a semantic
+    said anew with its version comes back as a new minor."""
+    before, after = change.before, change.after
+    restored: dict[str, Any] = {}
+    if before["name"] != after["name"]:
+        restored["name"] = before["name"]
+    if before["window_seconds"] != after["window_seconds"]:
+        restored["window_seconds"] = before["window_seconds"]
+    if before["semantic"] != after["semantic"]:
+        restored["semantic"] = before["semantic"]
+        restored["semantic_change"] = (
+            "reword" if before["version"] == after["version"] else "same"
+        )
+    return restored
+
+
+_METRIC_FIELDS = ("name", "version", "semantic", "window_seconds")
+
+
 def _unversioned_gate(config: dict | None) -> dict | None:
     """a gate as an undo compares it. a period keeps the offset it was written
     with but reads back in utc, so it compares as an instant."""
@@ -203,6 +224,8 @@ def _restored_part(change: Change, state: dict | None) -> dict | None:
             name: _restorable_loop_field(state, name)
             for name in _restored_loop_fields(change)
         }
+    if change.kind == "metric.update":
+        return {name: state[name] for name in _METRIC_FIELDS}
     return {"name": state["name"]}
 
 
@@ -707,6 +730,21 @@ class ChangeService:
                 actor=actor,
                 reason=reason,
             )
+        if kind == "metric.update":
+            return await self._metrics.update_metric(
+                tenant_id,
+                ref,
+                name=args.get("name"),
+                window_seconds=args.get("window_seconds"),
+                semantic=args.get("semantic"),
+                semantic_change=args.get("semantic_change"),
+                actor=actor,
+                reason=reason,
+            )
+        if kind == "metric.delete":
+            return await self._metrics.delete_metric(
+                tenant_id, ref, actor=actor, reason=reason
+            )
         if kind == "note.add":
             return await loops.add_note(tenant_id, ref, text=args["text"], actor=actor)
         if kind == "loop.launch":
@@ -883,9 +921,20 @@ class ChangeService:
             return restored is not None
 
         if change.kind == "metric.create":
-            return await self._metrics.delete_metric(
+            deleted = await self._metrics.delete_metric(
                 tenant_id, target_id, actor=actor, undoing=undoing
             )
+            return deleted is not None
+
+        if change.kind == "metric.update":
+            restored = await self._metrics.update_metric(
+                tenant_id,
+                target_id,
+                **_metric_restored(change),
+                actor=actor,
+                undoing=undoing,
+            )
+            return restored is not None
 
         if change.kind == "connection.levels":
             return await self._connections.restore_levels(
