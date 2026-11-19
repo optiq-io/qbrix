@@ -263,3 +263,11 @@ class ConnectionRateLimitedError(BaseAPIError):
         super().__init__(message)
         self.limit = limit
         self.retry_after = retry_after
+
+
+class WebhookNotFoundError(BaseAPIError):
+    """raised when the workspace has no webhook to act on."""
+
+
+class WebhookURLError(BaseAPIError):
+    """raised when a webhook url breaks the edition's rule."""

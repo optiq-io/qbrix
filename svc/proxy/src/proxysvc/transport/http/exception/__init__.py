@@ -67,6 +67,8 @@ from proxysvc.transport.http.exception.base import SummaryRangeException
 from proxysvc.transport.http.exception.base import ConnectionLevelsForbiddenException
 from proxysvc.transport.http.exception.base import ConnectionNotFoundException
 from proxysvc.transport.http.exception.base import OAuthRequestNotFoundException
+from proxysvc.transport.http.exception.base import WebhookNotFoundException
+from proxysvc.transport.http.exception.base import InvalidWebhookURLException
 from proxysvc.transport.http.exception.base import PinTargetNotFoundException
 
 __all__ = [
@@ -140,4 +142,6 @@ __all__ = [
     "ConnectionNotFoundException",
     "OAuthRequestNotFoundException",
     "PinTargetNotFoundException",
+    "WebhookNotFoundException",
+    "InvalidWebhookURLException",
 ]

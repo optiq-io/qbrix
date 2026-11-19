@@ -47,6 +47,7 @@ from proxysvc.mod.loop.select import LoopSelectService
 from proxysvc.mod.loop.track import LoopTrackService
 from proxysvc.mod.loop.track import TrackEvent
 from proxysvc.mod.inbox.service import InboxService
+from proxysvc.mod.webhook.service import WebhookService
 from proxysvc.mod.milestone.service import MilestoneService
 from proxysvc.mod.safety.read import AlertReadService
 from proxysvc.mod.summary.service import SummaryService
@@ -97,6 +98,7 @@ class ProxyService:
         self._oauth_service: OAuthService | None = None
         self._pin_service: PinService | None = None
         self._inbox_service: InboxService | None = None
+        self._webhook_service: WebhookService | None = None
         self._cimd: CIMDFetcher | None = None
         self._entitlements: Entitlements | None = None
 
@@ -227,6 +229,9 @@ class ProxyService:
         )
         self._pin_service = PinService()
         self._inbox_service = InboxService()
+        self._webhook_service = WebhookService(
+            settings=self._settings, entitlements=self._entitlements
+        )
 
     @property
     def entitlements(self) -> Entitlements:
@@ -257,6 +262,12 @@ class ProxyService:
         if self._connection_service is None:
             raise RuntimeError("proxy service not started")
         return self._connection_service
+
+    @property
+    def webhooks(self) -> WebhookService:
+        if self._webhook_service is None:
+            raise RuntimeError("proxy service not started")
+        return self._webhook_service
 
     @property
     def oauth(self) -> OAuthService:

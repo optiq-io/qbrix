@@ -860,3 +860,67 @@ class ConnectionToken(Base):
     connection: Mapped["Connection"] = relationship(
         "Connection", back_populates="tokens"
     )
+
+
+class Webhook(Base):
+    """the workspace's one webhook. its signing secret is kept sealed, never
+    hashed, because every delivery signs with it."""
+
+    __tablename__ = "webhooks"
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: uuid4().hex
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("tenants.id"), nullable=False, unique=True
+    )
+    url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    secret_ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
+    secret_hint: Mapped[str] = mapped_column(String(4), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
+class WebhookDelivery(Base):
+    """one message to the workspace webhook and every attempt to deliver it."""
+
+    __tablename__ = "webhook_deliveries"
+    __table_args__ = (
+        Index("ix_webhook_deliveries_tenant_id_created_at", "tenant_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: uuid4().hex
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("tenants.id"), nullable=False
+    )
+    # alert or test
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    results: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    last_status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    first_attempt_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    delivered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    sent_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )

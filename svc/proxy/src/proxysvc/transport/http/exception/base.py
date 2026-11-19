@@ -543,3 +543,17 @@ class OAuthRequestNotFoundException(NotFoundException):
 
     detail = "sign-in request not found"
     code = "OAUTH_REQUEST_NOT_FOUND"
+
+
+class WebhookNotFoundException(NotFoundException):
+    """the workspace has no webhook."""
+
+    detail = "the workspace has no webhook"
+    code = "WEBHOOK_NOT_FOUND"
+
+
+class InvalidWebhookURLException(UnprocessableEntityException):
+    """a webhook url the edition's rule refuses."""
+
+    detail = "invalid webhook url"
+    code = "INVALID_WEBHOOK_URL"

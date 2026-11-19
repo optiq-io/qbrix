@@ -86,6 +86,9 @@ def build_http_server(settings: ProxySettings, runtime: ProxyRuntime) -> uvicorn
     from proxysvc.transport.http.router.inbox import set_proxy_service as set_inbox
     from proxysvc.transport.http.router.summary import set_proxy_service as set_summary
     from proxysvc.transport.http.router.track import set_proxy_service as set_track
+    from proxysvc.transport.http.router.webhook import (
+        set_proxy_service as set_webhook,
+    )
     from proxysvc.transport.mcp.server import set_proxy_service as set_mcp
 
     for wire in (
@@ -106,6 +109,7 @@ def build_http_server(settings: ProxySettings, runtime: ProxyRuntime) -> uvicorn
         set_track,
         set_connection,
         set_pin,
+        set_webhook,
         set_oauth,
         set_mcp,
     ):

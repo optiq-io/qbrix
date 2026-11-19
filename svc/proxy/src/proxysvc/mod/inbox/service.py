@@ -11,6 +11,7 @@ from proxysvc.mod.change.repository import ChangeRepository
 from proxysvc.mod.inbox import source
 from proxysvc.mod.inbox.source import Reader
 from proxysvc.mod.inbox.source import Section
+from proxysvc.mod.webhook.repository import WebhookRepository
 
 NEWEST_FIRST: dict[Section, bool] = {
     "waiting": False,
@@ -52,9 +53,10 @@ class InboxService:
                 if each.needs_change and not reader.can_change:
                     continue
                 sections[each.section] += await each.items(session, reader, now)
+            webhook = await WebhookRepository(session, tenant_id).exists()
         for name, items in sections.items():
             items.sort(key=lambda item: item["at"], reverse=NEWEST_FIRST[name])
-        return sections
+        return {**sections, "webhook": {"configured": webhook}}
 
     async def count(self, tenant_id: str, user_id: str, role: str) -> dict:
         """what waits on the person, without reading the items."""
