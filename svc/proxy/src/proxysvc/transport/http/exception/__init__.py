@@ -41,6 +41,7 @@ from proxysvc.transport.http.exception.base import ExperimentRunningException
 from proxysvc.transport.http.exception.base import MetricNotFoundException
 from proxysvc.transport.http.exception.base import InvalidMetricException
 from proxysvc.transport.http.exception.base import MetricNameTakenException
+from proxysvc.transport.http.exception.base import MetricInUseException
 from proxysvc.transport.http.exception.base import ChangeNotFoundException
 from proxysvc.transport.http.exception.base import ChangeNotUndoableException
 from proxysvc.transport.http.exception.base import ChangeAnsweredException
@@ -115,6 +116,7 @@ __all__ = [
     "MetricNotFoundException",
     "InvalidMetricException",
     "MetricNameTakenException",
+    "MetricInUseException",
     "ChangeNotFoundException",
     "ChangeNotUndoableException",
     "ChangeAnsweredException",

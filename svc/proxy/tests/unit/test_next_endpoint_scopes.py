@@ -31,6 +31,8 @@ pytestmark = pytest.mark.unit
         ("GET", "/api/v1/metrics", "metric:read"),
         ("GET", "/api/v1/metrics/purchase", "metric:read"),
         ("POST", "/api/v1/metrics", "metric:write"),
+        ("PATCH", "/api/v1/metrics/purchase", "metric:write"),
+        ("DELETE", "/api/v1/metrics/purchase", "metric:write"),
         ("GET", "/api/v1/changes", "loop:read"),
         ("GET", "/api/v1/changes/abc", "loop:read"),
         ("GET", "/api/v1/changes/counts", "loop:read"),

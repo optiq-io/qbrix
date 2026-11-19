@@ -227,6 +227,8 @@ class TestGet:
         assert {k: v for k, v in loop["metric"].items() if k != "id"} == {
             "name": "purchase",
             "type": "conversion",
+            "version": "1.0",
+            "semantic": "a completed checkout",
             "window_seconds": 172800,
         }
         assert [(o["key"], o["config"]) for o in loop["options"]] == [

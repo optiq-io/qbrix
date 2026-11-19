@@ -18,6 +18,7 @@ from proxysvc.transport.http.router.loop import PreviewResponse
 from proxysvc.transport.http.router.loop import ResultsResponse
 from proxysvc.transport.http.router.loop import Share
 from proxysvc.transport.http.router.loop import SeriesPoint
+from proxysvc.transport.http.router.metric import MetricCycleStarted
 from proxysvc.transport.http.router.metric import MetricResponse
 
 Detail = Literal["concise", "full"]
@@ -108,6 +109,7 @@ class MetricChanged(BaseModel):
     status: ChangeStatus
     change: ChangeRef
     metric: Optional[MetricResponse] = None
+    cycles: list[MetricCycleStarted] = []
 
 
 class ChangeUndone(BaseModel):

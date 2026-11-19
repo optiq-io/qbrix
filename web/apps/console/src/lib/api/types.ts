@@ -658,7 +658,14 @@ export interface Loop {
   key: string;
   name: string;
   purpose: string;
-  metric: { id: string; name: string; type: string; window_seconds: number };
+  metric: {
+    id: string;
+    name: string;
+    type: string;
+    version: string;
+    semantic: string;
+    window_seconds: number;
+  };
   engine: string;
   state: LoopState;
   paused_from: string | null;

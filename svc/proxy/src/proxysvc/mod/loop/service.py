@@ -6,6 +6,7 @@ from collections.abc import Callable
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from dataclasses import replace
 from datetime import datetime
 from datetime import timezone
 from typing import Any
@@ -438,6 +439,17 @@ class _Written:
     route: LoopRoute
     record: dict[str, Any] | None
     started: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class MetricUser:
+    """a loop using a metric, as it was before the metric changed."""
+
+    loop_id: str
+    before: dict[str, Any]
+
+
+DECIDING = ("live", "paused", "committed")
 
 
 class LoopService:
@@ -1235,6 +1247,77 @@ class LoopService:
         await self._routes.put(tenant_id, written.route)
         return Applied.of(written.loop, written.change)
 
+    async def publish_all(self, tenant_id: str, written: list[_Written]) -> None:
+        for step in written:
+            if step.record is not None:
+                await self._redis.set_experiment(
+                    tenant_id, step.record["id"], step.record
+                )
+            await self._routes.put(tenant_id, step.route)
+
+    @staticmethod
+    async def metric_users(
+        session: AsyncSession, tenant_id: str, metric_id: str
+    ) -> list[MetricUser]:
+        """the loops using a metric, read before it changes."""
+        loops = await LoopRepository(session, tenant_id).using_metric(metric_id)
+        people = await People.load(
+            session, tenant_id, [loop.owner_user_id for loop in loops]
+        )
+        return [MetricUser(loop.id, loop_to_dict(loop, people)) for loop in loops]
+
+    async def follow_metric(
+        self,
+        session: AsyncSession,
+        tenant_id: str,
+        users: list[MetricUser],
+        *,
+        cycle: bool,
+        actor: Actor,
+        reason: str | None,
+    ) -> list[_Written]:
+        """each loop using a metric takes its newest version, recorded in its
+        own history. a new semantic starts a cycle on every loop still
+        deciding, committed ones too, in their state: the code already sends
+        the new meaning, so the old cycle must not learn from it."""
+        repo = LoopRepository(session, tenant_id)
+        changes = ChangeRepository(session, tenant_id)
+        beside = replace(actor, level="", approval=None)
+        written: list[_Written] = []
+        for user in users:
+            loop = await repo.get(user.loop_id)
+            if cycle and loop.state in DECIDING:
+                written.append(
+                    await self._write_cycle(
+                        session,
+                        tenant_id,
+                        loop,
+                        "metric.update",
+                        before=user.before,
+                        options=None,
+                        engine=loop.engine,
+                        metric=loop.metric,
+                        fallback=loop.fallback_key,
+                        context=loop.context_schema,
+                        actor=beside,
+                        reason=reason,
+                        refused="the loop changed while its metric did; try again",
+                    )
+                )
+                continue
+            loop_dict = loop_to_dict(loop, await _owner(session, tenant_id, loop))
+            change = await changes.record(
+                "metric.update",
+                "loop",
+                loop.id,
+                beside,
+                before=user.before,
+                after=loop_dict,
+                reason=reason,
+            )
+            written.append(_Written(loop_dict, change, route_of(loop), None))
+        return written
+
     async def add_note(
         self, tenant_id: str, ref: str, *, text: str, actor: Actor
     ) -> Applied | None:
@@ -1530,7 +1613,6 @@ class LoopService:
         """the next cycle, written in the caller's session; the caller puts
         its record and route once the session commits."""
         refused = "only a live or paused loop can start a new cycle"
-        repo = LoopRepository(session, tenant_id)
         _cyclable(refused)(loop)
         loop_key = loop.key
         state = loop.state
@@ -1560,10 +1642,46 @@ class LoopService:
                 "the options, engine, metric and context are the cycle's own; to "
                 "learn afresh with them, reset the cycle"
             )
-        resolved = resolve_engine(engine, metric, context)
-
         people = await _owner(session, tenant_id, loop)
-        before = loop_to_dict(loop, people)
+        return await self._write_cycle(
+            session,
+            tenant_id,
+            loop,
+            kind,
+            before=loop_to_dict(loop, people),
+            options=options,
+            engine=engine,
+            metric=metric,
+            fallback=fallback,
+            context=context,
+            actor=actor,
+            reason=reason,
+            refused=refused,
+        )
+
+    async def _write_cycle(
+        self,
+        session: AsyncSession,
+        tenant_id: str,
+        loop: Loop,
+        kind: str,
+        *,
+        before: dict[str, Any],
+        options: list[LoopOption] | None,
+        engine: str,
+        metric: Metric,
+        fallback: str,
+        context: list[dict[str, Any]] | None,
+        actor: Actor,
+        reason: str | None,
+        refused: str,
+    ) -> _Written:
+        """ends the loop's cycle and appends the next, in the loop's state."""
+        repo = LoopRepository(session, tenant_id)
+        loop_key = loop.key
+        state = loop.state
+        resolved = resolve_engine(engine, metric, context)
+        people = await _owner(session, tenant_id, loop)
         if not await repo.transition(loop.id, from_state=state, state=state):
             loop = await repo.get(loop.id)
             raise _moved(loop_key, loop.state, refused)

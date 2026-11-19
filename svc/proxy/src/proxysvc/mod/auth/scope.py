@@ -99,6 +99,8 @@ ENDPOINT_SCOPES = {
     ("POST", "/api/v1/track"): "agent:write",
     # metrics
     ("POST", "/api/v1/metrics"): "metric:write",
+    ("PATCH", "/api/v1/metrics/*"): "metric:write",
+    ("DELETE", "/api/v1/metrics/*"): "metric:write",
     ("GET", "/api/v1/metrics*"): "metric:read",
     # loops
     ("GET", "/api/v1/loops*"): "loop:read",

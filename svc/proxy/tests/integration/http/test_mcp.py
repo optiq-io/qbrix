@@ -100,6 +100,8 @@ TOOLS = [
     "engine_version",
     "brief_update",
     "metric_create",
+    "metric_update",
+    "metric_delete",
     "note_add",
     "change_undo",
 ]
@@ -1430,6 +1432,12 @@ class TestViewer:
                 "change a loop's engine version",
             ),
             ("metric_create", METRIC, "create metrics"),
+            (
+                "metric_update",
+                {"metric": "purchase", "window_seconds": 60, "reason": "go"},
+                "change metrics",
+            ),
+            ("metric_delete", {"metric": "purchase", "reason": "go"}, "delete metrics"),
             ("note_add", {"loop": "x", "text": "hello"}, "add notes"),
         ],
     )
@@ -3067,4 +3075,110 @@ class TestPreview:
         assert "nope" in _error(unknown)
         assert _error(blank).startswith(
             "The context isn't one select would take: context.unit is required"
+        )
+
+
+NEW_MEANING = {
+    "metric": "purchase",
+    "semantic": "a paid order, sent since the payment webhook",
+    "semantic_change": "new",
+    "reason": "https://github.com/acme/shop/pull/491",
+}
+
+
+class TestMetricChanges:
+
+    async def test_a_new_window_applies_and_can_be_undone(self, mcp, wired_app):
+        async with _session(mcp, wired_app, levels=None) as client:
+            await _call(client, "metric_create", METRIC)
+            result = await _call(
+                client,
+                "metric_update",
+                {"metric": "purchase", "window_seconds": 3600, "reason": "fast buyers"},
+            )
+
+        assert not result.is_error, result
+        structured = result.structured_content
+        assert structured["status"] == "applied"
+        assert structured["change"]["kind"] == "metric.update"
+        assert structured["metric"]["version"] == "1.1"
+        assert result.content[0].text.startswith(
+            "Changed the metric purchase: version 1.1, window 1h."
+        )
+        assert "can be undone" in result.content[0].text
+
+    async def test_a_new_semantic_with_a_live_loop_asks_first_as_one_change(
+        self, mcp, wired_app
+    ):
+        async with _session(mcp, wired_app, levels=None) as client:
+            await _draft(client)
+            await wired_app.svc.launch_loop(
+                TENANT, "checkout-headline", actor=Actor.member("user-member")
+            )
+            result = await _call(client, "metric_update", NEW_MEANING)
+
+        structured = result.structured_content
+        assert structured["status"] == "waiting"
+        assert structured["change"]["kind"] == "metric.update"
+        assert (await wired_app.svc.get_metric(TENANT, "purchase"))["version"] == "1.0"
+
+        await _approve(wired_app, structured["change"]["id"])
+
+        assert (await wired_app.svc.get_metric(TENANT, "purchase"))["version"] == "2.0"
+        loop = await wired_app.svc.get_loop(TENANT, "checkout-headline")
+        assert loop["cycle"]["number"] == 2
+        assert loop["cycle"]["metric_version"] == "2.0"
+
+    async def test_a_new_semantic_no_loop_decides_on_applies(self, mcp, wired_app):
+        async with _session(mcp, wired_app, levels=None) as client:
+            await _draft(client)
+            result = await _call(client, "metric_update", NEW_MEANING)
+
+        assert result.structured_content["status"] == "applied"
+        assert result.structured_content["cycles"] == []
+        assert "can't be undone" in result.content[0].text
+
+    async def test_the_cycles_it_started_are_named(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _draft(client)
+            await _call(client, "loop_launch", LAUNCH)
+            result = await _call(client, "metric_update", NEW_MEANING)
+
+        assert result.structured_content["cycles"] == [
+            {"loop": "checkout-headline", "cycle": 2}
+        ]
+        assert "Started cycle 2 of checkout-headline" in result.content[0].text
+
+    async def test_an_unknown_metric_names_the_ones_there_are(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _call(client, "metric_create", METRIC)
+            result = await _call(
+                client,
+                "metric_update",
+                {"metric": "purchse", "window_seconds": 60, "reason": "go"},
+            )
+
+        assert "No metric named or with id purchse" in _error(result)
+
+    async def test_delete_applies_on_an_unused_metric(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _call(client, "metric_create", METRIC)
+            result = await _call(
+                client, "metric_delete", {"metric": "purchase", "reason": "unused"}
+            )
+
+        assert result.structured_content["status"] == "applied"
+        assert result.structured_content["change"]["kind"] == "metric.delete"
+        assert await wired_app.svc.get_metric(TENANT, "purchase") is None
+
+    async def test_delete_names_the_loop_that_uses_it(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _draft(client)
+            result = await _call(
+                client, "metric_delete", {"metric": "purchase", "reason": "unused"}
+            )
+
+        assert _error(result) == (
+            "The loop 'checkout-headline' uses the metric 'purchase', so it "
+            "can't be deleted."
         )

@@ -132,6 +132,11 @@ class MetricNameTakenError(BaseAPIError):
     """raised when the workspace already has a metric with that name."""
 
 
+class MetricInUseError(ChangeConflictError):
+    """raised when deleting a metric a loop has used, or renaming one a
+    decision has used."""
+
+
 class LoopInvalidError(BaseAPIError):
     """raised when a loop's name, key, metric, engine, options or fallback is refused."""
 

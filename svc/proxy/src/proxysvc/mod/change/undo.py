@@ -13,6 +13,7 @@ UNDOABLE_KINDS = frozenset(
         "gate.delete",
         "pool.update",
         "metric.create",
+        "metric.update",
         "loop.create",
         "loop.rename",
         "brief.update",
@@ -61,12 +62,39 @@ def _started_cycle(before: dict | None, after: dict | None) -> bool:
     return cycle_id(before) != cycle_id(after)
 
 
+_METRIC_ON_LOOP = (
+    "this is a loop's record of its metric's change; undo the change on the "
+    "metric {name!r}, which undoes it for every loop using it"
+)
+
+_METRIC_NEW_SEMANTIC = (
+    "a new semantic started a new cycle on every loop using the metric, which "
+    "begins fresh learning, so it can't be undone; change the semantic again "
+    "instead"
+)
+
+
+def _metric_refusal(before: dict | None, after: dict | None) -> str | None:
+    """why a metric's change can't be undone: a loop's record of it is undone
+    on the metric, and a new major started cycles."""
+    after = after or {}
+    if "key" in after:
+        return _METRIC_ON_LOOP.format(name=after["metric"]["name"])
+    major = (after.get("version") or "").split(".")[0]
+    if major != ((before or {}).get("version") or "").split(".")[0]:
+        return _METRIC_NEW_SEMANTIC
+    return None
+
+
 def is_undoable(
     kind: str, before: dict | None = None, after: dict | None = None
 ) -> bool:
     """a kind is undoable or not, except a context change, which is undoable
-    unless it started a cycle."""
+    unless it started a cycle, and a metric's change, undoable on the metric
+    unless it started cycles."""
     if kind == "context.update" and _started_cycle(before, after):
+        return False
+    if kind == "metric.update" and _metric_refusal(before, after) is not None:
         return False
     return kind in UNDOABLE_KINDS
 
@@ -76,6 +104,8 @@ def not_undoable_reason(
 ) -> str | None:
     if kind == "context.update" and _started_cycle(before, after):
         return _CONTEXT_CYCLED
+    if kind == "metric.update":
+        return _metric_refusal(before, after)
     return NOT_UNDOABLE.get(kind)
 
 

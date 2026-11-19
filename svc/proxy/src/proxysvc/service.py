@@ -55,6 +55,7 @@ from proxysvc.mod.loop.service import LoopService
 from proxysvc.mod.metric.service import DEFAULT_WINDOW_SECONDS
 from proxysvc.mod.metric.route import MetricRouteCache
 from proxysvc.mod.metric.service import MetricService
+from proxysvc.mod.metric.service import SemanticChange
 from proxysvc.mod.oauth.cimd import CIMDFetcher
 from proxysvc.mod.oauth.service import OAuthService
 from proxysvc.mod.pool.service import PoolService
@@ -170,9 +171,9 @@ class ProxyService:
             entitlements=self._entitlements,
         )
         metric_routes = MetricRouteCache(self._redis.client, self._settings)
-        self._metric_service = MetricService(metric_routes)
         loop_routes = LoopRouteCache(self._redis.client, self._settings)
         self._loop_service = LoopService(redis=self._redis, routes=loop_routes)
+        self._metric_service = MetricService(metric_routes, self._loop_service)
         self._loop_select_service = LoopSelectService(
             redis=self._redis,
             routes=loop_routes,
@@ -627,6 +628,39 @@ class ProxyService:
 
     async def get_metric(self, tenant_id: str, ref: str) -> dict | None:
         return await self._metric_service.get_metric(tenant_id, ref)
+
+    async def metric_detail(self, tenant_id: str, ref: str) -> dict | None:
+        return await self._metric_service.metric_detail(tenant_id, ref)
+
+    async def update_metric(
+        self,
+        tenant_id: str,
+        ref: str,
+        *,
+        name: str | None = None,
+        window_seconds: int | None = None,
+        semantic: str | None = None,
+        semantic_change: SemanticChange | None = None,
+        actor: Actor,
+        reason: str | None = None,
+    ) -> Applied | None:
+        return await self._metric_service.update_metric(
+            tenant_id,
+            ref,
+            name=name,
+            window_seconds=window_seconds,
+            semantic=semantic,
+            semantic_change=semantic_change,
+            actor=actor,
+            reason=reason,
+        )
+
+    async def delete_metric(
+        self, tenant_id: str, ref: str, *, actor: Actor, reason: str | None = None
+    ) -> Applied | None:
+        return await self._metric_service.delete_metric(
+            tenant_id, ref, actor=actor, reason=reason
+        )
 
     async def list_metrics(self, tenant_id: str) -> list[dict]:
         return await self._metric_service.list_metrics(tenant_id)

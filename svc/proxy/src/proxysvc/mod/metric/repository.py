@@ -8,6 +8,8 @@ from sqlalchemy.orm import selectinload
 
 from qbrixcore.engine import MetricType
 from qbrixcore.engine import ScoreRange
+from qbrixstore.postgres.models import Cycle
+from qbrixstore.postgres.models import Loop
 from qbrixstore.postgres.models import Metric
 from qbrixstore.postgres.models import MetricVersion
 
@@ -77,6 +79,53 @@ class MetricRepository:
         )
         response = await self._session.execute(stmt)
         return list(response.scalars().all())
+
+    async def add_version(
+        self,
+        metric: Metric,
+        *,
+        major: int,
+        minor: int,
+        semantic: str,
+        window_sec: int,
+        created_by: str,
+    ) -> MetricVersion:
+        version = MetricVersion(
+            major=major,
+            minor=minor,
+            semantic=semantic,
+            window_sec=window_sec,
+            created_by=created_by,
+        )
+        metric.versions.append(version)
+        await self._session.flush()
+        return version
+
+    async def first_launched(self, metric: Metric) -> Loop | None:
+        """the first loop a cycle of which ran this metric: decisions have
+        been made under it."""
+        stmt = (
+            select(Loop)
+            .join(Cycle, Cycle.loop_id == Loop.id)
+            .where(
+                Loop.tenant_id == self._tenant_id,
+                Cycle.metric_version_id.in_([v.id for v in metric.versions]),
+            )
+            .order_by(Cycle.started_at)
+            .limit(1)
+        )
+        return (await self._session.execute(stmt)).scalar_one_or_none()
+
+    async def first_user(self, metric: Metric) -> Loop | None:
+        """the first loop that uses this metric now, or ran it in a cycle."""
+        stmt = (
+            select(Loop)
+            .where(Loop.tenant_id == self._tenant_id, Loop.metric_id == metric.id)
+            .order_by(Loop.created_at)
+            .limit(1)
+        )
+        using = (await self._session.execute(stmt)).scalar_one_or_none()
+        return using or await self.first_launched(metric)
 
     async def delete(self, metric: Metric) -> None:
         await self._session.delete(metric)
