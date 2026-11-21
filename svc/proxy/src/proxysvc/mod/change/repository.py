@@ -355,7 +355,7 @@ class ChangeRepository:
         return result.scalar_one_or_none()
 
     async def list_for(
-        self, target_type: str, target_id: str, limit: int = 50
+        self, target_type: str, target_id: str, limit: int | None = 50
     ) -> list[Change]:
         stmt = (
             select(Change)

@@ -354,6 +354,13 @@ class MetricNameTakenException(ConflictException):
     code = "METRIC_NAME_TAKEN"
 
 
+class MetricInUseException(ConflictException):
+    """a loop has used the metric, so it can't be deleted or renamed."""
+
+    detail = "a loop has used this metric"
+    code = "METRIC_IN_USE"
+
+
 class LoopNotFoundException(NotFoundException):
     """loop resource not found."""
 

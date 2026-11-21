@@ -354,6 +354,8 @@ class LoopMetric(BaseModel):
     id: str
     name: str
     type: str
+    version: str
+    semantic: str
     window_seconds: int
 
 

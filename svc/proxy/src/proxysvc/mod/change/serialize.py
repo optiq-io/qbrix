@@ -29,6 +29,7 @@ VERBS = {
     "engine.version": "changed the engine version of",
     "engine.minor": "updated the engine of",
     "metric.create": "created",
+    "metric.update": "changed",
     "metric.delete": "deleted",
     "note.add": "added a note to",
     "experiment.create": "created",
@@ -46,6 +47,7 @@ VERBS = {
     "connection.levels": "changed the levels of",
 }
 _ANY_KIND = "changed"
+_METRIC_ON_LOOP = "changed the metric of"
 
 ASKING = {
     "loop.create": "create",
@@ -63,6 +65,7 @@ ASKING = {
     "engine.version": "change the engine version of",
     "brief.update": "change the brief of",
     "metric.create": "create",
+    "metric.update": "change",
     "metric.delete": "delete",
     "note.add": "add a note to",
 }
@@ -79,6 +82,8 @@ def verb_for(change: Change) -> str:
         return f"asks to {ASKING.get(change.kind, 'change')}"
     if change.status == "declined":
         return f"asked to {ASKING.get(change.kind, 'change')}"
+    if change.kind == "metric.update" and change.target_type == "loop":
+        return _METRIC_ON_LOOP
     return verb_of(change.kind)
 
 

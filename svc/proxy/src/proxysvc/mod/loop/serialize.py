@@ -38,6 +38,7 @@ def cycle_to_dict(cycle: Cycle) -> dict:
 
 def loop_to_dict(loop: Loop, people: People) -> dict:
     metric = loop.metric
+    version = metric.versions[-1]
     return {
         "id": loop.id,
         "key": loop.key,
@@ -47,7 +48,9 @@ def loop_to_dict(loop: Loop, people: People) -> dict:
             "id": metric.id,
             "name": metric.name,
             "type": metric.type,
-            "window_seconds": metric.versions[-1].window_sec,
+            "version": f"{version.major}.{version.minor}",
+            "semantic": version.semantic,
+            "window_seconds": version.window_sec,
         },
         "engine": loop.engine,
         "state": loop.state,

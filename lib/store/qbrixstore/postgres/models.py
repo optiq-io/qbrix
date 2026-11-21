@@ -579,8 +579,9 @@ class Metric(Base):
 
 
 class MetricVersion(Base):
-    """one version of a metric. never changed in place: the newest is current,
-    and a decision is sealed by the version it was opened under."""
+    """one version of a metric. the newest is current, and a decision is
+    sealed by the version it was opened under. only a reworded semantic, the
+    same meaning in other words, changes the newest in place."""
 
     __tablename__ = "metric_versions"
     __table_args__ = (

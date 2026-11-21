@@ -130,6 +130,16 @@ def _metric_name(snapshot: dict) -> str | None:
     return metric["name"] if metric else None
 
 
+def _metric_part(snapshot: dict, field: str) -> Any:
+    """a field of a metric snapshot, or of a loop snapshot's metric. other
+    targets, such as a gate, have a version of their own."""
+    if "metric" in snapshot:
+        return (snapshot["metric"] or {}).get(field)
+    if "semantic" in snapshot:
+        return snapshot.get(field)
+    return None
+
+
 def _owner_name(snapshot: dict) -> str | None:
     owner = snapshot.get("owner")
     return owner["name"] if owner else None
@@ -168,7 +178,7 @@ def _switched_hold(before: dict, after: dict) -> bool:
 
 
 def _window(snapshot: dict) -> str | None:
-    seconds = snapshot.get("window_seconds")
+    seconds = snapshot.get("window_seconds") or _metric_part(snapshot, "window_seconds")
     return window_label(seconds) if seconds is not None else None
 
 
@@ -190,6 +200,16 @@ def diff(before: dict | None, after: dict | None) -> list[dict]:
     pairs.append(("owner", _owner_name(before), _owner_name(after)))
     pairs.append(("metric", _metric_name(before), _metric_name(after)))
     pairs.append(("window", _window(before), _window(after)))
+    pairs.append(
+        (
+            "metric version",
+            _metric_part(before, "version"),
+            _metric_part(after, "version"),
+        )
+    )
+    pairs.append(
+        ("semantic", _metric_part(before, "semantic"), _metric_part(after, "semantic"))
+    )
     pairs.append(("cycle", _cycle(before), _cycle(after)))
     if switched:
         pairs.append(("engine version", _engine_hold(before), _engine_hold(after)))

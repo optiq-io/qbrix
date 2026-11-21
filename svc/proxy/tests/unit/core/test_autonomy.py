@@ -68,6 +68,7 @@ def test_the_defaults_are_the_definitions():
             "delivery.update",
             "context.update",
             "engine.version",
+            "metric.update",
             "metric.delete",
         ],
         "ask": ["loop.launch", "cycle.start", "loop.retire"],

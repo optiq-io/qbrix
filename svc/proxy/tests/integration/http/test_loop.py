@@ -184,6 +184,8 @@ class TestCreate:
             "id": metric["id"],
             "name": "purchase",
             "type": "conversion",
+            "version": "1.0",
+            "semantic": metric["semantic"],
             "window_seconds": 86400,
         }
 

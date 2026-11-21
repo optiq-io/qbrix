@@ -50,6 +50,7 @@ from proxysvc.mod.change.undo import undo_scope
 from proxysvc.mod.connection.service import ConnectionPrincipal
 from proxysvc.mod.engine.catalog import engine_catalog
 from proxysvc.mod.loop.delivery import delivery_of
+from proxysvc.mod.loop.service import DECIDING
 from proxysvc.mod.loop.service import starts_cycle
 from proxysvc.mod.metric.serialize import window_label
 from proxysvc.mod.safety.read import OPEN_LIMIT
@@ -2318,6 +2319,139 @@ def register(
 
         return await once("metric_create", arguments, call, ctx, metric_answered)
 
+    async def metric_update(
+        ctx: Context,
+        metric: Annotated[str, Field(description="The metric's name or id.")],
+        reason: Reason,
+        name: Annotated[
+            Optional[str],
+            Field(
+                description="A new name; only while no decision has used the metric, since code sends it."
+            ),
+        ] = None,
+        window_seconds: Annotated[
+            Optional[int],
+            Field(
+                ge=1,
+                description="A new window, for decisions made from now on: a minor version.",
+            ),
+        ] = None,
+        semantic: Annotated[
+            Optional[str],
+            Field(
+                description="What the metric stands for now, in a sentence. It may link the pull request that changed what code sends."
+            ),
+        ] = None,
+        semantic_change: Annotated[
+            Optional[Literal["reword", "same", "new"]],
+            Field(
+                description="With semantic. reword: the same meaning in other words, no new version. same: the same meaning, a minor version. new: a new meaning, a major version that starts a new cycle on every loop still deciding, which asks first like cycle_start."
+            ),
+        ] = None,
+    ) -> Annotated[CallToolResult, MetricChanged] | InputRequiredResult:
+        """Change a metric's window, semantic or name. Record a change to what code sends for a metric here, with the pull request as the reason. Loops using it follow at once and the change is in each one's history; a new semantic starts a new cycle on each loop still deciding and can't be undone, the rest can."""
+        arguments = {
+            "metric": metric,
+            "reason": reason,
+            "name": name,
+            "window_seconds": window_seconds,
+            "semantic": semantic,
+            "semantic_change": semantic_change,
+        }
+
+        async def call(principal: ConnectionPrincipal) -> CallToolResult:
+            _require(principal, "metric:write", "change metrics")
+            cycles = False
+            if semantic_change == "new":
+                in_use = await service().metrics_in_use(principal.tenant_id)
+                found = next(
+                    (m for m in in_use if metric in (m["id"], m["name"])), None
+                )
+                if found is None:
+                    raise await refused_metric(principal, metric)
+                cycles = any(loop["state"] in DECIDING for loop in found["loops"])
+            with refusals():
+                updated = await make(
+                    principal,
+                    "metric.update",
+                    metric,
+                    {
+                        "name": name,
+                        "window_seconds": window_seconds,
+                        "semantic": semantic,
+                        "semantic_change": semantic_change,
+                    },
+                    reason=reason,
+                    also=("cycle.start",) if cycles else (),
+                )
+            if updated is None:
+                raise await refused_metric(principal, metric)
+            if isinstance(updated, Waiting):
+                return await asked(
+                    principal,
+                    updated.change,
+                    lambda change, _: MetricChanged(status="waiting", change=change),
+                )
+            value = updated.value["metric"]
+            started = updated.value["cycles"]
+            change = changed(updated, "metric", value["name"])
+            cycled = (
+                " Started "
+                + ", ".join(f"cycle {c['cycle']} of {c['loop']}" for c in started)
+                + ", which learn afresh."
+                if started
+                else ""
+            )
+            undo = "can be undone" if change["undoable"] else "can't be undone"
+            return _result(
+                f"Changed the metric {value['name']}: version {value['version']}, "
+                f"window {window_label(value['window_seconds'])}.{cycled} Serving "
+                f"moves within {math.ceil(settings.experiment_cache_ttl)} seconds. "
+                f"Change {change['id']}, {undo}: {change['url']}",
+                MetricChanged(
+                    status="applied", change=change, metric=value, cycles=started
+                ),
+            )
+
+        return await once("metric_update", arguments, call, ctx, metric_answered)
+
+    async def metric_delete(
+        ctx: Context,
+        metric: Annotated[str, Field(description="The metric's name or id.")],
+        reason: Reason,
+    ) -> Annotated[CallToolResult, MetricChanged] | InputRequiredResult:
+        """Delete a metric no loop has used. Once a loop has used it, it stays. This can't be undone."""
+
+        async def call(principal: ConnectionPrincipal) -> CallToolResult:
+            _require(principal, "metric:write", "delete metrics")
+            with refusals():
+                deleted = await make(
+                    principal, "metric.delete", metric, {}, reason=reason
+                )
+            if deleted is None:
+                raise await refused_metric(principal, metric)
+            if isinstance(deleted, Waiting):
+                return await asked(
+                    principal,
+                    deleted.change,
+                    lambda change, _: MetricChanged(status="waiting", change=change),
+                )
+            value = deleted.value
+            change = changed(deleted, "metric", value["name"])
+            return _result(
+                f"Deleted the metric {value['name']}. Change {change['id']}, "
+                f"can't be undone: {change['url']}",
+                MetricChanged(status="applied", change=change),
+            )
+
+        return await once(
+            "metric_delete",
+            {"metric": metric, "reason": reason},
+            call,
+            ctx,
+            metric_answered,
+        )
+
     async def note_add(
         ctx: Context,
         loop: LoopRef,
@@ -2446,6 +2580,8 @@ def register(
         (engine_version, _DESTRUCTIVE),
         (brief_update, _DESTRUCTIVE),
         (metric_create, _CREATE),
+        (metric_update, _DESTRUCTIVE),
+        (metric_delete, _DESTRUCTIVE),
         (note_add, _CREATE),
         (change_undo, _DESTRUCTIVE),
     ):
