@@ -185,6 +185,7 @@ class ProxyService:
         self._loop_outcome_service = LoopOutcomeService(
             redis=self._redis,
             routes=loop_routes,
+            metrics=metric_routes,
             events=self._events,
             settings=self._settings,
         )

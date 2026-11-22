@@ -322,7 +322,7 @@ class MetricService:
                 reason=change.reason,
             )
         await self._loops.publish_all(tenant_id, written)
-        await self._routes.drop(tenant_id, old_name)
+        await self._routes.drop(tenant_id, old_name, metric.id)
         cycles = [
             {"loop": step.loop["key"], "cycle": step.loop["cycle"]["number"]}
             for step in written
@@ -363,5 +363,5 @@ class MetricService:
                 reason=reason,
                 undoing=undoing,
             )
-        await self._routes.drop(tenant_id, before["name"])
+        await self._routes.drop(tenant_id, before["name"], before["id"])
         return Applied.of(before, change)

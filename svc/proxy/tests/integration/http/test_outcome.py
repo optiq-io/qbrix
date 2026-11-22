@@ -2,8 +2,8 @@
 
 invariants verified:
   a valid outcome publishes one metric event for exactly its decision, with
-  the loop's metric, the version the decision was opened under, an id and a
-  time, and answers both. a value the metric's type doesn't accept is refused
+  the metric the decision was made under and its version, an id and a time,
+  and answers both. a value the metric's type doesn't accept is refused
   with the rule and counted invalid for the decision's cycle. a time before
   the decision or too far ahead is refused. a request_id that doesn't verify
   in this workspace is refused the same way whatever the reason, counted for
@@ -127,7 +127,7 @@ class TestAccepted:
         assert event.metric_id == metric["id"]
         assert event.metric_version == "1.0"
         assert event.value == 1.0
-        assert event.unit == "user-42"
+        assert event.unit == ""
         assert event.source == "outcome"
         assert event.decisions == [
             {
@@ -279,6 +279,39 @@ class TestEarlierCycle:
         assert health.by_reason == {}
 
 
+class TestMetricChanged:
+    async def test_is_judged_by_the_metric_its_decision_was_made_under(
+        self, wired_app, api
+    ):
+        loop, request_id = await _decision(wired_app, api, "rating")
+        await wired_app.svc.start_cycle(
+            TENANT, loop["key"], metric="purchase", actor=ACTOR
+        )
+
+        resp = await _outcome(wired_app, api, request_id, 4)
+
+        assert resp.status_code == 202, resp.text
+        (event,) = wired_app.metric_spy.events
+        assert (
+            event.metric_id == (await wired_app.svc.get_metric(TENANT, "rating"))["id"]
+        )
+        assert event.value == 4.0
+
+    async def test_is_refused_by_the_rule_of_its_own_metric(self, wired_app, api):
+        loop, request_id = await _decision(wired_app, api, "purchase")
+        await wired_app.svc.start_cycle(
+            TENANT, loop["key"], metric="revenue", actor=ACTOR
+        )
+
+        resp = await _outcome(wired_app, api, request_id, 12.5)
+
+        assert resp.status_code == 400
+        assert "a conversion is 0 or 1" in resp.json()["detail"]
+        assert wired_app.metric_spy.events == []
+        assert (await _metric_counts(wired_app, "purchase"))["invalid"] == 1
+        assert (await _metric_counts(wired_app, "revenue"))["invalid"] == 0
+
+
 class TestTimeAndId:
     async def test_a_time_before_the_decision_is_refused(self, wired_app, api):
         _, request_id = await _decision(wired_app, api)
@@ -330,7 +363,8 @@ class TestRequestId:
         secret = wired_app.svc._settings.token_secret_bytes
         foreign = DecisionToken.encode(
             secret,
-            Decision(**{**decision.__dict__, "tenant_id": "tenant-elsewhere"}),
+            "tenant-elsewhere",
+            decision,
         )
         forged = request_id[:-1] + ("A" if request_id[-1] != "A" else "B")
 

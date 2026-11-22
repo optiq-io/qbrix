@@ -168,8 +168,8 @@ class LoopTrackService:
         its loop's route.
 
         an entry that doesn't verify in this workspace is dropped and counted;
-        the event is refused only when none does. an entry for a loop that
-        improves another metric, or no longer exists, is not this event's.
+        the event is refused only when none does. an entry made under another
+        metric, or for a loop that no longer exists, is not this event's.
         """
         if not isinstance(token, str):
             raise TokenInvalidError("decisions must be the token decisions() returns")
@@ -188,8 +188,10 @@ class LoopTrackService:
 
         carried = []
         for decision in verified:
+            if decision.metric_id != metric.id:
+                continue
             route = await self._routes.get(tenant_id, decision.loop_id)
-            if route is not None and route.metric.id == metric.id:
+            if route is not None:
                 carried.append((decision, route))
         return carried
 
