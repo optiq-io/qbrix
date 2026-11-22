@@ -228,18 +228,18 @@ class LoopSelectService:
             policy = choice["policy"]
         option = route.options[index]
         now_ms = int(time.time() * 1000)
+        metric = route.metric
         decision = Decision(
             decision_id=uuid.uuid4().hex,
-            tenant_id=tenant_id,
             loop_id=route.id,
             cycle_id=cycle_id,
+            metric_id=metric.id,
             option_index=index,
-            unit=unit,
-            metric_version=route.metric.version,
             timestamp_ms=now_ms,
         )
-        request_id = DecisionToken.encode(self._settings.token_secret_bytes, decision)
-        metric = route.metric
+        request_id = DecisionToken.encode(
+            self._settings.token_secret_bytes, tenant_id, decision
+        )
         self._events.emit_selection(
             SelectionEvent(
                 tenant_id=tenant_id,

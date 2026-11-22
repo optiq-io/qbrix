@@ -269,8 +269,7 @@ class TestLive:
         assert decision.loop_id == loop["id"]
         assert decision.cycle_id == loop["cycle"]["id"]
         assert decision.option_index == 0
-        assert decision.unit == "user-42"
-        assert decision.metric_version == "1.0"
+        assert decision.metric_id == loop["metric"]["id"]
         assert decision.decision_id
 
     async def test_identical_calls_are_distinct_decisions(self, wired_app, api):
@@ -415,7 +414,7 @@ class TestCommitted:
 
         assert decision.cycle_id == loop["cycle"]["id"]
         assert decision.option_index == 1
-        assert decision.metric_version == "1.0"
+        assert decision.metric_id == loop["metric"]["id"]
 
     async def test_records_the_decision_on_the_ledger(self, wired_app, api):
         loop = await _committed(wired_app)

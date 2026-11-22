@@ -146,6 +146,33 @@ class TestDecisions:
             _ref(_decoded(wired_app, second)),
         ]
 
+    async def test_a_decision_is_credited_by_the_metric_it_was_made_under(
+        self, wired_app, api
+    ):
+        request_id = await _decision(wired_app, api, "Checkout button")
+        loop_id = _decoded(wired_app, request_id).loop_id
+        await wired_app.svc.start_cycle(
+            TENANT, loop_id, metric="add_to_cart", actor=ACTOR
+        )
+
+        new = await _track(
+            wired_app,
+            api,
+            {"metric": "add_to_cart", "value": 1, "decisions": request_id},
+        )
+        old = await _track(
+            wired_app,
+            api,
+            {"metric": "purchase", "value": 1, "decisions": request_id},
+        )
+
+        assert new.json()["credited"] == 0
+        assert old.json()["credited"] == 1
+        made, kept = wired_app.metric_spy.events
+        assert made.decisions == []
+        assert kept.metric_id == await _metric_id(wired_app, "purchase")
+        assert kept.decisions == [_ref(_decoded(wired_app, request_id))]
+
     async def test_a_loop_on_another_metric_is_not_credited(self, wired_app, api):
         purchase = await _decision(wired_app, api, "Checkout button")
         headline = await _decision(wired_app, api, "Headline", "add_to_cart")
@@ -209,7 +236,8 @@ class TestDecisions:
         decision = _decoded(wired_app, request_id)
         foreign = DecisionToken.encode(
             wired_app.svc._settings.token_secret_bytes,
-            Decision(**{**decision.__dict__, "tenant_id": "tenant-elsewhere"}),
+            "tenant-elsewhere",
+            decision,
         )
         forged = request_id[:-1] + ("A" if request_id[-1] != "A" else "B")
 

@@ -21,6 +21,7 @@ from proxysvc.mod.loop.route import LoopRoute
 from proxysvc.mod.loop.route import LoopRouteCache
 from proxysvc.mod.loop.token import Decision
 from proxysvc.mod.loop.token import DecisionToken
+from proxysvc.mod.metric.route import MetricRouteCache
 from proxysvc.mod.metric.route import RouteMetric
 
 logger = get_logger(__name__)
@@ -115,12 +116,13 @@ def _at_ms(at: datetime | None, decision: Decision, now_ms: int) -> int:
 
 
 class LoopOutcomeService:
-    """outcome(request_id, value): the event for exactly one decision, with its
-    loop's metric.
+    """outcome(request_id, value): the event for exactly one decision, with the
+    metric it was made under.
 
     what is accepted is recorded, late, repeated and earlier-cycle outcomes
-    included; the sealer decides what is learned. nothing here reads postgres:
-    the metric comes from the loop's route.
+    included; the sealer decides what is learned. nothing here reads postgres
+    but through a cache: the metric is the loop route's, or after the loop
+    changed metric, the decision's own.
     """
 
     def __init__(
@@ -128,11 +130,13 @@ class LoopOutcomeService:
         *,
         redis: RedisClient,
         routes: LoopRouteCache,
+        metrics: MetricRouteCache,
         events: EventEmitter,
         settings: ProxySettings,
     ):
         self._redis = redis
         self._routes = routes
+        self._metrics = metrics
         self._events = events
         self._settings = settings
 
@@ -155,14 +159,15 @@ class LoopOutcomeService:
         route = await self._routes.get(tenant_id, decision.loop_id)
         if route is None:
             raise LoopNotFoundError(f"no loop with the id {decision.loop_id!r}")
+        metric = await self._metric_of(tenant_id, route, decision)
 
         try:
-            value = check_value(route.metric, value)
+            value = check_value(metric, value)
         except InvalidOutcomeError:
             self._events.dispatch(
-                self._count_invalid(tenant_id, route.metric.id, decision.cycle_id)
+                self._count_invalid(tenant_id, metric.id, decision.cycle_id)
             )
-            self._stamp(tenant_id, decision.cycle_id, route.metric.window_ms)
+            self._stamp(tenant_id, decision.cycle_id, metric.window_ms)
             raise
 
         now_ms = int(time.time() * 1000)
@@ -172,22 +177,34 @@ class LoopOutcomeService:
         self._events.emit_metric(
             MetricEvent(
                 tenant_id=tenant_id,
-                metric_id=route.metric.id,
-                metric_version=decision.metric_version,
+                metric_id=metric.id,
+                metric_version=metric.version,
                 value=value,
                 decisions=[decision_ref(decision)],
-                unit=decision.unit,
+                unit="",
                 event_id=event_id,
                 at_ms=at_ms,
                 received_ms=now_ms,
                 source=SOURCE,
             )
         )
-        self._stamp(tenant_id, decision.cycle_id, route.metric.window_ms, now_ms)
+        self._stamp(tenant_id, decision.cycle_id, metric.window_ms, now_ms)
         current = earlier_cycle(route, decision)
         if current is not None:
             self._events.dispatch(count_earlier_cycle(self._redis, tenant_id, current))
         return {"id": event_id, "at_ms": at_ms}
+
+    async def _metric_of(
+        self, tenant_id: str, route: LoopRoute, decision: Decision
+    ) -> RouteMetric:
+        """the metric the decision was made under, which is its loop's unless
+        the loop has changed metric since."""
+        if decision.metric_id == route.metric.id:
+            return route.metric
+        metric = await self._metrics.get_by_id(tenant_id, decision.metric_id)
+        if metric is None:
+            raise InvalidOutcomeError("this decision's metric no longer exists")
+        return metric
 
     def _stamp(
         self,

@@ -121,7 +121,7 @@ A loop's results count its own outcomes the same way, for the last hour.
 
 The result often happens somewhere other than the decision: an order page, a payment webhook, a backend job. `track` sends an event for a metric, wherever it happens, and qbrix finds the decisions it belongs to.
 
-- **`decisions`** is the decisions token: the `request_id`s a device was served, joined by `.` into one string. Code carries it to where the result happens (a cart attribute, order metadata, a payment's metadata), and the event credits exactly the decisions in it whose loop improves the event's metric. Each `request_id` is signed, so the token can't credit a decision the device never received.
+- **`decisions`** is the decisions token: the `request_id`s a device was served, joined by `.` into one string. Code carries it to where the result happens (a cart attribute, order metadata, a payment's metadata), and the event credits exactly the decisions in it that were made for the event's metric. Each `request_id` is about 115 characters and signed, so the token can't credit a decision the device never received, and four decisions fit in a 500-character metadata value.
 - **`unit`** is who the event happened to, the same `unit` sent with `select`. It is for events that never passed through a device holding decisions. An event with only a unit is recorded, but matching it to the unit's open decisions isn't available yet, so for now it teaches nothing.
 - **`id`** and **`at`** work as they do for an outcome (see [Retries and timing](#retries-and-timing)).
 

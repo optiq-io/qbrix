@@ -67,5 +67,20 @@ class MetricRouteCache:
         await self._tier.set(tenant_id, "metric", "name", name, value=route)
         return route
 
-    async def drop(self, tenant_id: str, name: str) -> None:
+    async def get_by_id(self, tenant_id: str, metric_id: str) -> RouteMetric | None:
+        """a metric by its id: the one a decision was made under, which may
+        no longer be its loop's."""
+        cached = await self._tier.get(tenant_id, "metric", "id", metric_id)
+        if cached is not None:
+            return cached
+        async with get_session() as session:
+            metric = await MetricRepository(session, tenant_id).get(metric_id)
+            if metric is None:
+                return None
+            route = route_metric_of(metric)
+        await self._tier.set(tenant_id, "metric", "id", metric_id, value=route)
+        return route
+
+    async def drop(self, tenant_id: str, name: str, metric_id: str) -> None:
         await self._tier.delete(tenant_id, "metric", "name", name)
+        await self._tier.delete(tenant_id, "metric", "id", metric_id)

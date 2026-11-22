@@ -1,62 +1,89 @@
 from __future__ import annotations
 
+import base64
+import binascii
+import hmac
+import struct
 from dataclasses import dataclass
 
 from proxysvc.core.error import TokenInvalidError
-from proxysvc.mod.agent.token import sign
-from proxysvc.mod.agent.token import verify
 
 
 @dataclass(frozen=True)
 class Decision:
-    """a decision as its request_id carries it: what outcome needs to find it."""
+    """a decision as its request_id carries it: what outcome and track need
+    to credit it. everything else about it is in the ledger."""
 
     decision_id: str
-    tenant_id: str
     loop_id: str
     cycle_id: str
+    metric_id: str
     option_index: int
-    unit: str
-    metric_version: str
     timestamp_ms: int
 
 
 class DecisionToken:
-    """a decision's request_id: signed, so nothing is stored to look it up."""
+    """a decision's request_id: a fixed binary record, signed together with
+    the workspace it was issued in, so nothing is stored to look it up and it
+    stays short enough for the places code carries it.
 
-    @staticmethod
-    def encode(secret: bytes, decision: Decision) -> str:
-        return sign(
-            secret,
-            {
-                "did": decision.decision_id,
-                "tnt_id": decision.tenant_id,
-                "loop": decision.loop_id,
-                "cyc": decision.cycle_id,
-                "opt": decision.option_index,
-                "unit": decision.unit,
-                "mv": decision.metric_version,
-                "ts": decision.timestamp_ms,
-            },
+    the first byte names the format. a selection token is json, so it starts
+    with "{" and never reads as a decision.
+    """
+
+    KIND = 1
+    _BODY = struct.Struct(">B16s16s16s16sH6s")
+    _SIG_BYTES = 12
+    _BYTES = _BODY.size + _SIG_BYTES
+
+    @classmethod
+    def encode(cls, secret: bytes, tenant_id: str, decision: Decision) -> str:
+        body = cls._BODY.pack(
+            cls.KIND,
+            bytes.fromhex(decision.decision_id),
+            bytes.fromhex(decision.loop_id),
+            bytes.fromhex(decision.cycle_id),
+            bytes.fromhex(decision.metric_id),
+            decision.option_index,
+            decision.timestamp_ms.to_bytes(6, "big"),
         )
+        return cls._text(body + cls._sign(secret, tenant_id, body))
 
-    @staticmethod
-    def decode(secret: bytes, token: str, tenant_id: str) -> Decision:
-        payload = verify(secret, token)
-        if "did" not in payload:
+    @classmethod
+    def decode(cls, secret: bytes, token: str, tenant_id: str) -> Decision:
+        try:
+            raw = base64.urlsafe_b64decode(token + "=" * (-len(token) % 4))
+        except (binascii.Error, ValueError) as e:
+            raise TokenInvalidError(f"failed to decode request_id: {e}")
+        if len(raw) != cls._BYTES or raw[0] != cls.KIND:
             raise TokenInvalidError("not a decision's request_id")
-        if payload["tnt_id"] != tenant_id:
-            raise TokenInvalidError("token was not issued to this workspace")
-        return Decision(
-            decision_id=payload["did"],
-            tenant_id=payload["tnt_id"],
-            loop_id=payload["loop"],
-            cycle_id=payload["cyc"],
-            option_index=payload["opt"],
-            unit=payload["unit"],
-            metric_version=payload["mv"],
-            timestamp_ms=payload["ts"],
+        # the decoder ignores stray characters and the last one's spare bits,
+        # so only the one spelling of a request_id is accepted
+        if cls._text(raw) != token:
+            raise TokenInvalidError("not a decision's request_id")
+        body, sig = raw[: cls._BODY.size], raw[cls._BODY.size :]
+        if not hmac.compare_digest(sig, cls._sign(secret, tenant_id, body)):
+            raise TokenInvalidError("request_id doesn't verify in this workspace")
+        _, decision_id, loop_id, cycle_id, metric_id, option, ts = cls._BODY.unpack(
+            body
         )
+        return Decision(
+            decision_id=decision_id.hex(),
+            loop_id=loop_id.hex(),
+            cycle_id=cycle_id.hex(),
+            metric_id=metric_id.hex(),
+            option_index=option,
+            timestamp_ms=int.from_bytes(ts, "big"),
+        )
+
+    @staticmethod
+    def _text(raw: bytes) -> str:
+        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+    @classmethod
+    def _sign(cls, secret: bytes, tenant_id: str, body: bytes) -> bytes:
+        message = tenant_id.encode() + body
+        return hmac.new(secret, message, "sha256").digest()[: cls._SIG_BYTES]
 
 
 DECISIONS_MAX = 50
