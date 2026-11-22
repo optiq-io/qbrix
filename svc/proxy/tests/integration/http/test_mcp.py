@@ -47,6 +47,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route
 
 import proxysvc.config
+from qbrixstore.clickhouse.ledger import MetricArrival
 from qbrixstore.event import MilestoneEvent
 from qbrixstore.postgres import session as session_module
 from qbrixstore.postgres.models import Tenant
@@ -1510,6 +1511,21 @@ class TestReads:
         [metric] = result.structured_content["metrics"]
         assert [loop["key"] for loop in metric["loops"]] == ["checkout-headline"]
         assert "used by checkout-headline" in result.content[0].text
+        assert metric["health"]["median_wait_seconds"] is None
+        assert result.content[0].text.endswith(" · 0 outcomes a minute")
+
+    async def test_metrics_list_says_how_outcomes_arrive(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _draft(client)
+            [metric] = await wired_app.svc.list_metrics(TENANT)
+            wired_app.ledger.metric_arrival[metric["id"]] = MetricArrival(
+                metric["id"], 50, 2, 5_400_000, 80_000_000, (0,) * 25
+            )
+            result = await _call(client, "metrics_list")
+
+        assert result.content[0].text.endswith(
+            " · 0 outcomes a minute · half within 1.5h · 4% late"
+        )
 
     async def test_engines_list_says_what_each_engine_needs(self, mcp, wired_app):
         async with _session(mcp, wired_app) as client:

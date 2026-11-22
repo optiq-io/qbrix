@@ -21,6 +21,8 @@ from qbrixstore.redis.health import LEDGER_PROGRESS_TTL_SEC
 from qbrixstore.redis.health import LOOP_CALLS_TTL_SEC
 from qbrixstore.redis.health import LedgerProgress
 from qbrixstore.redis.health import LoopSelectReason
+from qbrixstore.redis.health import METRIC_HEALTH_DISPOSITIONS
+from qbrixstore.redis.health import METRIC_HEALTH_TTL_SEC
 from qbrixstore.redis.health import OUTCOME_HEALTH_TTL_SEC
 from qbrixstore.redis.health import OutcomeDisposition
 from qbrixstore.redis.health import OutcomeHealth
@@ -815,59 +817,74 @@ class RedisClient:
 
     @staticmethod
     def _metric_outcome_key(
-        tenant_id: str, metric_id: str, minute: int, disposition: OutcomeDisposition
+        tenant_id: str, metric_id: str, hour: int, disposition: OutcomeDisposition
     ) -> str:
         return (
             f"qbrix:tenant:{tenant_id}:health:metric:{metric_id}"
-            f":{minute}:{disposition.value}"
+            f":{hour}:{disposition.value}"
         )
+
+    def stage_metric_outcomes(
+        self,
+        pipe: Pipeline,
+        tenant_id: str,
+        metric_id: str,
+        counts: dict[OutcomeDisposition, int],
+        hour: int | None = None,
+    ) -> None:
+        """queue a metric's outcome counts, by the hour, onto a caller's
+        pipeline. a metric's counts cover every loop that improves it."""
+        if hour is None:
+            hour = int(time.time()) // 3600
+        for disposition, count in counts.items():
+            if count <= 0:
+                continue
+            key = self._metric_outcome_key(tenant_id, metric_id, hour, disposition)
+            # noinspection PyAsyncCall
+            pipe.incrby(key, count)
+            # noinspection PyAsyncCall
+            pipe.expire(key, METRIC_HEALTH_TTL_SEC)
 
     async def count_metric_outcomes(
         self,
         tenant_id: str,
         metric_id: str,
         counts: dict[OutcomeDisposition, int],
-        minute: int | None = None,
+        hour: int | None = None,
     ) -> None:
-        """count a metric's outcomes by how they ended, across every loop
-        that improves it."""
-        if minute is None:
-            minute = int(time.time()) // 60
         pipe = self.client.pipeline(transaction=False)
-        for disposition, count in counts.items():
-            if count <= 0:
-                continue
-            key = self._metric_outcome_key(tenant_id, metric_id, minute, disposition)
-            # noinspection PyAsyncCall
-            pipe.incrby(key, count)
-            # noinspection PyAsyncCall
-            pipe.expire(key, OUTCOME_HEALTH_TTL_SEC)
+        self.stage_metric_outcomes(pipe, tenant_id, metric_id, counts, hour=hour)
         await pipe.execute()
 
     async def metric_outcomes(
         self,
         tenant_id: str,
-        metric_id: str,
-        window_minutes: int,
-        now_minute: int | None = None,
-    ) -> dict[str, int]:
-        """a metric's outcome counts by disposition over the last
-        ``window_minutes`` minutes, the current one included."""
-        if now_minute is None:
-            now_minute = int(time.time()) // 60
-        minutes = range(now_minute - window_minutes + 1, now_minute + 1)
-        dispositions = list(OutcomeDisposition)
+        metric_ids: Sequence[str],
+        hours: int,
+        now_hour: int | None = None,
+    ) -> dict[str, dict[str, int]]:
+        """each metric's outcome counts by disposition over the last ``hours``
+        hours, the current one included, from one read."""
+        if now_hour is None:
+            now_hour = int(time.time()) // 3600
+        dispositions = METRIC_HEALTH_DISPOSITIONS
+        span = range(now_hour - hours + 1, now_hour + 1)
         keys = [
-            self._metric_outcome_key(tenant_id, metric_id, m, d)
-            for m in minutes
+            self._metric_outcome_key(tenant_id, metric_id, h, d)
+            for metric_id in metric_ids
+            for h in span
             for d in dispositions
         ]
         values = await self.client.mget(keys) if keys else []
-        counts: dict[str, int] = {}
+        per_metric = len(span) * len(dispositions)
+        counts = {
+            metric_id: {d.value: 0 for d in dispositions} for metric_id in metric_ids
+        }
         for i, value in enumerate(values):
             if value:
+                metric_id = metric_ids[i // per_metric]
                 name = dispositions[i % len(dispositions)].value
-                counts[name] = counts.get(name, 0) + int(value)
+                counts[metric_id][name] += int(value)
         return counts
 
     async def outcome_health(

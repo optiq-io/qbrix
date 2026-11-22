@@ -52,6 +52,7 @@ RATE_MINUTES = 5
 CACHE_TTL_SEC = 5.0
 CACHE_MAXSIZE = 1024
 OUTCOME_ENDINGS = (
+    OutcomeDisposition.INVALID,
     OutcomeDisposition.LATE,
     OutcomeDisposition.DUPLICATE,
     OutcomeDisposition.EARLIER_CYCLE,

@@ -510,3 +510,55 @@ class TestRunLoop:
         await sealer.stop()
 
         assert (await params(store))["alpha"][0] == 2.0
+
+
+async def metric_health(store) -> dict[str, int]:
+    counts = await store.metric_outcomes(TENANT, ["m-1"], 1)
+    return {k: v for k, v in counts["m-1"].items() if v}
+
+
+class TestMetricHealth:
+    async def test_a_metric_counts_what_its_cycle_counts(
+        self, sealer, ledger, store, cycle
+    ):
+        decision = ledger.decide("a", 0, ago(600), "count")
+        ledger.answer(decision, 2, decision.opened_ms + 1_000, event_id="e1")
+        ledger.answer(decision, 2, decision.opened_ms + 2_000, event_id="e1")
+        ledger.answer(
+            decision, 1, decision.closes_ms + 1_000, at_ms=decision.closes_ms + 1
+        )
+
+        await seal_all(sealer)
+
+        assert await metric_health(store) == {"learned": 1, "duplicate": 1, "late": 1}
+
+    async def test_a_metric_shared_by_two_loops_counts_both(
+        self, sealer, ledger, store, cycle
+    ):
+        await store.set_experiment(TENANT, "cyc-2", {**cycle, "id": "cyc-2"})
+        first = ledger.decide("a", 0, ago(600), "conversion")
+        second = ledger.decide("b", 1, ago(600), "conversion", cycle_id="cyc-2")
+        ledger.answer(first, 1, first.opened_ms + 1_000)
+        ledger.answer(second, 1, second.opened_ms + 1_000)
+        ledger.answer(second, 1, second.closes_ms + 1_000, at_ms=second.closes_ms + 1)
+
+        await seal_all(sealer)
+
+        assert await metric_health(store) == {"learned": 2, "late": 1}
+        assert await health(store) == {"learned": 1}
+
+    async def test_an_outcome_its_cycle_failed_to_learn_is_not_counted_learned(
+        self, sealer, ledger, store, cycle, monkeypatch
+    ):
+        decision = ledger.decide("a", 0, ago(600), "conversion")
+        ledger.answer(decision, 1, decision.opened_ms + 1_000)
+
+        def broken(**kwargs):
+            raise ValueError("bad state")
+
+        monkeypatch.setattr(
+            sealer_module.POLICY_MAP["BetaTSPolicy"], "train", staticmethod(broken)
+        )
+        await seal_all(sealer)
+
+        assert await metric_health(store) == {}

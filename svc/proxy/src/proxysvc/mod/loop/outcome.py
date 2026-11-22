@@ -17,6 +17,7 @@ from proxysvc.core.error import InvalidOutcomeError
 from proxysvc.core.error import LoopNotFoundError
 from proxysvc.core.error import TokenInvalidError
 from proxysvc.core.events import EventEmitter
+from proxysvc.mod.loop.route import LoopRoute
 from proxysvc.mod.loop.route import LoopRouteCache
 from proxysvc.mod.loop.token import Decision
 from proxysvc.mod.loop.token import DecisionToken
@@ -87,6 +88,25 @@ def decision_ref(decision: Decision) -> dict:
     }
 
 
+def earlier_cycle(route: LoopRoute, decision: Decision) -> str | None:
+    """the loop's current cycle, when a decision belongs to an earlier one:
+    its outcome is recorded in that cycle's history and counted on this one."""
+    if route.cycle is None or route.cycle.id == decision.cycle_id:
+        return None
+    return route.cycle.id
+
+
+async def count_earlier_cycle(
+    redis: RedisClient, tenant_id: str, cycle_id: str
+) -> None:
+    try:
+        await redis.count_outcomes(
+            tenant_id, cycle_id, {OutcomeDisposition.EARLIER_CYCLE: 1}
+        )
+    except Exception as e:
+        logger.warning(f"earlier cycle count failed for {cycle_id}: {e}")
+
+
 def _at_ms(at: datetime | None, decision: Decision, now_ms: int) -> int:
     at_ms = event_at_ms(at, now_ms)
     if at_ms < decision.timestamp_ms:
@@ -139,7 +159,9 @@ class LoopOutcomeService:
         try:
             value = check_value(route.metric, value)
         except InvalidOutcomeError:
-            self._events.dispatch(self._count_invalid(tenant_id, decision.cycle_id))
+            self._events.dispatch(
+                self._count_invalid(tenant_id, route.metric.id, decision.cycle_id)
+            )
             self._stamp(tenant_id, decision.cycle_id, route.metric.window_ms)
             raise
 
@@ -162,6 +184,9 @@ class LoopOutcomeService:
             )
         )
         self._stamp(tenant_id, decision.cycle_id, route.metric.window_ms, now_ms)
+        current = earlier_cycle(route, decision)
+        if current is not None:
+            self._events.dispatch(count_earlier_cycle(self._redis, tenant_id, current))
         return {"id": event_id, "at_ms": at_ms}
 
     def _stamp(
@@ -185,11 +210,13 @@ class LoopOutcomeService:
         except Exception as e:
             logger.warning(f"outcome intake stamp failed for {cycle_id}: {e}")
 
-    async def _count_invalid(self, tenant_id: str, cycle_id: str) -> None:
+    async def _count_invalid(
+        self, tenant_id: str, metric_id: str, cycle_id: str
+    ) -> None:
+        invalid = {OutcomeDisposition.INVALID: 1}
         try:
-            await self._redis.count_outcomes(
-                tenant_id, cycle_id, {OutcomeDisposition.INVALID: 1}
-            )
+            await self._redis.count_metric_outcomes(tenant_id, metric_id, invalid)
+            await self._redis.count_outcomes(tenant_id, cycle_id, invalid)
         except Exception as e:
             logger.warning(f"invalid outcome count failed for {cycle_id}: {e}")
 

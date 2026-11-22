@@ -11,8 +11,13 @@ invariants verified:
 
 from __future__ import annotations
 
+import time
+
 import pytest
 import pytest_asyncio
+from qbrixstore.clickhouse.ledger import MetricArrival
+from qbrixstore.clickhouse.ledger import MetricPulse
+from qbrixstore.redis import OutcomeDisposition
 
 import proxysvc.config
 from proxysvc.core.actor import Actor
@@ -131,7 +136,9 @@ class TestRead:
 
         assert _unstamped(by_name.json()) == _unstamped(by_id.json())
         assert {
-            k: v for k, v in _unstamped(by_name.json()).items() if k != "versions"
+            k: v
+            for k, v in _unstamped(by_name.json()).items()
+            if k not in ("versions", "health")
         } == _unstamped(created)
 
     async def test_unknown_is_not_found(self, metrics):
@@ -183,6 +190,106 @@ class TestRead:
                 "state": "draft",
             }
         ]
+
+
+def _last_minute() -> int:
+    return int(time.time() * 1000) // 60_000 * 60_000 - 60_000
+
+
+class TestHealth:
+    async def test_a_listed_metric_carries_how_its_outcomes_arrive_now(
+        self, wired_app, metrics
+    ):
+        purchase = await _create(metrics)
+        await _create(metrics, name="signup", semantic="an account created")
+        minute = _last_minute()
+        wired_app.ledger.metric_arrival[purchase["id"]] = MetricArrival(
+            purchase["id"], 200, 8, 90_000, 600_000, (0,) * 25
+        )
+        wired_app.ledger.pulse = [
+            MetricPulse(purchase["id"], minute, 10),
+            MetricPulse(purchase["id"], minute - 29 * 60_000, 3),
+            MetricPulse(purchase["id"], minute - 30 * 60_000, 99),
+        ]
+
+        resp = await metrics.get("/api/v1/metrics")
+
+        health = {m["name"]: m["health"] for m in resp.json()["metrics"]}
+        assert health["purchase"] == {
+            "outcomes_per_minute": 2.0,
+            "median_wait_seconds": 90.0,
+            "late_share": 0.04,
+            "pulse": [3] + [0] * 28 + [10],
+        }
+        assert health["signup"] == {
+            "outcomes_per_minute": 0.0,
+            "median_wait_seconds": None,
+            "late_share": None,
+            "pulse": [0] * 30,
+        }
+
+    async def test_a_metrics_page_carries_arrival_and_seven_days_of_counts(
+        self, wired_app, metrics
+    ):
+        purchase = await _create(metrics, window_seconds=2400)
+        buckets = tuple(range(25))
+        wired_app.ledger.metric_arrival[purchase["id"]] = MetricArrival(
+            purchase["id"], 300, 24, 450_000, 2_100_000, buckets
+        )
+        redis = wired_app.svc._redis
+        hour = int(time.time()) // 3600
+        await redis.count_metric_outcomes(
+            TENANT,
+            purchase["id"],
+            {OutcomeDisposition.LEARNED: 5, OutcomeDisposition.UNATTRIBUTED: 1},
+            hour=hour - 100,
+        )
+        await redis.count_metric_outcomes(
+            TENANT, purchase["id"], {OutcomeDisposition.INVALID: 2}
+        )
+
+        resp = await metrics.get("/api/v1/metrics/purchase")
+
+        assert resp.json()["health"] == {
+            "arrival": {
+                "outcomes": 300,
+                "bucket_seconds": 100.0,
+                "buckets": list(buckets),
+                "half_seconds": 450.0,
+                "p99_seconds": 2100.0,
+                "late_share": 0.08,
+            },
+            "counts": {
+                "learned": 5,
+                "late": 0,
+                "duplicate": 0,
+                "unattributed": 1,
+                "invalid": 2,
+            },
+        }
+
+    async def test_a_metric_with_no_outcomes_has_an_empty_arrival(self, metrics):
+        await _create(metrics)
+
+        resp = await metrics.get("/api/v1/metrics/purchase")
+
+        arrival = resp.json()["health"]["arrival"]
+        assert arrival["outcomes"] == 0
+        assert arrival["buckets"] == [0] * 25
+        assert arrival["half_seconds"] is None
+        assert arrival["late_share"] is None
+
+    async def test_fifty_metrics_list_from_two_queries_kept_a_minute(
+        self, wired_app, metrics
+    ):
+        for n in range(50):
+            await _create(metrics, name=f"metric_{n}")
+
+        first = await metrics.get("/api/v1/metrics")
+        await metrics.get("/api/v1/metrics")
+
+        assert len(first.json()["metrics"]) == 50
+        assert sorted(wired_app.ledger.queries) == ["metric_arrivals", "metric_pulse"]
 
 
 class TestChange:

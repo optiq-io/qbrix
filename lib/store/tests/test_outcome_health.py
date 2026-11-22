@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from qbrixstore.redis.client import RedisClient
+from qbrixstore.redis.health import METRIC_HEALTH_TTL_SEC
 from qbrixstore.redis.health import OUTCOME_HEALTH_TTL_SEC
 from qbrixstore.redis.health import OutcomeDisposition
 from qbrixstore.redis.health import OutcomeHealth
@@ -139,3 +140,59 @@ async def test_invalid_outcomes_are_counted_per_tenant(store):
         await store.outcome_health(TENANT, EXPERIMENT, 60, now_minute=NOW)
         == OutcomeHealth()
     )
+
+
+HOUR = 490_000
+
+
+async def test_a_metrics_counts_are_kept_by_the_hour_for_eight_days(store):
+    await store.count_metric_outcomes(
+        TENANT, "m-1", {OutcomeDisposition.LATE: 2}, hour=HOUR
+    )
+
+    key = f"qbrix:tenant:{TENANT}:health:metric:m-1:{HOUR}:late"
+    assert await store.client.get(key) == "2"
+    assert 0 < await store.client.ttl(key) <= METRIC_HEALTH_TTL_SEC
+    assert await store.client.ttl(key) > OUTCOME_HEALTH_TTL_SEC
+
+
+async def test_metric_counts_sum_the_hours_per_metric_from_one_read(store):
+    for metric_id, hour, counts in [
+        ("m-1", HOUR, {OutcomeDisposition.LEARNED: 3}),
+        ("m-1", HOUR - 167, {OutcomeDisposition.LEARNED: 1}),
+        ("m-1", HOUR - 168, {OutcomeDisposition.LEARNED: 100}),
+        ("m-1", HOUR - 5, {OutcomeDisposition.UNATTRIBUTED: 2}),
+        ("m-2", HOUR, {OutcomeDisposition.INVALID: 4}),
+        ("m-2", HOUR, {OutcomeDisposition.TRAIN_ERROR: 9}),
+    ]:
+        await store.count_metric_outcomes(TENANT, metric_id, counts, hour=hour)
+    await store.count_metric_outcomes(
+        "t2", "m-1", {OutcomeDisposition.LEARNED: 50}, hour=HOUR
+    )
+
+    counts = await store.metric_outcomes(TENANT, ["m-1", "m-2", "m-3"], 168, HOUR)
+
+    nothing = {
+        "learned": 0,
+        "late": 0,
+        "duplicate": 0,
+        "unattributed": 0,
+        "invalid": 0,
+    }
+    assert counts == {
+        "m-1": {**nothing, "learned": 4, "unattributed": 2},
+        "m-2": {**nothing, "invalid": 4},
+        "m-3": nothing,
+    }
+
+
+async def test_staged_metric_counts_land_with_the_pipeline(store):
+    async with store.client.pipeline(transaction=True) as pipe:
+        pipe.multi()
+        store.stage_metric_outcomes(
+            pipe, TENANT, "m-1", {OutcomeDisposition.DUPLICATE: 1}, hour=HOUR
+        )
+        await pipe.execute()
+
+    counts = await store.metric_outcomes(TENANT, ["m-1"], 1, HOUR)
+    assert counts["m-1"]["duplicate"] == 1

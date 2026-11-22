@@ -106,6 +106,12 @@ async def _invalid_count(wired_app, cycle_id: str) -> int:
     return health.by_reason.get("invalid", 0)
 
 
+async def _metric_counts(wired_app, name: str) -> dict[str, int]:
+    metric_id = (await wired_app.svc.get_metric(TENANT, name))["id"]
+    counts = await wired_app.svc._redis.metric_outcomes(TENANT, [metric_id], 1)
+    return counts[metric_id]
+
+
 class TestAccepted:
     async def test_publishes_one_event_for_its_decision(self, wired_app, api):
         loop, request_id = await _decision(wired_app, api)
@@ -219,6 +225,13 @@ class TestInvalidValue:
         assert wired_app.metric_spy.events == []
         assert await _invalid_count(wired_app, cycle_id) == 1
 
+    async def test_is_counted_for_the_metric_too(self, wired_app, api):
+        _, request_id = await _decision(wired_app, api)
+
+        await _outcome(wired_app, api, request_id, 2)
+
+        assert (await _metric_counts(wired_app, "purchase"))["invalid"] == 1
+
     async def test_a_non_finite_value_is_refused(self, wired_app, api):
         _, request_id = await _decision(wired_app, api, "revenue")
         cycle_id = _decoded(wired_app, request_id).cycle_id
@@ -233,6 +246,37 @@ class TestInvalidValue:
         assert resp.status_code == 400
         assert "finite" in resp.json()["detail"]
         assert await _invalid_count(wired_app, cycle_id) == 1
+
+
+class TestEarlierCycle:
+    async def test_is_recorded_for_its_cycle_and_counted_on_the_current_one(
+        self, wired_app, api
+    ):
+        loop, request_id = await _decision(wired_app, api)
+        earlier = _decoded(wired_app, request_id).cycle_id
+        await wired_app.svc.reset_cycle(TENANT, loop["key"], actor=ACTOR)
+        current = (await wired_app.svc.get_loop(TENANT, loop["key"]))["cycle"]["id"]
+
+        resp = await _outcome(wired_app, api, request_id, 1)
+
+        assert resp.status_code == 202, resp.text
+        (event,) = wired_app.metric_spy.events
+        assert event.decisions[0]["cycle_id"] == earlier
+        redis = wired_app.svc._redis
+        now = await redis.outcome_health(TENANT, current, 5)
+        assert now.by_reason == {"earlier_cycle": 1}
+        assert (await redis.outcome_health(TENANT, earlier, 5)).by_reason == {}
+
+    async def test_an_outcome_for_the_current_cycle_is_not_counted(
+        self, wired_app, api
+    ):
+        _, request_id = await _decision(wired_app, api)
+        cycle_id = _decoded(wired_app, request_id).cycle_id
+
+        await _outcome(wired_app, api, request_id, 1)
+
+        health = await wired_app.svc._redis.outcome_health(TENANT, cycle_id, 5)
+        assert health.by_reason == {}
 
 
 class TestTimeAndId:
