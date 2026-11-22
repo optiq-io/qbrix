@@ -8,7 +8,7 @@ order: 1
 
 Every answer from `select` is one of two things:
 
-- **A decision**, with a `request_id`. The loop chose an option, and an outcome for it teaches the loop.
+- **A decision**, with a `request_id`. The loop chose an option, and an outcome for it teaches the loop. It also carries the `metric` the decision is for and its `window_seconds`, how long it waits for its outcome.
 - **The fallback**, with no `request_id`. The loop wasn't deciding for this request, and the `reason` says why.
 
 Two separate things decide which one a request gets.

@@ -49,6 +49,8 @@ class LoopGRPCServicer(loop_pb2_grpc.LoopServiceServicer):
             ),
             request_id=answer["request_id"] or "",
             reason=answer["reason"],
+            metric=answer["metric"] or "",
+            window_seconds=answer["window_seconds"],
         )
 
     async def Outcome(self, request, context):

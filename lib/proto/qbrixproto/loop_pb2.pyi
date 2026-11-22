@@ -97,8 +97,12 @@ class SelectResponse(_message.Message):
     OPTION_FIELD_NUMBER: _builtins.int
     REQUEST_ID_FIELD_NUMBER: _builtins.int
     REASON_FIELD_NUMBER: _builtins.int
+    METRIC_FIELD_NUMBER: _builtins.int
+    WINDOW_SECONDS_FIELD_NUMBER: _builtins.int
     request_id: _builtins.str
     reason: _builtins.str
+    metric: _builtins.str
+    window_seconds: _builtins.int
     @_builtins.property
     def option(self) -> Global___Option: ...
     def __init__(
@@ -107,12 +111,16 @@ class SelectResponse(_message.Message):
         option: Global___Option | None = ...,
         request_id: _builtins.str = ...,
         reason: _builtins.str = ...,
+        metric: _builtins.str = ...,
+        window_seconds: _builtins.int | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["option", b"option"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_window_seconds", b"_window_seconds", "option", b"option", "window_seconds", b"window_seconds"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["option", b"option", "reason", b"reason", "request_id", b"request_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_window_seconds", b"_window_seconds", "metric", b"metric", "option", b"option", "reason", b"reason", "request_id", b"request_id", "window_seconds", b"window_seconds"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    def WhichOneof(self, oneof_group: _Never) -> None: ...
+    _WhichOneofReturnType__window_seconds: _TypeAlias = _typing.Literal["window_seconds"]  # noqa: Y015
+    _WhichOneofArgType__window_seconds: _TypeAlias = _typing.Literal["_window_seconds", b"_window_seconds"]  # noqa: Y015
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__window_seconds) -> _WhichOneofReturnType__window_seconds | None: ...
 
 Global___SelectResponse: _TypeAlias = SelectResponse  # noqa: Y015
 

@@ -68,6 +68,16 @@ class SelectResponse(BaseModel):
     option: SelectedOption
     request_id: Optional[str] = None
     reason: str
+    metric: Optional[str] = Field(
+        default=None,
+        description="With a request_id: the metric the decision is for, the "
+        "name track sends.",
+    )
+    window_seconds: Optional[int] = Field(
+        default=None,
+        description="With a request_id: how long the decision waits for its "
+        "outcome, from now.",
+    )
 
 
 @router.post(

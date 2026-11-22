@@ -152,6 +152,32 @@ curl -X POST $QBRIX_BASE_URL/api/v1/track \
 - A decision made after the event's `at` is never credited.
 - A `request_id` in the token that is altered, or from another workspace, is dropped and counted. The event is refused only when none of them verifies.
 
+### From the browser
+
+The JavaScript SDK remembers the decisions it served, one per loop, until each one's window closes. Every `track` from that browser carries the ones made for its metric, on any page and after a reload, with no plumbing:
+
+```ts
+const qbrix = new Qbrix({ apiKey: "optiq_..." });
+
+await qbrix.select("checkout-headline", { unit: visitorId });
+// later, on another page
+qbrix.track("add_to_cart", 1);
+```
+
+To credit an order or a payment, carry the decisions to your server and send `track` from there:
+
+```ts
+// in the browser, at checkout
+const decisions = qbrix.decisions("purchase");
+
+// in the order webhook
+await qbrix.track("purchase", 1, { decisions, id: order.id });
+```
+
+Ask for one metric's decisions where space is tight: four fit in a 500-character payment metadata value.
+
+What the browser stores is decision ids and their loops, in `localStorage`, and no personal data. Whether your visitors' consent covers it is your app's call. Until it does, create the client with `storage: "memory"`, which keeps decisions only for the life of the page, and call `qbrix.setStorage("local")` once consent is given.
+
 ## Metrics API
 
 The examples use the same variables as the [API reference](/docs/api-reference):

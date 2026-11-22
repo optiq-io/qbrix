@@ -70,6 +70,10 @@ def _as_answer(response: loop_pb2.SelectResponse) -> dict:
         },
         "request_id": response.request_id or None,
         "reason": response.reason,
+        "metric": response.metric or None,
+        "window_seconds": (
+            response.window_seconds if response.HasField("window_seconds") else None
+        ),
     }
 
 
@@ -105,6 +109,7 @@ async def test_a_live_loop_returns_a_decision(wired_grpc, loop):
 
     assert response.reason == "live"
     assert response.option.key == "urgency"
+    assert (response.metric, response.window_seconds) == ("purchase", 24 * 60 * 60)
     decision = DecisionToken.decode(
         wired_grpc.svc._settings.token_secret_bytes, response.request_id, TENANT
     )
