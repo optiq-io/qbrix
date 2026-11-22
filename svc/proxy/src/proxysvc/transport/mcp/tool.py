@@ -459,6 +459,24 @@ def _percent(share: float | None) -> str:
     return "-" if share is None else f"{share:.0%}"
 
 
+def _wait(seconds: float) -> str:
+    for unit, size in (("d", 86400), ("h", 3600), ("m", 60)):
+        if seconds >= size:
+            return f"{seconds / size:.3g}{unit}"
+    return f"{seconds:.0f}s"
+
+
+def _arrival(health: dict) -> str:
+    """how a metric's outcomes arrive, for its line in the list."""
+    rate = f"{health['outcomes_per_minute']:.3g} outcomes a minute"
+    if health["median_wait_seconds"] is None:
+        return rate
+    return (
+        f"{rate} · half within {_wait(health['median_wait_seconds'])}"
+        f" · {_percent(health['late_share'])} late"
+    )
+
+
 def _shares(options: list[dict]) -> dict[str, float]:
     return {option["key"]: option["share"] or 0.0 for option in options}
 
@@ -1224,13 +1242,13 @@ def register(
         return _result(_preview_text(preview), PreviewView(**preview))
 
     async def metrics_list() -> Annotated[CallToolResult, MetricList]:
-        """List the workspace's metrics: what each stands for, its type and window, and the loops that use it."""
+        """List the workspace's metrics: what each stands for, its type and window, the loops that use it, and how its outcomes arrive: outcomes a minute now, the time by which half arrive after their decision, and the share that arrive late."""
         principal = current_principal()
         try:
             _require(principal, "metric:read", "read metrics")
         except Refusal as refusal:
             return _refused(refusal)
-        metrics = await service().metrics_in_use(principal.tenant_id)
+        metrics = await service().metrics_with_health(principal.tenant_id)
         lines = [
             f"{metric['name']} · {metric['type']} · window {window_label(metric['window_seconds'])}"
             f" · {metric['semantic']}"
@@ -1239,6 +1257,7 @@ def register(
                 if metric["loops"]
                 else ""
             )
+            + f" · {_arrival(metric['health'])}"
             for metric in metrics
         ] or ["No metrics yet. Create one with metric_create."]
         return _result("\n".join(lines), MetricList(metrics=metrics))

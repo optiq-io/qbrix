@@ -6,6 +6,7 @@ from enum import Enum
 
 SELECT_HEALTH_TTL_SEC = 2 * 60 * 60
 OUTCOME_HEALTH_TTL_SEC = 26 * 60 * 60
+METRIC_HEALTH_TTL_SEC = 8 * 24 * 60 * 60
 LEDGER_PROGRESS_TTL_SEC = 5 * 60
 
 DECISION_ERROR_WINDOW_MINUTES = 10
@@ -91,6 +92,16 @@ class OutcomeDisposition(str, Enum):
     LATE = "late"
     DUPLICATE = "duplicate"
     EARLIER_CYCLE = "earlier_cycle"
+    UNATTRIBUTED = "unattributed"
+
+
+METRIC_HEALTH_DISPOSITIONS = (
+    OutcomeDisposition.LEARNED,
+    OutcomeDisposition.LATE,
+    OutcomeDisposition.DUPLICATE,
+    OutcomeDisposition.UNATTRIBUTED,
+    OutcomeDisposition.INVALID,
+)
 
 
 @dataclass(frozen=True)

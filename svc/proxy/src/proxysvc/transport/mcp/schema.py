@@ -19,6 +19,7 @@ from proxysvc.transport.http.router.loop import ResultsResponse
 from proxysvc.transport.http.router.loop import Share
 from proxysvc.transport.http.router.loop import SeriesPoint
 from proxysvc.transport.http.router.metric import MetricCycleStarted
+from proxysvc.transport.http.router.metric import MetricListHealthResponse
 from proxysvc.transport.http.router.metric import MetricResponse
 
 Detail = Literal["concise", "full"]
@@ -80,6 +81,7 @@ class MetricLoop(BaseModel):
 
 class MetricInUse(MetricResponse):
     loops: list[MetricLoop]
+    health: MetricListHealthResponse
 
 
 class MetricList(BaseModel):

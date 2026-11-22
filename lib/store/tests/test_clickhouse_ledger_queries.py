@@ -12,6 +12,7 @@ import uuid
 import pytest
 
 from qbrixstore.clickhouse.client import ClickHouseClient
+from qbrixstore.clickhouse.ledger import MetricVersion
 from qbrixstore.clickhouse.ledger import OutcomeRef
 from qbrixstore.clickhouse.migrations import create_tables
 from qbrixstore.config import ClickHouseSettings
@@ -146,3 +147,108 @@ def test_the_first_decision_is_where_sealing_starts(ledger):
     decide(ledger, "a", OPENED)
 
     assert ledger.first_decision_ms() == OPENED
+
+
+def arrive(
+    ledger,
+    wait_ms: int,
+    event_id: str,
+    *,
+    decision_id: str | None = None,
+    arrived_ms: int | None = None,
+    version: str = "1.0",
+    tenant_id: str = "t1",
+):
+    at_ms = OPENED + wait_ms
+    received_ms = OPENED + (arrived_ms if arrived_ms is not None else wait_ms)
+    event = a_metric(
+        tenant_id=tenant_id,
+        metric_version=version,
+        decisions=[
+            {
+                "decision_id": decision_id or f"d-{event_id}",
+                "loop_id": "loop-1",
+                "cycle_id": "cyc-1",
+                "option_index": 0,
+                "opened_ms": OPENED,
+            }
+        ],
+        event_id=event_id,
+        at_ms=at_ms,
+        received_ms=received_ms,
+    )
+    ledger.insert_metric_events([event], ledger_ms=[received_ms])
+
+
+ARRIVAL_WINDOW = 100_000
+
+
+def test_arrival_gives_the_times_by_which_half_and_99_percent_happened(ledger):
+    for second in range(1, 99):
+        arrive(ledger, second * 1_000, f"e{second}")
+    arrive(ledger, 100_000, "e99")
+    arrive(ledger, 100_000, "e100")
+
+    (arrival,) = ledger.metric_arrivals(
+        "t1", [MetricVersion("m-1", "1.0", ARRIVAL_WINDOW)], OPENED
+    )
+
+    assert arrival.outcomes == 100
+    assert arrival.half_ms == 51_000
+    assert arrival.p99_ms == 100_000
+    assert arrival.late == 0
+    assert sum(arrival.buckets) == 100
+
+
+def test_arrival_buckets_the_window_and_counts_late_once_per_decision(ledger):
+    arrive(ledger, 10_000, "a")
+    arrive(ledger, 30_000, "b")
+    arrive(ledger, 30_000, "b")
+    arrive(ledger, 99_000, "c")
+    arrive(ledger, 150_000, "late-happened")
+    arrive(ledger, 20_000, "late-arrived", arrived_ms=120_000)
+    arrive(ledger, 5_000, "older-version", version="0.1")
+    arrive(ledger, 5_000, "elsewhere", tenant_id="t2")
+
+    (arrival,) = ledger.metric_arrivals(
+        "t1", [MetricVersion("m-1", "1.0", ARRIVAL_WINDOW)], OPENED, buckets=4
+    )
+
+    assert arrival.outcomes == 5
+    assert arrival.late == 2
+    assert arrival.buckets == (2, 1, 0, 1, 1)
+
+
+def test_arrival_reads_every_metric_under_its_own_version(ledger):
+    arrive(ledger, 10_000, "a")
+    arrive(ledger, 10_000, "b", version="2.0")
+
+    arrivals = ledger.metric_arrivals(
+        "t1",
+        [
+            MetricVersion("m-1", "2.0", ARRIVAL_WINDOW),
+            MetricVersion("m-9", "1.0", ARRIVAL_WINDOW),
+        ],
+        OPENED,
+    )
+
+    assert [(a.metric_id, a.outcomes) for a in arrivals] == [("m-1", 1)]
+    assert ledger.metric_arrivals("t1", [], OPENED) == []
+
+
+def test_the_pulse_counts_each_event_once_by_the_minute_it_reached_the_ledger(
+    ledger,
+):
+    minute = OPENED // 60_000 * 60_000
+    arrive(ledger, minute - OPENED + 1_000, "a")
+    arrive(ledger, minute - OPENED + 2_000, "a")
+    arrive(ledger, minute - OPENED + 59_000, "b")
+    arrive(ledger, minute - OPENED + 61_000, "c")
+    arrive(ledger, minute - OPENED + 61_000, "x", tenant_id="t2")
+
+    pulse = ledger.metric_pulse("t1", minute, minute + 120_000)
+
+    assert sorted((p.minute_ms, p.outcomes) for p in pulse) == [
+        (minute, 2),
+        (minute + 60_000, 1),
+    ]

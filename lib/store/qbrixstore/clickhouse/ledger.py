@@ -141,3 +141,36 @@ class PropertyArrival:
     arrived: int
     last_ms: int
     last: str
+
+
+@dataclass(frozen=True)
+class MetricVersion:
+    """a metric's version and the window it judges outcomes by."""
+
+    metric_id: str
+    version: str
+    window_ms: int
+
+
+@dataclass(frozen=True)
+class MetricArrival:
+    """when a metric's outcomes happened after the decision they credit, under
+    its current version: buckets split the window into equal slices, the last
+    one holding everything after it. a late outcome happened or reached qbrix
+    after its window."""
+
+    metric_id: str
+    outcomes: int
+    late: int
+    half_ms: int
+    p99_ms: int
+    buckets: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class MetricPulse:
+    """a metric's events that reached the ledger in one minute."""
+
+    metric_id: str
+    minute_ms: int
+    outcomes: int

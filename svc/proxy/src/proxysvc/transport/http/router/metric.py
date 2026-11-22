@@ -137,10 +137,48 @@ class MetricVersionResponse(BaseModel):
     changed: list[MetricVersionChange]
 
 
+class MetricArrivalResponse(BaseModel):
+    outcomes: int = Field(
+        description="Outcomes under the current version in the last 7 days, "
+        "each counted once per decision it credits."
+    )
+    bucket_seconds: float = Field(description="The width of each bucket.")
+    buckets: list[int] = Field(
+        description="Outcomes by when they happened after their decision: "
+        "equal slices of the window, then one bucket for after it."
+    )
+    half_seconds: Optional[float] = Field(
+        description="The time after the decision by which half have happened."
+    )
+    p99_seconds: Optional[float] = Field(
+        description="The time after the decision by which 99% have happened."
+    )
+    late_share: Optional[float] = Field(
+        description="The share that happened or reached qbrix after the window."
+    )
+
+
+class MetricCountsResponse(BaseModel):
+    learned: int
+    late: int
+    duplicate: int
+    unattributed: int
+    invalid: int
+
+
+class MetricHealthResponse(BaseModel):
+    arrival: MetricArrivalResponse
+    counts: MetricCountsResponse = Field(
+        description="Outcomes over the last 7 days by how they ended, across "
+        "every loop that improves the metric."
+    )
+
+
 class MetricDetailResponse(MetricResponse):
     versions: list[MetricVersionResponse] = Field(
         description="Every version, newest first."
     )
+    health: MetricHealthResponse
 
 
 class MetricLoopResponse(BaseModel):
@@ -150,8 +188,25 @@ class MetricLoopResponse(BaseModel):
     state: str
 
 
+class MetricListHealthResponse(BaseModel):
+    outcomes_per_minute: float = Field(
+        description="Outcomes a minute over the last 5 minutes."
+    )
+    median_wait_seconds: Optional[float] = Field(
+        description="The time after the decision by which half the outcomes "
+        "of the last 7 days happened."
+    )
+    late_share: Optional[float] = Field(
+        description="The share of the last 7 days' outcomes that were late."
+    )
+    pulse: list[int] = Field(
+        description="Outcomes a minute over the last 30 minutes, oldest first."
+    )
+
+
 class MetricInUseResponse(MetricResponse):
     loops: list[MetricLoopResponse]
+    health: MetricListHealthResponse
 
 
 class MetricListResponse(BaseModel):
@@ -198,7 +253,7 @@ async def list_metrics(
     _scoped=Depends(require_scopes(["metric:read"])),
 ):
     """list every metric in the workspace, with the loops that use it."""
-    metrics = await get_proxy_service().metrics_in_use(tenant_id)
+    metrics = await get_proxy_service().metrics_with_health(tenant_id)
     return MetricListResponse(metrics=[MetricInUseResponse(**m) for m in metrics])
 
 

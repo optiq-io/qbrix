@@ -52,6 +52,7 @@ from proxysvc.mod.milestone.service import MilestoneService
 from proxysvc.mod.safety.read import AlertReadService
 from proxysvc.mod.summary.service import SummaryService
 from proxysvc.mod.loop.service import LoopService
+from proxysvc.mod.metric.health import MetricHealthService
 from proxysvc.mod.metric.service import DEFAULT_WINDOW_SECONDS
 from proxysvc.mod.metric.route import MetricRouteCache
 from proxysvc.mod.metric.service import MetricService
@@ -173,7 +174,6 @@ class ProxyService:
         metric_routes = MetricRouteCache(self._redis.client, self._settings)
         loop_routes = LoopRouteCache(self._redis.client, self._settings)
         self._loop_service = LoopService(redis=self._redis, routes=loop_routes)
-        self._metric_service = MetricService(metric_routes, self._loop_service)
         self._loop_select_service = LoopSelectService(
             redis=self._redis,
             routes=loop_routes,
@@ -197,6 +197,11 @@ class ProxyService:
         )
         self._loop_result_service = LoopResultService(
             redis=self._redis, clickhouse=self._clickhouse
+        )
+        self._metric_service = MetricService(
+            metric_routes,
+            self._loop_service,
+            MetricHealthService(self._redis, self._loop_result_service.read),
         )
         self._milestone_service = MilestoneService(self._loop_result_service.read)
         self._summary_service = SummaryService(
@@ -667,6 +672,9 @@ class ProxyService:
 
     async def metrics_in_use(self, tenant_id: str) -> list[dict]:
         return await self._metric_service.metrics_in_use(tenant_id)
+
+    async def metrics_with_health(self, tenant_id: str) -> list[dict]:
+        return await self._metric_service.metrics_with_health(tenant_id)
 
     # loops
 

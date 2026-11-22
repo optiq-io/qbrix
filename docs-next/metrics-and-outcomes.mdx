@@ -102,9 +102,20 @@ The value must be valid for the loop's metric (see [Metric types](#metric-types)
 | Late: it happened, or reached qbrix, after the window closed | Recorded as late |
 | Invalid for the metric | Refused with an error, and counted |
 | A `request_id` that is altered, or from another workspace | Refused. An outcome is accepted only in the workspace that made the decision. |
-| A tracked event whose decisions are none for its metric | Recorded, crediting nothing |
+| For a decision from an earlier cycle | Recorded in that cycle's history, and counted on the loop's current cycle as from an earlier cycle |
+| A tracked event whose decisions are none for its metric | Recorded as unattributed, crediting nothing |
 
-Many late outcomes mean the window is too short for how long the outcome really takes.
+Many late outcomes mean the window is too short for how long the outcome really takes. Many unattributed events mean the decisions or unit ids sent with `track` don't match the ones sent with `select`.
+
+### A metric's health
+
+Every metric shows how its outcomes arrive and how they end, across every loop that improves it:
+
+- **When outcomes arrive across the window:** for the last 7 days under the metric's current version, how long after its decision each outcome happened, the time by which half and 99% have happened, and the share that were late. This is what to read when setting the window.
+- **A pulse:** outcomes a minute over the last 30 minutes.
+- **Counts over the last 7 days:** learned, late, duplicate, unattributed and invalid.
+
+A loop's results count its own outcomes the same way, for the last hour.
 
 ## Events from anywhere: track
 
@@ -209,7 +220,7 @@ curl -X POST $QBRIX_BASE_URL/api/v1/metrics \
 
 ### List metrics
 
-<Endpoint method="GET" path="/api/v1/metrics" description="List every metric in the workspace, by name" />
+<Endpoint method="GET" path="/api/v1/metrics" description="List every metric in the workspace, by name, with the loops that use it and how its outcomes arrive now" />
 
 ```bash
 curl $QBRIX_BASE_URL/api/v1/metrics \
@@ -231,7 +242,14 @@ Response, `200 OK`:
       "window_seconds": 86400,
       "created_by": "<user-id>",
       "created_at": "2026-10-26T12:54:14.864384+00:00",
-      "updated_at": "2026-10-26T12:54:14.864385+00:00"
+      "updated_at": "2026-10-26T12:54:14.864385+00:00",
+      "loops": [],
+      "health": {
+        "outcomes_per_minute": 0.0,
+        "median_wait_seconds": null,
+        "late_share": null,
+        "pulse": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      }
     },
     {
       "id": "070cc3402ef4412ebfda78d4852d2ee7",
@@ -243,11 +261,22 @@ Response, `200 OK`:
       "window_seconds": 172800,
       "created_by": "<user-id>",
       "created_at": "2026-10-26T12:54:14.848723+00:00",
-      "updated_at": "2026-10-26T12:54:14.848724+00:00"
+      "updated_at": "2026-10-26T12:54:14.848724+00:00",
+      "loops": [
+        {"id": "5b1d0c2a9f6e4b7d8c3a2e1f0d9c8b7a", "key": "checkout-button", "name": "Checkout button", "state": "live"}
+      ],
+      "health": {
+        "outcomes_per_minute": 4.2,
+        "median_wait_seconds": 30240.0,
+        "late_share": 0.04,
+        "pulse": [3, 5, 4, 6, 2, 4, 5, 3, 4, 6, 5, 4, 3, 5, 4, 4, 6, 3, 5, 4, 2, 4, 5, 6, 3, 4, 5, 4, 3, 5]
+      }
     }
   ]
 }
 ```
+
+`health` says how each metric's outcomes arrive now: `outcomes_per_minute` over the last 5 minutes; `median_wait_seconds`, the time after its decision by which half of the last 7 days' outcomes happened; `late_share`, the share of them that were late; and `pulse`, outcomes a minute over the last 30 minutes, oldest first. With no outcomes yet, the wait and late share are `null`.
 
 ### Get a metric
 
@@ -259,6 +288,11 @@ curl $QBRIX_BASE_URL/api/v1/metrics/purchase \
 ```
 
 The response, `200 OK`, is the metric in the same shape as when it was created, with its `versions`, newest first. Each version has its `version`, `semantic`, `window_seconds`, `created_by` (`{"id", "name"}`), `created_at`, the `reason` given by the change that made it, and `changed`: what moved since the version before, as `{"field", "before", "after"}` for `window` and `semantic`.
+
+It also has `health`:
+
+- `arrival`: how the last 7 days' outcomes under the current version arrived. `buckets` counts them by how long after their decision they happened: 24 equal slices of the window, each `bucket_seconds` wide, then one bucket for everything after the window. `half_seconds` and `p99_seconds` are the times by which half and 99% happened, and `late_share` is the share that happened or reached qbrix after the window. An outcome that credits several decisions counts once for each.
+- `counts`: the last 7 days' outcomes by how they ended, across every loop that improves the metric: `learned`, `late`, `duplicate`, `unattributed` and `invalid`.
 
 ### Change a metric
 

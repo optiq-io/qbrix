@@ -18,6 +18,7 @@ from qbrixstore.redis import LedgerProgress
 from qbrixstore.redis import OutcomeDisposition
 from qbrixstore.redis.client import Learning
 from qbrixstore.redis.client import RedisClient
+from qbrixstore.redis.health import METRIC_HEALTH_DISPOSITIONS
 from qbrixstore.redis.streams import oldest_unfinished
 from qbrixstore.redis.streams import stream_ms
 from qbrixstore.stream import topology
@@ -43,6 +44,23 @@ DECISION_RACE_MS = 60_000
 
 _BACKOFF_INITIAL_SEC = 0.5
 _BACKOFF_MAX_SEC = 30.0
+
+
+def _metric_counts(
+    classified: list[Classified],
+) -> dict[str, dict[OutcomeDisposition, int]]:
+    counts: dict[str, Counter] = defaultdict(Counter)
+    for outcome in classified:
+        if outcome.disposition in METRIC_HEALTH_DISPOSITIONS:
+            counts[outcome.metric_id][outcome.disposition] += 1
+    return {metric_id: dict(c) for metric_id, c in counts.items()}
+
+
+def _not_learned(per_metric: dict[str, dict[OutcomeDisposition, int]]) -> None:
+    """a metric's health counts what its loops learned; an outcome a cycle
+    failed to learn from is that cycle's to report."""
+    for counts in per_metric.values():
+        counts.pop(OutcomeDisposition.LEARNED, None)
 
 
 class Sealer:
@@ -215,10 +233,11 @@ class Sealer:
         counts, in one transaction. the cycle's mark keeps a repeated slice
         from teaching or counting anything twice."""
         counts: dict[OutcomeDisposition, int] = {}
+        per_metric: dict[str, dict[OutcomeDisposition, int]] = {}
         last_arrival_ms: int | None = None
 
         def train(record: dict | None, current: Learning) -> Learning | None:
-            nonlocal counts, last_arrival_ms
+            nonlocal counts, per_metric, last_arrival_ms
             fresh = [
                 decision
                 for decision in sealed
@@ -227,6 +246,7 @@ class Sealer:
             ]
             arrived = [o for o in classified if o.ledger_ms >= current.sealed_up_to]
             counts = dict(Counter(outcome.disposition for outcome in arrived))
+            per_metric = _metric_counts(arrived)
             last_arrival_ms = max((o.ledger_ms for o in arrived), default=None)
 
             if record is None:
@@ -236,13 +256,14 @@ class Sealer:
                     cycle_id,
                     len(fresh),
                 )
-                counts = {}
+                counts, per_metric = {}, {}
                 return None
             policy_cls = POLICY_MAP.get(record["policy"])
             if policy_cls is None:
                 counts[OutcomeDisposition.UNKNOWN_POLICY] = counts.pop(
                     OutcomeDisposition.LEARNED, 0
                 )
+                _not_learned(per_metric)
                 return None
 
             state = learned_state(policy_cls, record, current)
@@ -267,6 +288,7 @@ class Sealer:
                 counts[OutcomeDisposition.TRAIN_ERROR] = counts.pop(
                     OutcomeDisposition.LEARNED, 0
                 )
+                _not_learned(per_metric)
                 return None
 
             return current.seal(
@@ -279,5 +301,9 @@ class Sealer:
             self._redis.stage_outcomes(
                 pipe, tenant_id, cycle_id, counts, last_arrival_ms
             )
+            for metric_id, metric_counts in per_metric.items():
+                self._redis.stage_metric_outcomes(
+                    pipe, tenant_id, metric_id, metric_counts
+                )
 
         await self._redis.apply_learning(tenant_id, cycle_id, train, ack)

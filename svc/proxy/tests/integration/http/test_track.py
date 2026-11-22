@@ -111,11 +111,14 @@ async def _metric_id(wired_app, name: str) -> str:
     return (await wired_app.svc.get_metric(TENANT, name))["id"]
 
 
+async def _metric_counts(wired_app, name: str) -> dict[str, int]:
+    metric_id = await _metric_id(wired_app, name)
+    counts = await wired_app.svc._redis.metric_outcomes(TENANT, [metric_id], 1)
+    return counts[metric_id]
+
+
 async def _metric_invalid(wired_app, name: str) -> int:
-    counts = await wired_app.svc._redis.metric_outcomes(
-        TENANT, await _metric_id(wired_app, name), 5
-    )
-    return counts.get("invalid", 0)
+    return (await _metric_counts(wired_app, name))["invalid"]
 
 
 class TestDecisions:
@@ -179,6 +182,7 @@ class TestDecisions:
         assert resp.json()["credited"] == 0
         (event,) = wired_app.metric_spy.events
         assert (event.decisions, event.unit) == ([], "")
+        assert (await _metric_counts(wired_app, "purchase"))["unattributed"] == 1
 
     async def test_a_decision_opened_after_the_event_is_not_credited(
         self, wired_app, api
@@ -255,6 +259,25 @@ class TestDecisions:
 
         assert [e.event_id for e in wired_app.metric_spy.events] == ["o-1", "o-1"]
 
+    async def test_a_decision_from_an_earlier_cycle_is_counted_on_the_current_one(
+        self, wired_app, api
+    ):
+        request_id = await _decision(wired_app, api, "Checkout button")
+        decision = _decoded(wired_app, request_id)
+        await wired_app.svc.reset_cycle(TENANT, decision.loop_id, actor=ACTOR)
+        loop = await wired_app.svc.get_loop(TENANT, decision.loop_id)
+
+        resp = await _track(
+            wired_app, api, {"metric": "purchase", "value": 1, "decisions": request_id}
+        )
+
+        assert resp.json()["credited"] == 1
+        assert wired_app.metric_spy.events[0].decisions == [_ref(decision)]
+        health = await wired_app.svc._redis.outcome_health(
+            TENANT, loop["cycle"]["id"], 5
+        )
+        assert health.by_reason == {"earlier_cycle": 1}
+
     async def test_stamps_each_credited_cycle(self, wired_app, api):
         request_id = await _decision(wired_app, api, "Checkout button")
         cycle_id = _decoded(wired_app, request_id).cycle_id
@@ -283,6 +306,7 @@ class TestUnit:
         assert event.metric_id == await _metric_id(wired_app, "revenue")
         assert (event.decisions, event.unit, event.value) == ([], "user-42", 49.5)
         assert before <= event.at_ms == event.received_ms
+        assert (await _metric_counts(wired_app, "revenue"))["unattributed"] == 0
 
     @pytest.mark.parametrize("unit", [None, "", "  ", "x" * 257])
     async def test_neither_decisions_nor_a_good_unit_is_refused(

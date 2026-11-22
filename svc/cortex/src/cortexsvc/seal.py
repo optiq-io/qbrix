@@ -32,6 +32,7 @@ class Classified:
 
     tenant_id: str
     cycle_id: str
+    metric_id: str
     disposition: OutcomeDisposition
     ledger_ms: int
 
@@ -177,5 +178,11 @@ def _seal_one(
         else:
             disposition = OutcomeDisposition.LATE
         result.classified.append(
-            Classified(decision.tenant_id, decision.cycle_id, disposition, at)
+            Classified(
+                decision.tenant_id,
+                decision.cycle_id,
+                decision.metric_id,
+                disposition,
+                at,
+            )
         )

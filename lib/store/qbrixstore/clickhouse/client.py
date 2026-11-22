@@ -16,6 +16,9 @@ from qbrixstore.clickhouse.ledger import DecisionBucket
 from qbrixstore.clickhouse.ledger import DecisionCount
 from qbrixstore.clickhouse.ledger import LedgerDecision
 from qbrixstore.clickhouse.ledger import LedgerOutcome
+from qbrixstore.clickhouse.ledger import MetricArrival
+from qbrixstore.clickhouse.ledger import MetricPulse
+from qbrixstore.clickhouse.ledger import MetricVersion
 from qbrixstore.clickhouse.ledger import OutcomeRef
 from qbrixstore.clickhouse.ledger import PropertyArrival
 from qbrixstore.clickhouse.ledger import SealedDecision
@@ -29,6 +32,7 @@ from qbrixstore.event import MilestoneEvent
 from qbrixstore.config import ClickHouseSettings
 
 LEDGER_QUERY_CHUNK = 2_000
+ARRIVAL_BUCKETS = 24
 
 _DECISION_SELECT = """
 SELECT
@@ -711,6 +715,95 @@ class ClickHouseClient:
             _span_parameters(tenant_id, spans),
         )
         return [SealedStats(**row) for row in rows]
+
+    def metric_arrivals(
+        self,
+        tenant_id: str,
+        versions: Sequence[MetricVersion],
+        since_ms: int,
+        buckets: int = ARRIVAL_BUCKETS,
+    ) -> list[MetricArrival]:
+        """how long after their decision each metric's outcomes happened, for
+        events since a time under each metric's current version. an event
+        written twice, or crediting a decision twice, counts once per
+        decision."""
+        if not versions:
+            return []
+        rows = self._rows(
+            """
+            SELECT
+                metric_id,
+                count() AS outcomes,
+                countIf(wait > window_ms OR arrived > window_ms) AS late,
+                quantilesExact(0.5, 0.99)(wait) AS quantiles,
+                sumMap([least(intDiv(wait * {buckets:Int64}, window_ms),
+                              {buckets:Int64})], [toUInt64(1)]) AS histogram
+            FROM (
+                SELECT
+                    metric_id,
+                    min(at_ms - tupleElement(d, 'opened_ms')) AS wait,
+                    min(received_ms - tupleElement(d, 'opened_ms')) AS arrived,
+                    any(greatest(arrayElement({windows:Array(Int64)},
+                        indexOf({metrics:Array(String)}, metric_id)), 1)) AS window_ms
+                FROM metric_events
+                ARRAY JOIN decisions AS d
+                WHERE tenant_id = {tenant:String}
+                  AND at_ms >= {since:Int64}
+                  AND metric_id IN {metrics:Array(String)}
+                  AND metric_version = arrayElement({versions:Array(String)},
+                      indexOf({metrics:Array(String)}, metric_id))
+                GROUP BY metric_id, event_id, tupleElement(d, 'decision_id')
+            )
+            WHERE wait >= 0
+            GROUP BY metric_id
+            """,
+            {
+                "tenant": tenant_id,
+                "since": since_ms,
+                "buckets": buckets,
+                "metrics": [v.metric_id for v in versions],
+                "versions": [v.version for v in versions],
+                "windows": [v.window_ms for v in versions],
+            },
+        )
+        arrivals = []
+        for row in rows:
+            histogram = [0] * (buckets + 1)
+            for index, count in zip(*row["histogram"]):
+                histogram[int(index)] = int(count)
+            half, p99 = row["quantiles"]
+            arrivals.append(
+                MetricArrival(
+                    metric_id=row["metric_id"],
+                    outcomes=int(row["outcomes"]),
+                    late=int(row["late"]),
+                    half_ms=int(half),
+                    p99_ms=int(p99),
+                    buckets=tuple(histogram),
+                )
+            )
+        return arrivals
+
+    def metric_pulse(
+        self, tenant_id: str, since_ms: int, until_ms: int
+    ) -> list[MetricPulse]:
+        """each metric's events per minute of ledger time in [since, until),
+        each event once."""
+        rows = self._rows(
+            """
+            SELECT
+                metric_id,
+                intDiv(ledger_ms, 60000) * 60000 AS minute_ms,
+                uniqExact(event_id) AS outcomes
+            FROM metric_events
+            WHERE tenant_id = {tenant:String}
+              AND ledger_ms >= {since:Int64}
+              AND ledger_ms < {until:Int64}
+            GROUP BY metric_id, minute_ms
+            """,
+            {"tenant": tenant_id, "since": since_ms, "until": until_ms},
+        )
+        return [MetricPulse(**row) for row in rows]
 
     def query_selection_events(
         self,

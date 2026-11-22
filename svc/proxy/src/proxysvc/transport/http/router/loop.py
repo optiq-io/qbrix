@@ -557,6 +557,7 @@ class Calls(BaseModel):
 
 class Outcomes(BaseModel):
     learned: int
+    invalid: int
     late: int
     duplicate: int
     earlier_cycle: int

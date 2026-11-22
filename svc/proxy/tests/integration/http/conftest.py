@@ -21,6 +21,8 @@ import qbrixstore.postgres.session as _session_module
 from qbrixstore.clickhouse.ledger import CycleSpan
 from qbrixstore.clickhouse.ledger import DecisionBucket
 from qbrixstore.clickhouse.ledger import DecisionCount
+from qbrixstore.clickhouse.ledger import MetricArrival
+from qbrixstore.clickhouse.ledger import MetricPulse
 from qbrixstore.clickhouse.ledger import PropertyArrival
 from qbrixstore.clickhouse.ledger import SealedStats
 from qbrixstore.event import MilestoneEvent
@@ -170,6 +172,8 @@ class FakeLedger:
         self.sealed: list[SealedRow] = []
         self.milestones: dict[str, MilestoneEvent] = {}
         self.arrivals: dict[str, tuple[int, list[PropertyArrival]]] = {}
+        self.metric_arrival: dict[str, MetricArrival] = {}
+        self.pulse: list[MetricPulse] = []
         self.queries: list[str] = []
         self.delay = 0.0
 
@@ -211,6 +215,18 @@ class FakeLedger:
     def property_arrivals(self, tenant_id, loop_id, since_ms, limit=200):
         self._ran("property_arrivals")
         return self.arrivals.get(loop_id, (0, []))
+
+    def metric_arrivals(self, tenant_id, versions, since_ms, buckets=24):
+        self._ran("metric_arrivals")
+        return [
+            self.metric_arrival[v.metric_id]
+            for v in versions
+            if v.metric_id in self.metric_arrival
+        ]
+
+    def metric_pulse(self, tenant_id, since_ms, until_ms):
+        self._ran("metric_pulse")
+        return [p for p in self.pulse if since_ms <= p.minute_ms < until_ms]
 
     def _ran(self, name: str) -> None:
         self.queries.append(name)

@@ -21,6 +21,7 @@ from proxysvc.mod.change.applied import Applied
 from proxysvc.mod.change.repository import ChangeRepository
 from proxysvc.mod.change.undo import Undoing
 from proxysvc.mod.loop.repository import LoopRepository
+from proxysvc.mod.metric.health import MetricHealthService
 from proxysvc.mod.metric.repository import MetricRepository
 from proxysvc.mod.metric.route import MetricRouteCache
 from proxysvc.mod.metric.serialize import metric_detail
@@ -74,9 +75,15 @@ class MetricService:
     cycle. a reworded semantic is no version: the current one's text changes.
     """
 
-    def __init__(self, routes: MetricRouteCache, loops: LoopService):
+    def __init__(
+        self,
+        routes: MetricRouteCache,
+        loops: LoopService,
+        health: MetricHealthService,
+    ):
         self._routes = routes
         self._loops = loops
+        self._health = health
 
     @staticmethod
     async def create_metric(
@@ -131,10 +138,23 @@ class MetricService:
             metric = await MetricRepository(session, tenant_id).resolve(ref)
             return metric_to_dict(metric) if metric else None
 
-    @staticmethod
-    async def metric_detail(tenant_id: str, ref: str) -> dict | None:
+    async def metric_detail(self, tenant_id: str, ref: str) -> dict | None:
         """a metric with its versions, newest first: who made each, when, why
-        and what it changed."""
+        and what it changed; and its health."""
+        detail = await self._detail(tenant_id, ref)
+        if detail is None:
+            return None
+        return {**detail, "health": await self._health.detail_health(tenant_id, detail)}
+
+    async def metrics_with_health(self, tenant_id: str) -> list[dict]:
+        """every metric with the loops that use it, and how its outcomes
+        arrive now."""
+        metrics = await self.metrics_in_use(tenant_id)
+        health = await self._health.list_health(tenant_id, metrics)
+        return [{**metric, "health": health[metric["id"]]} for metric in metrics]
+
+    @staticmethod
+    async def _detail(tenant_id: str, ref: str) -> dict | None:
         async with get_session() as session:
             metric = await MetricRepository(session, tenant_id).resolve(ref)
             if metric is None:
