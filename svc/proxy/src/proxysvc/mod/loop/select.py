@@ -28,6 +28,7 @@ from proxysvc.mod.loop.route import LoopRouteCache
 from proxysvc.mod.loop.route import RouteOption
 from proxysvc.mod.loop.token import Decision
 from proxysvc.mod.loop.token import DecisionToken
+from proxysvc.mod.metric.route import RouteMetric
 from proxysvc.transport.grpc.client import MotorClient
 
 logger = get_logger(__name__)
@@ -61,12 +62,18 @@ def _classify(error: Exception) -> tuple[SelectOutcome, SelectErrorReason | None
 
 
 def _answer(
-    option: RouteOption, request_id: str | None, reason: LoopSelectReason
+    option: RouteOption,
+    reason: LoopSelectReason,
+    *,
+    request_id: str | None = None,
+    metric: RouteMetric | None = None,
 ) -> dict:
     return {
         "option": _option(option),
         "request_id": request_id,
         "reason": reason.value,
+        "metric": metric.name if metric is not None else None,
+        "window_seconds": metric.window_ms // 1000 if metric is not None else None,
     }
 
 
@@ -140,12 +147,12 @@ class LoopSelectService:
             self._count_reason(tenant_id, route.id, reason)
             if reason is LoopSelectReason.DRAFT:
                 self._events.dispatch(self._first_call(tenant_id, route.id, source))
-            return _answer(route.fallback, None, reason)
+            return _answer(route.fallback, reason)
         if not route.delivery.everyone and not route.delivery.decide(
             route.id, unit, properties, datetime.now(timezone.utc)
         ):
             self._count_reason(tenant_id, route.id, LoopSelectReason.OUTSIDE_DELIVERY)
-            return _answer(route.fallback, None, LoopSelectReason.OUTSIDE_DELIVERY)
+            return _answer(route.fallback, LoopSelectReason.OUTSIDE_DELIVERY)
 
         try:
             answer = await self._decide(tenant_id, route, unit, properties, reason)
@@ -268,7 +275,7 @@ class LoopSelectService:
                 window_ms=metric.window_ms,
             )
         )
-        return _answer(option, request_id, reason)
+        return _answer(option, reason, request_id=request_id, metric=metric)
 
     def _count_reason(
         self, tenant_id: str, loop_id: str, reason: LoopSelectReason

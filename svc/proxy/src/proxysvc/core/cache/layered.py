@@ -6,6 +6,7 @@ from typing import TypeVar
 import redis.asyncio as aioredis
 from cachebox import TTLCache
 from pydantic import BaseModel
+from pydantic import ValidationError
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -45,7 +46,11 @@ class TwoTierCache(Generic[T]):
         raw = await self._redis.get(key)
         if raw is None:
             return None
-        value = self._model.model_validate_json(raw)
+        try:
+            value = self._model.model_validate_json(raw)
+        except ValidationError:
+            # written by a replica on another version of the model
+            return None
         self._l1[key] = value
         return value
 

@@ -30,6 +30,8 @@ message SelectResponse {
   Option option = 1;
   string request_id = 2;
   string reason = 3;
+  string metric = 4;
+  optional int64 window_seconds = 5;
 }
 
 message OutcomeRequest {

@@ -18,6 +18,7 @@ class RouteMetric(BaseModel):
     the version and window new decisions open under."""
 
     id: str
+    name: str
     version: str
     type: str
     score_lo: float | None = None
@@ -29,6 +30,7 @@ def route_metric_of(metric: Metric) -> RouteMetric:
     version = metric.versions[-1]
     return RouteMetric(
         id=metric.id,
+        name=metric.name,
         version=f"{version.major}.{version.minor}",
         type=metric.type,
         score_lo=metric.score_lo,

@@ -196,6 +196,8 @@ class TestDraft:
             },
             "request_id": None,
             "reason": "draft",
+            "metric": None,
+            "window_seconds": None,
         }
         wired_app.motor_mock.select.assert_not_called()
         assert wired_app.selection_spy.events == []
@@ -231,6 +233,8 @@ class TestPaused:
 
         assert resp.json()["reason"] == "paused"
         assert resp.json()["request_id"] is None
+        assert resp.json()["metric"] is None
+        assert resp.json()["window_seconds"] is None
         assert resp.json()["option"]["key"] == "control"
         wired_app.motor_mock.select.assert_not_called()
         assert wired_app.selection_spy.events == []
@@ -252,6 +256,10 @@ class TestLive:
             "config": {"text": "Only today"},
         }
         assert body["request_id"]
+        assert (body["metric"], body["window_seconds"]) == (
+            "purchase",
+            2 * 24 * 60 * 60,
+        )
         tenant, cycle_id, unit, *_ = wired_app.motor_mock.select.call_args.args
         assert (tenant, cycle_id, unit) == (TENANT, loop["cycle"]["id"], "user-42")
 
@@ -389,6 +397,10 @@ class TestCommitted:
         assert body["reason"] == "committed"
         assert body["option"]["key"] == "urgency"
         assert body["request_id"]
+        assert (body["metric"], body["window_seconds"]) == (
+            "purchase",
+            2 * 24 * 60 * 60,
+        )
         wired_app.motor_mock.select.assert_not_called()
 
     async def test_every_request_gets_the_same_option(self, wired_app, api):
