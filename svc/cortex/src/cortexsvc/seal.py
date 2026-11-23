@@ -35,6 +35,7 @@ class Classified:
     metric_id: str
     disposition: OutcomeDisposition
     ledger_ms: int
+    by_unit: bool = False
 
 
 @dataclass
@@ -59,7 +60,8 @@ def seal_slice(
     both at or before the window closes. a conversion seals at its first such
     outcome; everything else seals when its window closes. an outcome is
     counted at the later of its own and its decision's ledger time, since it
-    can only be judged once both are in the ledger.
+    can only be judged once both are in the ledger. an outcome matched by
+    unit teaches only a decision that no outcome credited exactly.
     """
     by_decision: dict[str, list[LedgerOutcome]] = defaultdict(list)
     for outcome in outcomes:
@@ -114,10 +116,12 @@ def _seal_one(
             repeats.add(index)
         seen_events.add(outcome.event_id)
 
+    exact = any(not outcome.by_unit for outcome in outcomes)
     in_window = [
         outcome
         for index, outcome in enumerate(outcomes)
         if index not in repeats
+        and not (exact and outcome.by_unit)
         and outcome.at_ms <= closes
         and outcome.ledger_ms <= closes
     ]
@@ -173,7 +177,7 @@ def _seal_one(
             disposition = OutcomeDisposition.LATE
         elif id(outcome) in learned_ids:
             disposition = OutcomeDisposition.LEARNED
-        elif first is not None:
+        elif first is not None or (exact and outcome.by_unit):
             disposition = OutcomeDisposition.DUPLICATE
         else:
             disposition = OutcomeDisposition.LATE
@@ -184,5 +188,6 @@ def _seal_one(
                 decision.metric_id,
                 disposition,
                 at,
+                outcome.by_unit,
             )
         )

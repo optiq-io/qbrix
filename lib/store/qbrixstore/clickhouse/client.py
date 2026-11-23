@@ -24,6 +24,8 @@ from qbrixstore.clickhouse.ledger import PropertyArrival
 from qbrixstore.clickhouse.ledger import SealedDecision
 from qbrixstore.clickhouse.ledger import SealedStats
 from qbrixstore.clickhouse.ledger import TrailingCount
+from qbrixstore.clickhouse.ledger import UnitEvent
+from qbrixstore.clickhouse.ledger import UnitMatch
 from qbrixstore.event import AuditEvent
 from qbrixstore.event import SelectionEvent
 from qbrixstore.event import FeedbackEvent
@@ -157,6 +159,8 @@ class ClickHouseClient:
     ]
 
     SEALED_COLUMNS = [field.name for field in fields(SealedDecision)]
+
+    UNIT_MATCH_COLUMNS = [field.name for field in fields(UnitMatch)]
 
     MILESTONE_COLUMNS = [
         "event_id",
@@ -488,8 +492,8 @@ class ClickHouseClient:
         return [TrailingCount(**row) for row in rows]
 
     def query_arrived_outcomes(self, start_ms: int, end_ms: int) -> list[OutcomeRef]:
-        """the decisions named by outcomes that reached the ledger in
-        [start, end)."""
+        """the decisions named by outcomes that reached the ledger, or were
+        matched by unit, in [start, end)."""
         rows = self._rows(
             """
             SELECT DISTINCT
@@ -500,10 +504,80 @@ class ClickHouseClient:
             FROM metric_events
             ARRAY JOIN decisions AS d
             WHERE ledger_ms >= {start:Int64} AND ledger_ms < {end:Int64}
+            UNION DISTINCT
+            SELECT tenant_id, cycle_id, decision_id, opened_ms
+            FROM unit_matches
+            WHERE ledger_ms >= {start:Int64} AND ledger_ms < {end:Int64}
             """,
             {"start": start_ms, "end": end_ms},
         )
         return [OutcomeRef(**row) for row in rows]
+
+    def query_unit_events(
+        self, start_ms: int, end_ms: int, race_ms: int
+    ) -> list[UnitEvent]:
+        """events with only a unit that are judged in [start, end): one race
+        after they reached the ledger, so the decisions they may credit have
+        reached it too. an event that carried decisions has no unit here."""
+        rows = self._rows(
+            """
+            SELECT DISTINCT
+                tenant_id, metric_id, unit, event_id, value,
+                at_ms, received_ms, ledger_ms
+            FROM metric_events
+            WHERE empty(decisions)
+              AND unit != ''
+              AND ledger_ms >= {start:Int64}
+              AND ledger_ms < {end:Int64}
+            """,
+            {"start": start_ms - race_ms, "end": end_ms - race_ms},
+        )
+        return [UnitEvent(**row) for row in rows]
+
+    def query_unit_decisions(
+        self, events: Sequence[UnitEvent], race_ms: int
+    ) -> list[LedgerDecision]:
+        """the decisions these events' units got under their metrics that
+        could be open at one of the events, each once."""
+        decisions = []
+        for tenant_id, chunk in _chunks_by_tenant(events):
+            min_at = min(event.at_ms for event in chunk)
+            decisions += [
+                LedgerDecision(**row)
+                for row in self._rows(
+                    f"""
+                    {_DECISION_SELECT}
+                    WHERE tenant_id = {{tenant:String}}
+                      AND decision_id != ''
+                      AND unit IN {{units:Array(String)}}
+                      AND metric_id IN {{metrics:Array(String)}}
+                      AND timestamp_ms <= {{max_at:Int64}}
+                      AND timestamp_ms + window_ms >= {{min_at:Int64}}
+                      AND greatest(timestamp_ms + window_ms, ledger_ms) >= {{min_at:Int64}}
+                      AND ledger_ms < {{before:Int64}}
+                    LIMIT 1 BY decision_id
+                    """,
+                    {
+                        "tenant": tenant_id,
+                        "units": sorted({event.unit for event in chunk}),
+                        "metrics": sorted({event.metric_id for event in chunk}),
+                        "max_at": max(event.at_ms for event in chunk),
+                        "min_at": min_at,
+                        "before": max(event.ledger_ms for event in chunk) + race_ms,
+                    },
+                )
+            ]
+        return decisions
+
+    def insert_unit_matches(self, matches: Sequence[UnitMatch]) -> None:
+        if not matches:
+            return
+
+        self.client.insert(
+            table="unit_matches",
+            data=[astuple(match) for match in matches],
+            column_names=self.UNIT_MATCH_COLUMNS,
+        )
 
     def query_decisions(self, refs: Sequence[OutcomeRef]) -> list[LedgerDecision]:
         """the decisions these refs name, each once, read by the order key's
@@ -552,13 +626,29 @@ class ClickHouseClient:
                         value,
                         at_ms,
                         received_ms,
-                        ledger_ms
+                        ledger_ms,
+                        false AS by_unit
                     FROM metric_events
                     ARRAY JOIN decisions AS d
                     WHERE tenant_id = {tenant:String}
                       AND at_ms >= {since:Int64}
                       AND ledger_ms < {until:Int64}
                       AND tupleElement(d, 'decision_id') IN {ids:Array(String)}
+                    UNION ALL
+                    SELECT DISTINCT
+                        tenant_id,
+                        decision_id,
+                        event_id,
+                        value,
+                        at_ms,
+                        received_ms,
+                        ledger_ms,
+                        true AS by_unit
+                    FROM unit_matches
+                    WHERE tenant_id = {tenant:String}
+                      AND at_ms >= {since:Int64}
+                      AND ledger_ms < {until:Int64}
+                      AND decision_id IN {ids:Array(String)}
                     """,
                     {
                         "tenant": tenant_id,

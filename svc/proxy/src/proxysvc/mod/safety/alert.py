@@ -92,7 +92,9 @@ class AlertPass:
     """opens and resolves the warnings on every loop that is deciding.
 
     outcomes stopped reads what the proxy received, so a stalled ledger never
-    looks like a broken integration; outcomes not learned reads the sealer's
+    looks like a broken integration; a cycle fed by events sent with only a
+    unit learns of them through the sealer, so for it outcomes stopped waits
+    while the ledger is behind. outcomes not learned reads the sealer's
     counts, and waits while the ledger is behind, since they are stale. a
     warning ends once its signal has stayed clear for the hold, so a value
     sitting on its threshold can't flap. a loop that stops deciding keeps its
@@ -118,7 +120,15 @@ class AlertPass:
         cycles = [(w.tenant_id, w.cycle_id) for w in watched]
         intakes = await self._redis.intakes(cycles)
         deciding = await self._deciding(watched, intakes, now_minute)
-        learnable = await self._learnable(watched, intakes, now_minute)
+        progress = await self._redis.ledger_progress()
+        ledger_current = (
+            progress is not None and progress.lag_ms <= NOT_LEARNED_LEDGER_STALE_MS
+        )
+        learnable = (
+            await self._learnable(watched, intakes, now_minute)
+            if ledger_current
+            else None
+        )
         hour = now_minute // 60
         calls = await self._hourly_calls(watched, hour)
         counted_through = counting_since_ms <= (hour - 1) * HOUR_MS
@@ -127,23 +137,26 @@ class AlertPass:
         for w in watched:
             intake = intakes[(w.tenant_id, w.cycle_id)]
             silent_since_ms = max(intake.last_outcome_ms or 0, w.serving_since_ms)
+            stopped = outcomes_stopped(
+                intake,
+                window_ms=w.window_ms,
+                silent_since_ms=silent_since_ms,
+                now_ms=now_ms,
+                deciding=w.loop_id in deciding,
+            )
+            held = intake.via_ledger and not ledger_current
             verdicts[w.tenant_id].append(
                 _Verdict(
                     w,
                     OUTCOMES_STOPPED,
-                    outcomes_stopped(
-                        intake,
-                        window_ms=w.window_ms,
-                        silent_since_ms=silent_since_ms,
-                        now_ms=now_ms,
-                        deciding=w.loop_id in deciding,
-                    ),
+                    stopped and not held,
                     stopped_evidence(
                         intake,
                         window_ms=w.window_ms,
                         silent_since_ms=silent_since_ms,
                         now_ms=now_ms,
                     ),
+                    recovered=False if held else None,
                 )
             )
             if learnable is not None:
@@ -255,12 +268,8 @@ class AlertPass:
         watched: list[_Watched],
         intakes: dict[tuple[str, str], Intake],
         now_minute: int,
-    ) -> dict[tuple[str, str], OutcomeHealth] | None:
-        """the last hour's outcomes of the cycles that received any, or None
-        while the sealer's counts are stale."""
-        progress = await self._redis.ledger_progress()
-        if progress is None or progress.lag_ms > NOT_LEARNED_LEDGER_STALE_MS:
-            return None
+    ) -> dict[tuple[str, str], OutcomeHealth]:
+        """the last hour's outcomes of the cycles that received any."""
         cycles = [
             (w.tenant_id, w.cycle_id)
             for w in watched

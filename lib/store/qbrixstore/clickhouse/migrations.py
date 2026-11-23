@@ -125,6 +125,29 @@ TTL opened_date + INTERVAL {ttl_days} DAY
 SETTINGS index_granularity = 8192
 """
 
+UNIT_MATCHES_TABLE = """
+CREATE TABLE IF NOT EXISTS unit_matches (
+    tenant_id String,
+    loop_id String,
+    cycle_id String,
+    decision_id String,
+    option_index UInt16,
+    opened_ms Int64,
+    metric_id String,
+    event_id String,
+    value Float64,
+    at_ms Int64,
+    received_ms Int64,
+    ledger_ms Int64,
+    opened_date Date DEFAULT toDate(fromUnixTimestamp64Milli(opened_ms))
+)
+ENGINE = ReplacingMergeTree()
+PARTITION BY (tenant_id, toYYYYMM(opened_date))
+ORDER BY (tenant_id, cycle_id, decision_id, event_id, ledger_ms)
+TTL opened_date + INTERVAL {ttl_days} DAY
+SETTINGS index_granularity = 8192
+"""
+
 # no ttl: the event naming a long-standing leader can be older than any other
 # row, and the header reads it for as long as that option leads.
 MILESTONES_TABLE = """
@@ -149,6 +172,7 @@ DROP_FEEDBACK_EVENTS = "DROP TABLE IF EXISTS feedback_events"
 DROP_AUDIT_EVENTS = "DROP TABLE IF EXISTS audit_events"
 DROP_METRIC_EVENTS = "DROP TABLE IF EXISTS metric_events"
 DROP_SEALED_DECISIONS = "DROP TABLE IF EXISTS sealed_decisions"
+DROP_UNIT_MATCHES = "DROP TABLE IF EXISTS unit_matches"
 DROP_MILESTONES = "DROP TABLE IF EXISTS milestones"
 
 # idempotent column additions for tables created before the column existed;
@@ -178,12 +202,14 @@ SEALED_DECISIONS_ALTERS = [
     "ALTER TABLE sealed_decisions ADD COLUMN IF NOT EXISTS context_vector Array(Float64) AFTER outcomes",
 ]
 
-# the sealer reads decisions by when their window closes and outcomes by when
-# they reached the ledger, neither of which leads the order key.
+# the sealer reads decisions by when their window closes, outcomes by when
+# they reached the ledger, and a unit's decisions by its unit, none of which
+# leads the order key.
 LEDGER_INDEXES = [
     "ALTER TABLE selection_events ADD INDEX IF NOT EXISTS window_seal greatest(timestamp_ms + window_ms, ledger_ms) TYPE minmax GRANULARITY 4",
     "ALTER TABLE metric_events ADD INDEX IF NOT EXISTS ledger_time ledger_ms TYPE minmax GRANULARITY 4",
     "ALTER TABLE selection_events ADD INDEX IF NOT EXISTS ledger_time ledger_ms TYPE minmax GRANULARITY 4",
+    "ALTER TABLE selection_events ADD INDEX IF NOT EXISTS unit_lookup unit TYPE bloom_filter(0.01) GRANULARITY 4",
 ]
 
 
@@ -194,6 +220,7 @@ def create_tables(client: Client, ttl_days: int = 90) -> None:
     client.command(AUDIT_EVENTS_TABLE.format(ttl_days=ttl_days))
     client.command(METRIC_EVENTS_TABLE.format(ttl_days=ttl_days))
     client.command(SEALED_DECISIONS_TABLE.format(ttl_days=ttl_days))
+    client.command(UNIT_MATCHES_TABLE.format(ttl_days=ttl_days))
     client.command(MILESTONES_TABLE)
     for alter in (
         SELECTION_EVENTS_ALTERS
@@ -211,6 +238,7 @@ def drop_tables(client: Client) -> None:
     client.command(DROP_AUDIT_EVENTS)
     client.command(DROP_METRIC_EVENTS)
     client.command(DROP_SEALED_DECISIONS)
+    client.command(DROP_UNIT_MATCHES)
     client.command(DROP_MILESTONES)
 
 

@@ -104,6 +104,8 @@ The value must be valid for the loop's metric (see [Metric types](#metric-types)
 | A `request_id` that is altered, or from another workspace | Refused. An outcome is accepted only in the workspace that made the decision. |
 | For a decision from an earlier cycle | Recorded in that cycle's history, and counted on the loop's current cycle as from an earlier cycle |
 | A tracked event whose decisions are none for its metric | Recorded as unattributed, crediting nothing |
+| A tracked event with only a unit, when the unit has no open decision in any loop that improves the metric | Recorded as unattributed, crediting nothing |
+| An event matched by its unit to a decision that an exact outcome already credits | Recorded as a duplicate: an outcome that names its decision wins |
 
 Many late outcomes mean the window is too short for how long the outcome really takes. Many unattributed events mean the decisions or unit ids sent with `track` don't match the ones sent with `select`.
 
@@ -122,7 +124,7 @@ A loop's results count its own outcomes the same way, for the last hour.
 The result often happens somewhere other than the decision: an order page, a payment webhook, a backend job. `track` sends an event for a metric, wherever it happens, and qbrix finds the decisions it belongs to.
 
 - **`decisions`** is the decisions token: the `request_id`s a device was served, joined by `.` into one string. Code carries it to where the result happens (a cart attribute, order metadata, a payment's metadata), and the event credits exactly the decisions in it that were made for the event's metric. Each `request_id` is about 115 characters and signed, so the token can't credit a decision the device never received, and four decisions fit in a 500-character metadata value.
-- **`unit`** is who the event happened to, the same `unit` sent with `select`. It is for events that never passed through a device holding decisions. An event with only a unit is recorded, but matching it to the unit's open decisions isn't available yet, so for now it teaches nothing.
+- **`unit`** is who the event happened to, the same `unit` sent with `select`. It is for events that never passed through a device holding decisions. In each loop that improves the metric, the event credits the unit's most recent decision that was open when it happened: the option the unit saw last before it.
 - **`id`** and **`at`** work as they do for an outcome (see [Retries and timing](#retries-and-timing)).
 
 ```bash
@@ -151,6 +153,20 @@ curl -X POST $QBRIX_BASE_URL/api/v1/track \
 - The same event credits every loop that improves the metric and has a decision in the token. Each loop seals its own decision.
 - A decision made after the event's `at` is never credited.
 - A `request_id` in the token that is altered, or from another workspace, is dropped and counted. The event is refused only when none of them verifies.
+
+### Events with only a unit
+
+```bash
+curl -X POST $QBRIX_BASE_URL/api/v1/track \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"metric": "revenue", "value": 49, "unit": "customer-1", "id": "renewal-8841"}'
+```
+
+- qbrix matches the event to decisions a minute after it arrives, so a decision that reached qbrix just after the event is still found. Its outcome is judged as arriving then: an event in the last minute of a decision's window is late, and a metric whose window is under a minute can't be credited by unit. Send the decisions token when the window is that short.
+- A decision that already has an outcome naming it, from `outcome` or from a token, counts a match by unit as a duplicate, whatever the metric's type. The same order sent both ways is never counted twice.
+- When no loop that improves the metric has an open decision for the unit, the event is counted as unattributed on the metric's health.
+- A loop fed only by events with a unit learns that outcomes arrive when they are matched. While qbrix is behind on its ledger, it waits before warning that outcomes stopped.
 
 ### From the browser
 

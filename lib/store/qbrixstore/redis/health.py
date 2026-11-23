@@ -131,14 +131,18 @@ class OutcomeHealth:
 
 @dataclass(frozen=True)
 class Intake:
-    """what a cycle received at the proxy: its decisions, its outcomes valid
-    or not, the decisions since the last outcome, and when that arrived.
+    """what a cycle received: its decisions, its outcomes valid or not, the
+    decisions since the last outcome, and when that arrived.
 
-    written as calls arrive, never by the sealer, so a stalled ledger can't
-    make a working integration look silent.
+    written as calls arrive at the proxy, so a stalled ledger can't make a
+    working integration look silent. the one exception is an event sent with
+    only a unit, which names no cycle until the sealer matches it; via_ledger
+    marks a cycle that has received those, whose silence means nothing while
+    the ledger is behind.
     """
 
     decisions: int = 0
     outcomes: int = 0
     since_outcome: int = 0
     last_outcome_ms: int | None = None
+    via_ledger: bool = False

@@ -14,6 +14,7 @@ from qbrixstore.clickhouse.migrations import METRIC_EVENTS_ALTERS
 from qbrixstore.clickhouse.migrations import METRIC_EVENTS_TABLE
 from qbrixstore.clickhouse.migrations import SEALED_DECISIONS_TABLE
 from qbrixstore.clickhouse.migrations import SELECTION_EVENTS_TABLE
+from qbrixstore.clickhouse.migrations import UNIT_MATCHES_TABLE
 
 from lib.store.tests.test_event import a_metric
 from lib.store.tests.test_event import a_selection
@@ -112,3 +113,23 @@ class TestLedgerTime:
             "greatest(timestamp_ms + window_ms, ledger_ms)" in i for i in LEDGER_INDEXES
         )
         assert any("metric_events" in i and "ledger_ms" in i for i in LEDGER_INDEXES)
+
+    def test_a_units_decisions_are_indexed_by_unit(self):
+        assert any(
+            "selection_events" in i and "unit TYPE bloom_filter" in i
+            for i in LEDGER_INDEXES
+        )
+
+
+class TestUnitMatches:
+    def test_every_written_column_is_in_the_table(self):
+        columns = _table_columns(UNIT_MATCHES_TABLE)
+
+        assert ClickHouseClient.UNIT_MATCH_COLUMNS == columns[: len(columns) - 1]
+
+    def test_a_repeated_pass_replaces_its_rows_but_keeps_a_resent_event(self):
+        assert "ENGINE = ReplacingMergeTree()" in UNIT_MATCHES_TABLE
+        assert (
+            "ORDER BY (tenant_id, cycle_id, decision_id, event_id, ledger_ms)"
+            in UNIT_MATCHES_TABLE
+        )

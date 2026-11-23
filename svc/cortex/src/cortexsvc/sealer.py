@@ -24,6 +24,8 @@ from qbrixstore.redis.streams import stream_ms
 from qbrixstore.stream import topology
 from qbrixruntime.task import drain
 
+from cortexsvc.attribution import Attribution
+from cortexsvc.attribution import match_units
 from cortexsvc.milestone import MilestoneWatch
 from cortexsvc.seal import Classified
 from cortexsvc.seal import seal_slice
@@ -170,16 +172,20 @@ class Sealer:
         end = min(complete, mark + MAX_SLICE_MS)
         if end <= mark:
             return False
-        await self.seal(mark, end)
+        unattributed = await self.seal(mark, end)
         try:
             await self._milestones.check(mark, end)
         except Exception as e:
             # learning never waits on a sentence; the next check catches up.
             logger.error("milestone check failed: %s", e)
-        await self._redis.set_sealer_mark(end)
+        await self._redis.set_sealer_mark(end, unattributed)
         return end < complete
 
-    async def seal(self, start_ms: int, end_ms: int) -> None:
+    async def seal(self, start_ms: int, end_ms: int) -> dict[tuple[str, str], int]:
+        """seal the slice and teach each cycle; returns the events sent with
+        only a unit that matched no decision, per (tenant, metric), for the
+        caller to count with the mark."""
+        attribution = await self._match_units(start_ms, end_ms)
         closing = await self._ch(self._clickhouse.query_window_seals, start_ms, end_ms)
         refs = await self._ch(
             self._clickhouse.query_arrived_outcomes,
@@ -204,6 +210,8 @@ class Sealer:
         for outcome in result.classified:
             classified[(outcome.tenant_id, outcome.cycle_id)].append(outcome)
 
+        windows = {(d.tenant_id, d.cycle_id): d.window_ms for d in decisions}
+
         for tenant_id, cycle_id in sorted(set(sealed) | set(classified)):
             await self._learn(
                 tenant_id,
@@ -211,15 +219,34 @@ class Sealer:
                 sealed[(tenant_id, cycle_id)],
                 classified[(tenant_id, cycle_id)],
                 end_ms,
+                windows.get((tenant_id, cycle_id), 0),
             )
 
-        if result.sealed or result.classified:
+        if result.sealed or result.classified or attribution.unattributed:
             logger.info(
-                "sealed %d decisions and counted %d outcomes up to %d",
+                "sealed %d decisions, counted %d outcomes and %d unattributed "
+                "up to %d",
                 len(result.sealed),
                 len(result.classified),
+                sum(attribution.unattributed.values()),
                 end_ms,
             )
+        return attribution.unattributed
+
+    async def _match_units(self, start_ms: int, end_ms: int) -> Attribution:
+        """match the events sent with only a unit that are judged in the
+        slice, and record the matches before anything seals from them."""
+        events = await self._ch(
+            self._clickhouse.query_unit_events, start_ms, end_ms, DECISION_RACE_MS
+        )
+        if not events:
+            return Attribution()
+        decisions = await self._ch(
+            self._clickhouse.query_unit_decisions, events, DECISION_RACE_MS
+        )
+        attribution = match_units(events, decisions, DECISION_RACE_MS)
+        await self._ch(self._clickhouse.insert_unit_matches, attribution.matches)
+        return attribution
 
     async def _learn(
         self,
@@ -228,16 +255,19 @@ class Sealer:
         sealed: list[SealedDecision],
         classified: list[Classified],
         end_ms: int,
+        window_ms: int,
     ) -> None:
         """teach one cycle what sealed in the slice, with the slice's outcome
-        counts, in one transaction. the cycle's mark keeps a repeated slice
-        from teaching or counting anything twice."""
+        counts and the intake it matched by unit, in one transaction. the
+        cycle's mark keeps a repeated slice from teaching or counting anything
+        twice."""
         counts: dict[OutcomeDisposition, int] = {}
         per_metric: dict[str, dict[OutcomeDisposition, int]] = {}
         last_arrival_ms: int | None = None
+        by_unit: list[Classified] = []
 
         def train(record: dict | None, current: Learning) -> Learning | None:
-            nonlocal counts, per_metric, last_arrival_ms
+            nonlocal counts, per_metric, last_arrival_ms, by_unit
             fresh = [
                 decision
                 for decision in sealed
@@ -248,6 +278,7 @@ class Sealer:
             counts = dict(Counter(outcome.disposition for outcome in arrived))
             per_metric = _metric_counts(arrived)
             last_arrival_ms = max((o.ledger_ms for o in arrived), default=None)
+            by_unit = [o for o in arrived if o.by_unit]
 
             if record is None:
                 logger.warning(
@@ -304,6 +335,15 @@ class Sealer:
             for metric_id, metric_counts in per_metric.items():
                 self._redis.stage_metric_outcomes(
                     pipe, tenant_id, metric_id, metric_counts
+                )
+            if by_unit:
+                self._redis.stage_intake(
+                    pipe,
+                    tenant_id,
+                    cycle_id,
+                    window_ms,
+                    len(by_unit),
+                    max(o.ledger_ms for o in by_unit),
                 )
 
         await self._redis.apply_learning(tenant_id, cycle_id, train, ack)

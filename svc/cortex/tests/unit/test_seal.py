@@ -49,6 +49,7 @@ def outcome(
     event_id: str | None = None,
     at_ms: int | None = None,
     decision_id: str = "dec-1",
+    by_unit: bool = False,
 ) -> LedgerOutcome:
     return LedgerOutcome(
         tenant_id="t1",
@@ -58,6 +59,7 @@ def outcome(
         at_ms=at_ms if at_ms is not None else ledger_ms,
         received_ms=ledger_ms,
         ledger_ms=ledger_ms,
+        by_unit=by_unit,
     )
 
 
@@ -158,6 +160,53 @@ class TestDuplicates:
         )
 
         assert result.sealed[0].value == 1.0
+        assert dispositions(result) == [LEARNED, DUPLICATE]
+
+
+class TestMatchedByUnit:
+    def test_a_unit_match_alone_seals_a_conversion(self):
+        result = everything([decision()], [outcome(1, OPENED + 5_000, by_unit=True)])
+
+        [sealed] = result.sealed
+        assert (sealed.value, sealed.sealed_by) == (1.0, "outcome")
+        assert dispositions(result) == [LEARNED]
+        assert result.classified[0].by_unit
+
+    def test_an_exact_outcome_wins_over_an_earlier_unit_match(self):
+        result = everything(
+            [decision("value")],
+            [
+                outcome(5, OPENED + 5_000, event_id="order", by_unit=True),
+                outcome(7, OPENED + 9_000, event_id="checkout"),
+            ],
+        )
+
+        assert result.sealed[0].value == 7.0
+        assert result.sealed[0].outcomes == 1
+        assert dispositions(result) == [DUPLICATE, LEARNED]
+
+    def test_unit_matches_add_up_when_nothing_credited_exactly(self):
+        result = everything(
+            [decision("value")],
+            [
+                outcome(5, OPENED + 5_000, event_id="a", by_unit=True),
+                outcome(7, OPENED + 9_000, event_id="b", by_unit=True),
+            ],
+        )
+
+        assert result.sealed[0].value == 12.0
+        assert dispositions(result) == [LEARNED, LEARNED]
+
+    def test_a_unit_match_after_an_exact_conversion_is_a_duplicate(self):
+        result = everything(
+            [decision()],
+            [
+                outcome(1, OPENED + 5_000),
+                outcome(1, OPENED + 6_000, event_id="u", by_unit=True),
+            ],
+        )
+
+        assert result.sealed[0].outcomes == 1
         assert dispositions(result) == [LEARNED, DUPLICATE]
 
 
