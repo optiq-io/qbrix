@@ -356,6 +356,7 @@ async def wired_app(
     from proxysvc.transport.http.router.webhook import (
         set_proxy_service as set_webhook,
     )
+    from proxysvc.transport.http.router.github import set_proxy_service as set_github
     from proxysvc.transport.mcp.server import set_proxy_service as set_mcp
 
     test_settings = _make_test_settings()
@@ -430,6 +431,7 @@ async def wired_app(
     set_connection(svc)
     set_pin(svc)
     set_webhook(svc)
+    set_github(svc)
     set_oauth(svc)
     set_mcp(svc)
 

@@ -276,3 +276,24 @@ class WebhookNotFoundError(BaseAPIError):
 
 class WebhookURLError(BaseAPIError):
     """raised when a webhook url breaks the edition's rule."""
+
+
+class GitHubNotConnectedError(BaseAPIError):
+    """raised when the workspace has no github app to act on, or an event
+    names an app qbrix doesn't know."""
+
+
+class GitHubAlreadyConnectedError(BaseAPIError):
+    """raised when connecting a workspace whose app is already installed."""
+
+
+class GitHubUnavailableError(BaseAPIError):
+    """raised when github didn't answer, or answered with an error."""
+
+
+class GitHubStateError(BaseAPIError):
+    """raised when a callback's state is forged, expired or for another step."""
+
+
+class GitHubSignatureError(BaseAPIError):
+    """raised when an event isn't signed with the app's webhook secret."""

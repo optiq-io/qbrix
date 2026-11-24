@@ -43,6 +43,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
             "/api/auth/verify-email",
             "/api/auth/resend-verification",
             "/api/v1/ee/billing/webhook",
+            "/api/v1/github/created",
+            "/api/v1/github/installed",
             "/.well-known/oauth-authorization-server",
             "/oauth/register",
             "/oauth/authorize",
@@ -156,6 +158,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return True
 
         if path.startswith("/api/auth/invites/"):
+            return True
+
+        if path.startswith("/api/v1/github/events/"):
             return True
 
         return False

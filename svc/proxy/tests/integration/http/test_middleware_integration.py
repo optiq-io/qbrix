@@ -15,8 +15,11 @@ public_paths in AuthMiddleware (exact set):
   /api/auth/login
   /api/auth/refresh
   /api/v1/ee/billing/webhook
+  /api/v1/github/created
+  /api/v1/github/installed
   prefix /docs* and /redoc*
   prefix /api/auth/invites/*
+  prefix /api/v1/github/events/*
 
 BaseAPIException.to_dict() shape:
   always: {"detail": <str>}

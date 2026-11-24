@@ -7,7 +7,7 @@ COMPOSE_DEV := docker compose -f docker-compose.dev.yml
 
 .PHONY: help proto install test lint fmt clean \
         infra infra-down \
-        dev dev-proxy dev-next dev-motor dev-cortex dev-trace dev-meter \
+        dev dev-proxy dev-next dev-next-tunnel dev-motor dev-cortex dev-trace dev-meter \
         docker docker-build docker-build-no-cache docker-up docker-down docker-logs docker-ps \
         docker-ee docker-ee-build docker-ee-build-no-cache docker-ee-up docker-ee-down docker-ee-logs \
         migrate db-reset clickhouse-reset \
@@ -29,6 +29,7 @@ help:
 	@echo "  make dev                  Start all services locally (requires infra)"
 	@echo "  make dev-proxy            Start proxy service only"
 	@echo "  make dev-next             Start proxy service with qbrix next switched on"
+	@echo "  make dev-next-tunnel      dev-next behind a cloudflared quick tunnel GitHub can reach"
 	@echo "  make dev-motor            Start motor service only"
 	@echo "  make dev-cortex           Start cortex service only"
 	@echo "  make dev-trace            Start trace service only"
@@ -113,6 +114,18 @@ dev-proxy:
 
 dev-next:
 	PROXY_NEXT_ENABLED=true PROXY_PUBLIC_URL=http://localhost:8080 $(MAKE) dev-proxy
+
+dev-next-tunnel:
+	@command -v cloudflared >/dev/null || { echo "cloudflared is not installed: brew install cloudflared"; exit 1; }
+	@LOG=$$(mktemp); \
+	cloudflared tunnel --no-autoupdate --url http://localhost:8080 >$$LOG 2>&1 & \
+	T=$$!; \
+	trap "kill $$T 2>/dev/null; rm -f $$LOG" INT TERM EXIT; \
+	until URL=$$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' $$LOG | head -1) && [ -n "$$URL" ]; do \
+		kill -0 $$T 2>/dev/null || { cat $$LOG; exit 1; }; sleep 1; \
+	done; \
+	echo "GitHub reaches this install at $$URL"; \
+	PROXY_NEXT_ENABLED=true PROXY_PUBLIC_URL=$$URL $(MAKE) dev-proxy
 
 dev-motor:
 	MOTOR_REDIS_HOST=localhost \
