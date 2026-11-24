@@ -31,10 +31,45 @@ class LedgerDecision:
 @dataclass(frozen=True)
 class LedgerOutcome:
     """one outcome for one decision. an event for several decisions is one
-    outcome per decision."""
+    outcome per decision. by_unit marks an event matched to the decision by
+    its unit; its ledger_ms is when it was matched."""
 
     tenant_id: str
     decision_id: str
+    event_id: str
+    value: float
+    at_ms: int
+    received_ms: int
+    ledger_ms: int
+    by_unit: bool = False
+
+
+@dataclass(frozen=True)
+class UnitEvent:
+    """an event that carried no decisions, only the unit it happened to."""
+
+    tenant_id: str
+    metric_id: str
+    unit: str
+    event_id: str
+    value: float
+    at_ms: int
+    received_ms: int
+    ledger_ms: int
+
+
+@dataclass(frozen=True)
+class UnitMatch:
+    """a unit event credited to one decision. ledger_ms is when it was
+    matched, so it is judged like an outcome that reached the ledger then."""
+
+    tenant_id: str
+    loop_id: str
+    cycle_id: str
+    decision_id: str
+    option_index: int
+    opened_ms: int
+    metric_id: str
     event_id: str
     value: float
     at_ms: int

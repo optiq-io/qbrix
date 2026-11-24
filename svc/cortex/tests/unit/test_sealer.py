@@ -22,6 +22,8 @@ from qbrixstore.clickhouse.ledger import LedgerDecision
 from qbrixstore.clickhouse.ledger import LedgerOutcome
 from qbrixstore.clickhouse.ledger import OutcomeRef
 from qbrixstore.clickhouse.ledger import SealedDecision
+from qbrixstore.clickhouse.ledger import UnitEvent
+from qbrixstore.clickhouse.ledger import UnitMatch
 from qbrixstore.redis.client import RedisClient
 from qbrixstore.stream import topology
 
@@ -37,11 +39,14 @@ WINDOW = 60_000
 
 class FakeLedger:
     """the clickhouse client's ledger calls over lists, with
-    sealed_decisions replacing a row by its key as a merge would."""
+    sealed_decisions and unit_matches replacing a row by its key as a merge
+    would."""
 
     def __init__(self) -> None:
         self.decisions: list[LedgerDecision] = []
         self.outcomes: list[tuple[LedgerOutcome, OutcomeRef]] = []
+        self.unit_events: list[UnitEvent] = []
+        self.matches: dict[tuple, UnitMatch] = {}
         self.sealed: dict[tuple[str, str, str], SealedDecision] = {}
         self.inserted_rows = 0
         self.client = object()
@@ -63,10 +68,54 @@ class FakeLedger:
             if start_ms <= max(d.closes_ms, d.ledger_ms) < end_ms
         ]
 
+    def _matched(self) -> list[tuple[LedgerOutcome, OutcomeRef]]:
+        return [
+            (
+                LedgerOutcome(
+                    m.tenant_id,
+                    m.decision_id,
+                    m.event_id,
+                    m.value,
+                    m.at_ms,
+                    m.received_ms,
+                    m.ledger_ms,
+                    by_unit=True,
+                ),
+                OutcomeRef(m.tenant_id, m.cycle_id, m.decision_id, m.opened_ms),
+            )
+            for m in self.matches.values()
+        ]
+
     def query_arrived_outcomes(self, start_ms: int, end_ms: int) -> list[OutcomeRef]:
         return list(
-            {ref for o, ref in self.outcomes if start_ms <= o.ledger_ms < end_ms}
+            {
+                ref
+                for o, ref in self.outcomes + self._matched()
+                if start_ms <= o.ledger_ms < end_ms
+            }
         )
+
+    def query_unit_events(
+        self, start_ms: int, end_ms: int, race_ms: int
+    ) -> list[UnitEvent]:
+        return [
+            e for e in self.unit_events if start_ms <= e.ledger_ms + race_ms < end_ms
+        ]
+
+    def query_unit_decisions(self, events, race_ms: int) -> list[LedgerDecision]:
+        keys = {(e.unit, e.metric_id) for e in events}
+        before = max(e.ledger_ms for e in events) + race_ms
+        return [
+            d
+            for d in self.decisions
+            if (d.unit, d.metric_id) in keys and d.ledger_ms < before
+        ]
+
+    def insert_unit_matches(self, matches) -> None:
+        for m in matches:
+            self.matches[
+                (m.tenant_id, m.cycle_id, m.decision_id, m.event_id, m.ledger_ms)
+            ] = m
 
     def query_decisions(self, refs) -> list[LedgerDecision]:
         wanted = {ref.decision_id for ref in refs}
@@ -76,7 +125,7 @@ class FakeLedger:
         wanted = {d.decision_id for d in decisions}
         return [
             o
-            for o, _ in self.outcomes
+            for o, _ in self.outcomes + self._matched()
             if o.decision_id in wanted and o.ledger_ms < until_ms
         ]
 
@@ -99,24 +148,48 @@ class FakeLedger:
         metric_type: str,
         cycle_id: str = CYCLE,
         context_vector: tuple[float, ...] = (),
+        unit: str | None = None,
+        loop_id: str = "loop-1",
+        window_ms: int = WINDOW,
     ) -> LedgerDecision:
         decision = LedgerDecision(
             tenant_id=TENANT,
-            loop_id="loop-1",
+            loop_id=loop_id,
             cycle_id=cycle_id,
             decision_id=decision_id,
             option_index=option_index,
-            unit=f"user-{decision_id}",
+            unit=unit if unit is not None else f"user-{decision_id}",
             metric_id="m-1",
             metric_version="1.0",
             metric_type=metric_type,
             opened_ms=opened_ms,
-            window_ms=WINDOW,
+            window_ms=window_ms,
             ledger_ms=opened_ms,
             context_vector=context_vector,
         )
         self.decisions.append(decision)
         return decision
+
+    def track_unit(
+        self,
+        unit: str,
+        value: float,
+        ledger_ms: int,
+        event_id: str | None = None,
+        metric_id: str = "m-1",
+    ) -> UnitEvent:
+        event = UnitEvent(
+            tenant_id=TENANT,
+            metric_id=metric_id,
+            unit=unit,
+            event_id=event_id or f"ev-{unit}-{ledger_ms}",
+            value=value,
+            at_ms=ledger_ms,
+            received_ms=ledger_ms,
+            ledger_ms=ledger_ms,
+        )
+        self.unit_events.append(event)
+        return event
 
     def answer(self, decision: LedgerDecision, value: float, ledger_ms: int, **kw):
         self.outcomes.append(
@@ -446,7 +519,7 @@ class TestExactlyOnce:
     ):
         self.three_decisions(ledger)
 
-        async def crash(sealed_up_to):
+        async def crash(sealed_up_to, unattributed=None):
             raise ConnectionError("cortex died before moving the mark")
 
         monkeypatch.setattr(store, "set_sealer_mark", crash)
@@ -562,3 +635,131 @@ class TestMetricHealth:
         await seal_all(sealer)
 
         assert await metric_health(store) == {}
+
+
+UNIT_WINDOW = 600_000
+
+
+class TestUnitMatch:
+    """events sent with only a unit, matched to decisions by the sealer."""
+
+    async def test_it_credits_the_latest_open_decision_and_teaches_once(
+        self, sealer, ledger, store, cycle
+    ):
+        older = ledger.decide(
+            "a", 0, ago(1_200), "conversion", unit="u1", window_ms=UNIT_WINDOW
+        )
+        latest = ledger.decide(
+            "b", 2, ago(1_100), "conversion", unit="u1", window_ms=UNIT_WINDOW
+        )
+        ledger.track_unit("u1", 1, latest.opened_ms + 10_000)
+
+        await seal_all(sealer)
+
+        assert [m.decision_id for m in ledger.matches.values()] == ["b"]
+        values = {k[2]: row.value for k, row in ledger.sealed.items()}
+        assert values == {"a": 0.0, "b": 1.0}
+        learned = await params(store)
+        assert learned["alpha"] == [1.0, 1.0, 2.0]
+        assert (await store.read_learning(TENANT, CYCLE)).applied == 2
+        assert older.decision_id not in {m.decision_id for m in ledger.matches.values()}
+
+    async def test_two_loops_on_the_metric_are_both_credited(
+        self, sealer, ledger, store, cycle
+    ):
+        await store.set_experiment(TENANT, "cyc-2", {**cycle, "id": "cyc-2"})
+        headline = ledger.decide(
+            "a", 0, ago(1_200), "conversion", unit="u1", window_ms=UNIT_WINDOW
+        )
+        ledger.decide(
+            "b",
+            1,
+            ago(1_200),
+            "conversion",
+            unit="u1",
+            loop_id="loop-2",
+            cycle_id="cyc-2",
+            window_ms=UNIT_WINDOW,
+        )
+        ledger.track_unit("u1", 1, headline.opened_ms + 10_000)
+
+        await seal_all(sealer)
+
+        assert {k[2]: row.value for k, row in ledger.sealed.items()} == {
+            "a": 1.0,
+            "b": 1.0,
+        }
+        assert await metric_health(store) == {"learned": 2}
+
+    async def test_an_event_nobody_saw_is_counted_unattributed_once(
+        self, sealer, ledger, store, cycle, monkeypatch
+    ):
+        ledger.decide("a", 0, ago(1_200), "conversion", unit="u1")
+        ledger.track_unit("stranger", 1, ago(1_150))
+
+        crashed = False
+        real = store.set_sealer_mark
+
+        async def crash_once(sealed_up_to, unattributed=None):
+            nonlocal crashed
+            if unattributed and not crashed:
+                crashed = True
+                raise ConnectionError("cortex died before moving the mark")
+            await real(sealed_up_to, unattributed)
+
+        monkeypatch.setattr(store, "set_sealer_mark", crash_once)
+        await sealer._connect()
+        with pytest.raises(ConnectionError):
+            while await sealer.run_once():
+                pass
+        await seal_all(sealer)
+
+        assert ledger.matches == {}
+        assert await metric_health(store) == {"unattributed": 1}
+
+    async def test_a_decision_credited_exactly_counts_a_unit_match_as_duplicate(
+        self, sealer, ledger, store, cycle
+    ):
+        decision = ledger.decide(
+            "a", 0, ago(1_200), "conversion", unit="u1", window_ms=UNIT_WINDOW
+        )
+        ledger.answer(decision, 1, decision.opened_ms + 5_000)
+        ledger.track_unit("u1", 1, decision.opened_ms + 10_000)
+
+        await seal_all(sealer)
+
+        assert ledger.sealed[(TENANT, CYCLE, "a")].outcomes == 1
+        assert await metric_health(store) == {"learned": 1, "duplicate": 1}
+
+    async def test_a_match_stamps_the_cycle_intake_once(
+        self, sealer, ledger, store, cycle
+    ):
+        decision = ledger.decide(
+            "a", 0, ago(1_200), "conversion", unit="u1", window_ms=UNIT_WINDOW
+        )
+        ledger.track_unit("u1", 1, decision.opened_ms + 10_000)
+
+        await seal_all(sealer)
+        await store.set_sealer_mark(decision.opened_ms)
+        await seal_all(sealer)
+
+        intake = (await store.intakes([(TENANT, CYCLE)]))[(TENANT, CYCLE)]
+        assert (intake.outcomes, intake.since_outcome, intake.via_ledger) == (
+            1,
+            0,
+            True,
+        )
+        assert intake.last_outcome_ms == decision.opened_ms + 10_000 + 60_000
+
+    async def test_an_event_reaching_the_ledger_before_its_decision_still_matches(
+        self, sealer, ledger, store, cycle
+    ):
+        decision = ledger.decide(
+            "a", 0, ago(1_200), "conversion", unit="u1", window_ms=UNIT_WINDOW
+        )
+        object.__setattr__(decision, "ledger_ms", decision.opened_ms + 30_000)
+        ledger.track_unit("u1", 1, decision.opened_ms + 10_000)
+
+        await seal_all(sealer)
+
+        assert ledger.sealed[(TENANT, CYCLE, "a")].value == 1.0

@@ -331,6 +331,45 @@ class TestStalledLedger:
 
         assert await _alerts() == []
 
+    async def _matched_by_unit(self, wired_app, loop, at: float) -> None:
+        redis = wired_app.svc.redis
+        pipe = redis.client.pipeline(transaction=True)
+        redis.stage_intake(
+            pipe, TENANT, loop["cycle"]["id"], WINDOW_MS, 1, int(at * 1000)
+        )
+        await pipe.execute()
+
+    async def _ledger(self, wired_app, now, lag_ms: int) -> None:
+        now_ms = int(now * 1000)
+        await wired_app.svc.redis.set_ledger_progress(
+            LedgerProgress(now_ms - lag_ms, lag_ms=lag_ms, checked_ms=now_ms)
+        )
+
+    async def test_a_cycle_fed_through_the_ledger_waits_while_it_lags(
+        self, api, wired_app, now
+    ):
+        loop = await _loop(wired_app)
+        await self._matched_by_unit(wired_app, loop, now - 90 * 60)
+        await _decide(wired_app, loop, 150, now)
+        await self._ledger(wired_app, now, 10 * 60 * 1000)
+
+        await _pass(wired_app).run_once(now)
+
+        assert await _alerts() == []
+
+    async def test_a_cycle_fed_through_a_current_ledger_is_watched(
+        self, api, wired_app, now
+    ):
+        loop = await _loop(wired_app)
+        await self._matched_by_unit(wired_app, loop, now - 90 * 60)
+        await _decide(wired_app, loop, 150, now)
+        await self._ledger(wired_app, now, 1_000)
+
+        await _pass(wired_app).run_once(now)
+
+        (alert,) = await _alerts()
+        assert alert.signal == OUTCOMES_STOPPED
+
 
 class TestSafetyPause:
     async def test_a_safety_pause_opens_one_alert_with_its_evidence(

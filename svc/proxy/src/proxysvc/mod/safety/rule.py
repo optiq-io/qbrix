@@ -26,8 +26,8 @@ WARNINGS = (OUTCOMES_STOPPED, OUTCOMES_NOT_LEARNED, CALLS_STOPPED)
 HOUR_MS = 60 * 60 * 1000
 DAY_HOURS = 24
 
-# train_error may still learn, and earlier_cycle says nothing of this cycle's
-# wiring; unattributed joins when track ships
+# train_error may still learn, earlier_cycle says nothing of this cycle's
+# wiring, and an unattributed event belongs to no cycle
 NOT_LEARNED = (
     OutcomeDisposition.LATE,
     OutcomeDisposition.DUPLICATE,

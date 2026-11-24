@@ -259,8 +259,22 @@ class RedisClient:
         value = await self.client.get(SEALER_MARK_KEY)
         return int(value) if value is not None else None
 
-    async def set_sealer_mark(self, sealed_up_to: int) -> None:
-        await self.client.set(SEALER_MARK_KEY, sealed_up_to)
+    async def set_sealer_mark(
+        self,
+        sealed_up_to: int,
+        unattributed: dict[tuple[str, str], int] | None = None,
+    ) -> None:
+        """move the sealer's mark, counting the slice's unattributed events per
+        (tenant, metric) in the same transaction, so a repeated slice can't
+        count them twice."""
+        pipe = self.client.pipeline(transaction=True)
+        for (tenant_id, metric_id), count in (unattributed or {}).items():
+            self.stage_metric_outcomes(
+                pipe, tenant_id, metric_id, {OutcomeDisposition.UNATTRIBUTED: count}
+            )
+        # noinspection PyAsyncCall
+        pipe.set(SEALER_MARK_KEY, sealed_up_to)
+        await pipe.execute()
 
     async def set_ledger_progress(self, progress: LedgerProgress) -> None:
         await self.client.set(
@@ -493,6 +507,27 @@ class RedisClient:
         pipe.pexpire(intake, _intake_ttl_ms(window_ms))
         await pipe.execute()
 
+    def stage_intake(
+        self,
+        pipe: Pipeline,
+        tenant_id: str,
+        experiment_id: str,
+        window_ms: int,
+        outcomes: int,
+        at_ms: int,
+    ) -> None:
+        """queue outcomes the sealer matched to a cycle by unit onto a caller's
+        pipeline, marking its intake as arriving through the ledger."""
+        intake = self._intake_key(tenant_id, experiment_id)
+        # noinspection PyAsyncCall
+        pipe.hincrby(intake, "outcomes", outcomes)
+        # noinspection PyAsyncCall
+        pipe.hset(
+            intake, mapping={"since_outcome": 0, "last_ms": at_ms, "via_ledger": 1}
+        )
+        # noinspection PyAsyncCall
+        pipe.pexpire(intake, _intake_ttl_ms(window_ms))
+
     async def intakes(
         self, cycles: Sequence[tuple[str, str]]
     ) -> dict[tuple[str, str], Intake]:
@@ -511,6 +546,7 @@ class RedisClient:
                 last_outcome_ms=(
                     int(fields["last_ms"]) if "last_ms" in fields else None
                 ),
+                via_ledger="via_ledger" in fields,
             )
             for cycle, fields in zip(cycles, found)
         }
