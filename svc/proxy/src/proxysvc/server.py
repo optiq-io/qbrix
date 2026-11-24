@@ -485,7 +485,7 @@ class ProxyGRPCServicer(proxy_pb2_grpc.ProxyServiceServicer):
         for rule in proto.rules:
             try:
                 value = json.loads(rule.value)
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 value = rule.value
             rules.append(
                 RuleRequest(
