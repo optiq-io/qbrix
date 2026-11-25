@@ -15,6 +15,7 @@ from proxysvc.mod.auth import init_operators
 from proxysvc.mod.loop.upgrade import follow_minors
 from proxysvc.mod.safety.alert import AlertPass
 from proxysvc.mod.safety.watch import SafetyWatch
+from proxysvc.mod.webhook.dispatch import WebhookDispatch
 from proxysvc.service import ProxyService
 
 logger = get_logger(__name__)
@@ -40,6 +41,7 @@ class ProxyRuntime:
         self._auth_service: AuthService | None = None
         self._invalidation: TenantInvalidation | None = None
         self._safety: SafetyWatch | None = None
+        self._dispatch: WebhookDispatch | None = None
 
     @property
     def proxy_service(self) -> ProxyService:
@@ -101,6 +103,13 @@ class ProxyRuntime:
                 alerts=AlertPass(self._proxy_service.redis),
             )
             await self._safety.start()
+            self._dispatch = WebhookDispatch(
+                self._proxy_service.redis,
+                self._proxy_service.webhooks,
+                console_origin=self._settings.console_origin,
+                interval_sec=self._settings.webhook_interval_sec,
+            )
+            await self._dispatch.start()
 
         logger.info("proxy runtime started")
 
@@ -115,6 +124,8 @@ class ProxyRuntime:
             )
 
     async def stop(self) -> None:
+        if self._dispatch is not None:
+            await self._dispatch.stop()
         if self._safety is not None:
             await self._safety.stop()
         if self._invalidation is not None:

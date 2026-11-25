@@ -896,6 +896,13 @@ class WebhookDelivery(Base):
     __tablename__ = "webhook_deliveries"
     __table_args__ = (
         Index("ix_webhook_deliveries_tenant_id_created_at", "tenant_id", "created_at"),
+        Index(
+            "ix_webhook_deliveries_unfinished",
+            "tenant_id",
+            "created_at",
+            postgresql_where=text("status IN ('pending', 'failing')"),
+            sqlite_where=text("status IN ('pending', 'failing')"),
+        ),
     )
 
     id: Mapped[str] = mapped_column(
@@ -925,6 +932,43 @@ class WebhookDelivery(Base):
     sent_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class AlertNotice(Base):
+    """an alert opening or ending, waiting to go to the workspace webhook.
+    written in the alert's own transaction, and claimed by the delivery that
+    carries it."""
+
+    __tablename__ = "alert_notices"
+    __table_args__ = (
+        Index(
+            "ix_alert_notices_unsent",
+            "tenant_id",
+            "created_at",
+            postgresql_where=text("delivery_id IS NULL"),
+            sqlite_where=text("delivery_id IS NULL"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: uuid4().hex
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("tenants.id"), nullable=False
+    )
+    alert_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("alerts.id", ondelete="CASCADE"), nullable=False
+    )
+    # opened or recovered
+    event: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    delivery_id: Mapped[str | None] = mapped_column(
+        String(32),
+        ForeignKey("webhook_deliveries.id", ondelete="CASCADE"),
+        nullable=True,
     )
 
 

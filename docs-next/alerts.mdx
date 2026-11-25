@@ -54,6 +54,59 @@ Each request carries these headers:
 | `content-type` | `application/json` |
 | `user-agent` | `qbrix/<version>` |
 
+### Alert messages
+
+qbrix sends one message when a loop becomes unhealthy and one when it is healthy again, never a stream while it stays unhealthy. It waits a minute after the first alert before sending, so alerts on several loops within the same minute arrive as one message.
+
+```json
+{
+  "text": "qbrix paused Search ranking: 7% of its decisions failed. Everyone gets the fallback until a person resumes it. https://qbrix.acme.com/loops/search-ranking",
+  "kind": "alert",
+  "workspace": { "name": "Acme" },
+  "sent_at": "2026-11-25T02:01:10+00:00",
+  "alerts": [
+    {
+      "event": "opened",
+      "loop": { "key": "search-ranking", "name": "Search ranking" },
+      "signal": "decision_errors",
+      "value": { "rate": 0.072, "errors": 30, "calls": 412 },
+      "opened_at": "2026-11-25T02:00:04+00:00",
+      "url": "https://qbrix.acme.com/loops/search-ranking"
+    }
+  ]
+}
+```
+
+| Field | What it holds |
+|---|---|
+| `event` | `opened` when the alert starts, `recovered` when it ends |
+| `signal` | `decision_errors` (a safety pause), `outcomes_stopped`, `outcomes_not_learned` or `calls_stopped` |
+| `value` | What qbrix measured when it opened the alert, such as the share of decisions that failed |
+| `url` | The loop's page in the console |
+
+A recovery also carries `resolved_at`, `resolution` and `resolved_by`. The resolution is `cleared` when a warning's signal clears, `resumed` when a person resumes a loop qbrix paused, and `retired` when the loop is retired. `resolved_by` is the person's name, or `null` when qbrix ended it:
+
+```json
+{
+  "event": "recovered",
+  "loop": { "key": "search-ranking", "name": "Search ranking" },
+  "signal": "decision_errors",
+  "resolution": "resumed",
+  "resolved_by": "Ada",
+  "resolved_at": "2026-11-25T04:00:12+00:00"
+}
+```
+
+Its `text` reads "Search ranking resumed by Ada after 2 h on the fallback."
+
+When a message carries several alerts, `text` has one line per alert under a first line such as "3 loops need a look in Acme".
+
+### Retries
+
+If the receiver doesn't answer with a `2xx`, qbrix tries again after 30 seconds, then 1, 2, 5, 15 and 30 minutes, then every hour, until a day after the first try. After that the delivery is marked as given up. Every retry carries the same `qbrix-delivery` id, so a receiver can drop a message it has already handled. Only `sent_at` and the signature change.
+
+Messages go out in order. While one is being retried, the ones after it wait, so a recovery never arrives before its alert.
+
 ### Verifying the signature
 
 To check that a message came from your qbrix, recompute the signature over the raw request body, exactly as it was received, before parsing it:
