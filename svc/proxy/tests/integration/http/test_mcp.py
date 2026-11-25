@@ -32,6 +32,8 @@ import itertools
 import re
 import time
 from collections.abc import AsyncIterator
+from datetime import datetime
+from datetime import timezone
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import Any
@@ -50,6 +52,7 @@ import proxysvc.config
 from qbrixstore.clickhouse.ledger import MetricArrival
 from qbrixstore.event import MilestoneEvent
 from qbrixstore.postgres import session as session_module
+from qbrixstore.postgres.models import Mention
 from qbrixstore.postgres.models import Tenant
 from qbrixstore.postgres.models import User
 
@@ -458,7 +461,7 @@ class TestChanges:
         history = await wired_app.svc.loop_history(
             TENANT, "checkout-headline", limit=10
         )
-        entries = {entry["kind"]: entry for entry in history["changes"]}
+        entries = {entry["kind"]: entry for entry in history["entries"]}
         for kind, reason in (
             ("loop.create", LOOP["reason"]),
             ("loop.launch", "the select call is merged"),
@@ -1301,7 +1304,7 @@ class TestNotesAndHistory:
             result = await _call(client, "loop_history", {"loop": "checkout-headline"})
 
         assert not result.is_error, result
-        kinds = [e["kind"] for e in result.structured_content["changes"]]
+        kinds = [e["kind"] for e in result.structured_content["entries"]]
         assert kinds == ["note.add", "loop.create"]
         note_line, create_line = result.content[0].text.splitlines()[:2]
         assert "Claude Code added a note to Checkout headline." in note_line
@@ -1323,8 +1326,8 @@ class TestNotesAndHistory:
                 client, "loop_history", {"loop": "checkout-headline", "show": "changes"}
             )
 
-        assert [e["kind"] for e in notes.structured_content["changes"]] == ["note.add"]
-        assert [e["kind"] for e in changes.structured_content["changes"]] == [
+        assert [e["kind"] for e in notes.structured_content["entries"]] == ["note.add"]
+        assert [e["kind"] for e in changes.structured_content["entries"]] == [
             "loop.create"
         ]
 
@@ -1346,10 +1349,55 @@ class TestNotesAndHistory:
             )
 
         assert "More history: call again with cursor" in first.content[0].text
-        assert [e["kind"] for e in second.structured_content["changes"]] == [
+        assert [e["kind"] for e in second.structured_content["entries"]] == [
             "loop.create"
         ]
         assert second.structured_content["next_cursor"] is None
+
+    async def test_loop_history_reads_pull_requests_and_commits(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _draft(client)
+            loop = await wired_app.svc.get_loop(TENANT, "checkout-headline")
+            await _mention(
+                loop["id"],
+                kind="pull_request",
+                ref="42",
+                number=42,
+                state="merged",
+                merged_by="grace",
+                at=datetime(2030, 1, 2, tzinfo=timezone.utc),
+            )
+            await _mention(
+                loop["id"],
+                kind="commit",
+                ref="9c8b7a6f5e4d3c2b1a09",
+                sha="9c8b7a6f5e4d3c2b1a09",
+                at=datetime(2030, 1, 1, tzinfo=timezone.utc),
+            )
+            result = await _call(client, "loop_history", {"loop": "checkout-headline"})
+            github = await _call(
+                client, "loop_history", {"loop": "checkout-headline", "show": "github"}
+            )
+            changes = await _call(client, "changes_list", {"loop": "checkout-headline"})
+
+        assert not result.is_error, result
+        types = [e["type"] for e in result.structured_content["entries"]]
+        assert types == ["mention", "mention", "change"]
+        merged, commit = result.content[0].text.splitlines()[:2]
+        assert merged == (
+            "2030-01-02T00:00:00+00:00 · Pull request acme/shop#42 merged by "
+            "grace: Try three checkout headlines · https://github.com/acme/shop/pull/42"
+        )
+        assert commit.startswith(
+            "2030-01-01T00:00:00+00:00 · Commit acme/shop@9c8b7a6 by ada: "
+        )
+        assert [e["kind"] for e in github.structured_content["entries"]] == [
+            "pull_request",
+            "commit",
+        ]
+        assert [e["kind"] for e in changes.structured_content["changes"]] == [
+            "loop.create"
+        ]
 
     async def test_loop_history_refuses_an_unknown_loop(self, mcp, wired_app):
         async with _session(mcp, wired_app) as client:
@@ -1863,7 +1911,7 @@ class TestAskingFirst:
             await _approve(wired_app, launched.structured_content["change"]["id"])
             history = await _call(client, "loop_history", {"loop": "checkout-headline"})
 
-        newest = history.structured_content["changes"][0]
+        newest = history.structured_content["entries"][0]
         assert newest["status"] == "applied"
         assert newest["decision"]["where"] == "qbrix"
         assert "approved by Mustafa in qbrix" in history.content[0].text.splitlines()[0]
@@ -2002,7 +2050,7 @@ class TestAskingInChat:
             "Approved by Mustafa in Claude Code: "
         )
         assert _error(again).startswith("The loop checkout-headline is live already")
-        newest = history.structured_content["changes"][0]
+        newest = history.structured_content["entries"][0]
         assert newest["decision"]["answer"] == "approved"
         assert newest["decision"]["where"] == "Claude Code"
         assert "approved by Mustafa in Claude Code" in history.content[0].text
@@ -3197,4 +3245,19 @@ class TestMetricChanges:
         assert _error(result) == (
             "The loop 'checkout-headline' uses the metric 'purchase', so it "
             "can't be deleted."
+        )
+
+
+async def _mention(loop_id: str, **fields) -> None:
+    async with session_module.get_session() as session:
+        session.add(
+            Mention(
+                tenant_id=TENANT,
+                loop_id=loop_id,
+                repository="acme/shop",
+                title="Try three checkout headlines",
+                author="ada",
+                url="https://github.com/acme/shop/pull/42",
+                **fields,
+            )
         )

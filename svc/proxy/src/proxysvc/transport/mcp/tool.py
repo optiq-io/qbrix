@@ -40,7 +40,6 @@ from proxysvc.core.error import MetricNotFoundError
 from proxysvc.core.targeting import Operator
 from proxysvc.mod.auth.scope import ROLE_SCOPES
 from proxysvc.mod.change.applied import Applied
-from proxysvc.mod.change.note import HISTORY_SHOW
 from proxysvc.mod.change.note import NOTE_MAX_LENGTH
 from proxysvc.mod.change.note import HistoryShow
 from proxysvc.mod.change.proposal import DECLINED
@@ -440,6 +439,34 @@ def _change_line(entry: dict) -> str:
         parts.append("can be undone")
     parts.append(f"change {entry['id']}")
     return " · ".join(parts)
+
+
+def _mention_line(entry: dict) -> str:
+    """a pull request or commit that mentions the loop, as one line."""
+    if entry["kind"] == "commit":
+        sentence = (
+            f"Commit {entry['repository']}@{entry['sha'][:7]} by {entry['author']}"
+        )
+    elif entry["state"] == "merged":
+        sentence = (
+            f"Pull request {entry['repository']}#{entry['number']} merged by "
+            f"{entry['merged_by'] or entry['author']}"
+        )
+    elif entry["state"] == "closed":
+        sentence = (
+            f"Pull request {entry['repository']}#{entry['number']} by "
+            f"{entry['author']}, closed"
+        )
+    else:
+        sentence = (
+            f"Pull request {entry['repository']}#{entry['number']} opened by "
+            f"{entry['author']}"
+        )
+    return f"{entry['at']} · {sentence}: {entry['title']} · {entry['url']}"
+
+
+def _history_line(entry: dict) -> str:
+    return _mention_line(entry) if entry["type"] == "mention" else _change_line(entry)
 
 
 def _milestone_line(milestone: dict) -> str:
@@ -1377,8 +1404,9 @@ def register(
         show: Annotated[
             HistoryShow,
             Field(
-                description="all: changes and notes. changes: changes only. "
-                "notes: notes only."
+                description="all: changes, notes, and pull requests and commits "
+                "that mention the loop. changes: changes only. notes: notes "
+                "only. github: pull requests and commits only."
             ),
         ] = "all",
         cursor: Annotated[
@@ -1387,30 +1415,25 @@ def register(
         ] = None,
         limit: Annotated[int, Field(ge=1, le=LIMIT_MAX)] = LIMIT_DEFAULT,
     ) -> Annotated[CallToolResult, HistoryPage]:
-        """Read a loop's history, newest first: every change and note, who made it and through which client, each changed field before and after, why, a note's text, and whether it can be undone. Declined changes are included with the reason they were declined: read them before proposing a change again."""
+        """Read a loop's history, newest first: every change and note, who made it and through which client, each changed field before and after, why, a note's text, and whether it can be undone; and the pull requests and commits that mention the loop, with their state, author and link. Declined changes are included with the reason they were declined: read them before proposing a change again."""
         principal = current_principal()
-        kinds, except_kinds = HISTORY_SHOW[show]
         try:
             _require(principal, "loop:read", "read loops")
-            try:
-                with refusals():
-                    page = await service().list_workspace_changes(
-                        principal.tenant_id,
-                        kinds=kinds,
-                        except_kinds=except_kinds,
-                        loop=loop,
-                        statuses=STATUSES,
-                        fold=False,
-                        cursor=cursor,
-                        limit=limit,
-                    )
-            except LoopNotFoundError as e:
-                raise await refused_loop(principal, loop) from e
+            with refusals():
+                page = await service().loop_history(
+                    principal.tenant_id,
+                    loop,
+                    show=show,
+                    statuses=STATUSES,
+                    cursor=cursor,
+                    limit=limit,
+                )
+            if page is None:
+                raise await refused_loop(principal, loop)
         except Refusal as refusal:
             return _refused(refusal)
-        found = page["changes"][0]["target"]["key"] if page["changes"] else loop
-        url = history_url(settings.console_origin, found)
-        lines = [_change_line(entry) for entry in page["changes"]] or [
+        url = history_url(settings.console_origin, page["loop"])
+        lines = [_history_line(entry) for entry in page["entries"]] or [
             "Nothing in this loop's history matches."
         ]
         if page["next_cursor"]:

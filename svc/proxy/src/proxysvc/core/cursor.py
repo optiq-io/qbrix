@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+from collections.abc import Callable
 from datetime import datetime
 from datetime import timezone
 
@@ -18,13 +19,18 @@ def encode(created_at: datetime, row_id: str) -> str:
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
 
-def page(rows: list, limit: int) -> tuple[list, str | None]:
+def created(row) -> Position:
+    return row.created_at, row.id
+
+
+def page(
+    rows: list, limit: int, *, position: Callable[[object], Position] = created
+) -> tuple[list, str | None]:
     """the page's rows, and the cursor to the next page when there is one."""
     if len(rows) <= limit:
         return rows, None
     rows = rows[:limit]
-    last = rows[-1]
-    return rows, encode(last.created_at, last.id)
+    return rows, encode(*position(rows[-1]))
 
 
 def decode(cursor: str) -> Position:

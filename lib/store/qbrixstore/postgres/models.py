@@ -1004,3 +1004,65 @@ class GitHubApp(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
+
+
+class Mention(Base):
+    """a pull request or commit that names a loop, as the loop's history reads
+    it. a pull request's entry follows its state; nothing about it is code."""
+
+    __tablename__ = "github_mentions"
+    __table_args__ = (
+        UniqueConstraint(
+            "loop_id", "repository", "kind", "ref", name="uq_github_mention"
+        ),
+        # a loop's history, newest first
+        Index("ix_github_mentions_loop_at", "tenant_id", "loop_id", "at", "id"),
+        Index("ix_github_mentions_repository", "tenant_id", "repository"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: uuid4().hex
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("tenants.id"), nullable=False
+    )
+    # no foreign key: history outlives the loop it was about
+    loop_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    repository: Mapped[str] = mapped_column(String(140), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    author: Mapped[str] = mapped_column(String(255), nullable=False)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    state: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    opened_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    merged_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    closed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    merged_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class GitHubDelivery(Base):
+    """a github event already taken, by its delivery id, so a redelivery
+    changes nothing."""
+
+    __tablename__ = "github_deliveries"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("tenants.id"), nullable=False
+    )
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import logging
 import math
+from typing import Annotated
 from typing import Any
 from typing import Literal
 from typing import Optional
+from typing import Union
 
 from fastapi import APIRouter
 from fastapi import Depends
@@ -409,6 +411,7 @@ class Decision(BaseModel):
 
 
 class HistoryEntry(BaseModel):
+    type: Literal["change"] = "change"
     id: str
     kind: str
     verb: str
@@ -502,8 +505,32 @@ class CycleListResponse(BaseModel):
     cycles: list[CycleResponse]
 
 
+class MentionEntry(BaseModel):
+    """a pull request or commit that mentions the loop. it is not a change:
+    it never altered the loop."""
+
+    type: Literal["mention"] = "mention"
+    id: str
+    kind: Literal["pull_request", "commit"]
+    repository: str
+    number: Optional[int] = None
+    sha: Optional[str] = None
+    title: str
+    author: str
+    state: Optional[Literal["open", "merged", "closed"]] = None
+    url: str
+    at: str
+    opened_at: Optional[str] = None
+    merged_at: Optional[str] = None
+    closed_at: Optional[str] = None
+    merged_by: Optional[str] = None
+
+
+HistoryItem = Annotated[Union[HistoryEntry, MentionEntry], Field(discriminator="type")]
+
+
 class HistoryResponse(BaseModel):
-    changes: list[HistoryEntry]
+    entries: list[HistoryItem]
     next_cursor: Optional[str] = None
 
 
@@ -702,8 +729,9 @@ async def loop_history(
     tenant_id: str = Depends(get_current_tenant_id),
     _scoped=Depends(require_scopes(["loop:read"])),
 ):
-    """a loop's changes and notes, newest first: what, when, who, via and
-    why. show narrows it to changes or to notes."""
+    """a loop's history, newest first: its changes and notes (what, when,
+    who, via and why), and the pull requests and commits that mention it.
+    show narrows it to changes, notes or github."""
     try:
         history = await get_proxy_service().loop_history(
             tenant_id, loop, show=show, cursor=cursor, limit=limit

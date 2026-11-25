@@ -1289,7 +1289,7 @@ class TestRetiredReads:
         assert [r.status_code for r in (got, cycles, history)] == [200] * 3
         assert got.json()["state"] == "retired"
         assert cycles.json()["cycles"][0]["ended_at"] is not None
-        assert history.json()["changes"][0]["kind"] == "loop.retire"
+        assert history.json()["entries"][0]["kind"] == "loop.retire"
 
     async def test_the_list_filters_by_retired(self, loops):
         loop = await _retired(loops)

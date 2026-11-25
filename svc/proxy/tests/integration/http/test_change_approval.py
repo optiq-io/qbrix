@@ -209,7 +209,7 @@ class TestApproving:
 
         resp = await api.get(f"/api/v1/loops/{loop['key']}/history")
 
-        newest = resp.json()["changes"][0]
+        newest = resp.json()["entries"][0]
         assert newest["id"] == change_id
         assert newest["via"]["client"] == "Claude Code"
         assert newest["decision"]["answer"] == "approved"

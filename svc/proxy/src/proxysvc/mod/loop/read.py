@@ -1,14 +1,22 @@
 from __future__ import annotations
 
+from collections.abc import Collection
 from collections.abc import Sequence
+from datetime import timezone
 
+from qbrixstore.postgres.models import Change
+from qbrixstore.postgres.models import Mention
 from qbrixstore.postgres.session import get_session
 
 from proxysvc.core import cursor as pages
 from proxysvc.mod.change.note import HISTORY_SHOW
 from proxysvc.mod.change.note import HistoryShow
+from proxysvc.mod.change.proposal import HAPPENED
 from proxysvc.mod.change.repository import ChangeRepository
 from proxysvc.mod.change.serialize import history_entry
+from proxysvc.mod.change.service import workspace_rows
+from proxysvc.mod.github.mention import mention_entry
+from proxysvc.mod.github.repository import MentionRepository
 from proxysvc.mod.loop.repository import LoopRepository
 from proxysvc.mod.loop.result import LoopResultService
 from proxysvc.mod.loop.serialize import cycle_to_dict
@@ -117,32 +125,57 @@ class LoopReadService:
         ref: str,
         *,
         show: HistoryShow = "all",
+        statuses: Collection[str] = HAPPENED,
         cursor: str | None = None,
         limit: int,
     ) -> dict | None:
-        """a loop's changes and notes, newest first; show narrows it to one."""
+        """a loop's history newest first: its changes and notes, and the pull
+        requests and commits that mention it, in one page under one cursor.
+        show narrows it to one of them."""
         before = pages.decode(cursor) if cursor else None
-        kinds, except_kinds = HISTORY_SHOW[show]
+        read = HISTORY_SHOW[show]
         async with get_session() as session:
             loop = await LoopRepository(session, tenant_id).resolve(ref)
             if loop is None:
                 return None
-            rows = await ChangeRepository(session, tenant_id).page_for(
-                "loop",
-                loop.id,
-                before,
-                limit + 1,
-                kinds=kinds,
-                except_kinds=except_kinds,
+            rows: list[Change | Mention] = []
+            if read.changes:
+                rows += await ChangeRepository(session, tenant_id).page_for(
+                    "loop",
+                    loop.id,
+                    before,
+                    limit + 1,
+                    kinds=read.kinds,
+                    except_kinds=read.except_kinds,
+                    statuses=statuses,
+                )
+            if read.mentions:
+                rows += await MentionRepository(session, tenant_id).page_for(
+                    loop.id, before, limit + 1
+                )
+            rows.sort(key=_position, reverse=True)
+            rows, next_cursor = pages.page(rows[: limit + 1], limit, position=_position)
+            changes = [row for row in rows if isinstance(row, Change)]
+            rendered = await workspace_rows(
+                session, tenant_id, [[change] for change in changes]
             )
-            changes, next_cursor = pages.page(rows, limit)
-            people = await People.load(
-                session,
-                tenant_id,
-                [change.actor_user_id for change in changes]
-                + [c.decided_by_user_id for c in changes if c.decided_by_user_id],
-            )
+            by_id = {entry["id"]: entry for entry in rendered}
             return {
-                "changes": [history_entry(change, people) for change in changes],
+                "loop": loop.key,
+                "entries": [
+                    (
+                        {"type": "change", **by_id[row.id]}
+                        if isinstance(row, Change)
+                        else mention_entry(row)
+                    )
+                    for row in rows
+                ],
                 "next_cursor": next_cursor,
             }
+
+
+def _position(row: Change | Mention) -> pages.Position:
+    """where a row sits in history: a change when it was made, a mention when
+    its pull request or commit last moved."""
+    at = row.created_at if isinstance(row, Change) else row.at
+    return (at if at.tzinfo else at.replace(tzinfo=timezone.utc)), row.id
