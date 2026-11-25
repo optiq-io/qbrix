@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Collection
 from datetime import datetime
 from datetime import timezone
+from uuid import uuid4
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +13,7 @@ from qbrixstore.postgres.models import Alert
 
 from proxysvc.core.actor import Actor
 from proxysvc.mod.safety.repository import AlertRepository
+from proxysvc.mod.webhook.repository import WebhookRepository
 
 logger = get_logger(__name__)
 
@@ -19,15 +21,20 @@ CLEARED = "cleared"
 RESUMED = "resumed"
 RETIRED = "retired"
 
+OPENED = "opened"
+RECOVERED = "recovered"
+
 
 class AlertService:
     """the only way an alert opens or ends, inside the caller's transaction,
-    so whatever else that transaction writes lands with it or not at all."""
+    so whatever else that transaction writes lands with it or not at all,
+    the notice for the workspace webhook included."""
 
     def __init__(self, session: AsyncSession, tenant_id: str):
         self._session = session
         self._tenant_id = tenant_id
         self._alerts = AlertRepository(session, tenant_id)
+        self._webhook = WebhookRepository(session, tenant_id)
 
     async def open(
         self,
@@ -44,6 +51,7 @@ class AlertService:
         if found is not None:
             return found
         alert = Alert(
+            id=uuid4().hex,
             tenant_id=self._tenant_id,
             loop_id=loop_id,
             cycle_id=cycle_id,
@@ -54,6 +62,8 @@ class AlertService:
         try:
             async with self._session.begin_nested():
                 self._session.add(alert)
+                await self._session.flush()
+                await self._webhook.queue_notice(alert.id, OPENED, alert.opened_at)
         except IntegrityError:
             found = await self._alerts.open_for(loop_id, signal)
             if found is None:
@@ -75,6 +85,7 @@ class AlertService:
         alert.resolved_kind = actor.kind
         alert.resolved_user_id = actor.user_id
         alert.clear_since = None
+        await self._webhook.queue_notice(alert.id, RECOVERED, alert.resolved_at)
         await self._session.flush()
         logger.info(
             "resolved %s alert on loop %s: %s", alert.signal, alert.loop_id, resolution

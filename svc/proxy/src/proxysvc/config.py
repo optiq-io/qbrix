@@ -94,6 +94,8 @@ class ProxySettings(GrpcSettings):
 
     # under the safety watch's 60 s lease, so its holder renews it in time
     safety_interval_sec: float = Field(default=30.0, gt=0, lt=60)
+    # under the webhook dispatch's 60 s lease, for the same reason
+    webhook_interval_sec: float = Field(default=10.0, gt=0, lt=60)
 
     # clickhouse, read by the insight and event endpoints. required: boot
     # refuses an empty host rather than serving those routes against nothing

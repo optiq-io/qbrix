@@ -1,4 +1,5 @@
-"""the runtime starts the safety watch only with qbrix next switched on."""
+"""the runtime starts the safety watch and the webhook dispatch only with
+qbrix next switched on."""
 
 from __future__ import annotations
 
@@ -22,6 +23,7 @@ class _Component:
         self.stopped = False
         self.redis = object()
         self.loops = object()
+        self.webhooks = object()
         self.entitlements = SimpleNamespace(invalidate=lambda tenant: None)
 
     async def connect(self):
@@ -65,18 +67,33 @@ def watches(monkeypatch) -> list[_Component]:
     return built
 
 
+@pytest.fixture
+def dispatches(monkeypatch, watches) -> list[_Component]:
+    built: list[_Component] = []
+
+    def dispatch(*args, **kwargs):
+        built.append(_Component(*args, **kwargs))
+        return built[-1]
+
+    monkeypatch.setattr(runtime_module, "WebhookDispatch", dispatch)
+    return built
+
+
 def _settings(**overrides) -> ProxySettings:
     return ProxySettings(runenv="dev", clickhouse_host="clickhouse", **overrides)
 
 
-async def test_no_watch_runs_with_next_off(watches):
+async def test_no_watch_runs_with_next_off(watches, dispatches):
     async with ProxyRuntime(_settings(next_enabled=False)):
         pass
 
     assert watches == []
+    assert dispatches == []
 
 
-async def test_the_watch_runs_with_next_on_and_stops_with_the_runtime(watches):
+async def test_the_watch_runs_with_next_on_and_stops_with_the_runtime(
+    watches, dispatches
+):
     async with ProxyRuntime(_settings(next_enabled=True, safety_interval_sec=15)):
         (watch,) = watches
         assert watch.started and not watch.stopped
@@ -86,9 +103,25 @@ async def test_the_watch_runs_with_next_on_and_stops_with_the_runtime(watches):
     assert watch.stopped
 
 
-def test_the_interval_stays_under_the_lease():
+async def test_the_dispatch_runs_with_next_on_and_stops_with_the_runtime(
+    dispatches,
+):
+    settings = _settings(
+        next_enabled=True, webhook_interval_sec=5, console_url="https://console.acme"
+    )
+    async with ProxyRuntime(settings):
+        (dispatch,) = dispatches
+        assert dispatch.started and not dispatch.stopped
+        assert dispatch.kwargs["interval_sec"] == 5
+        assert dispatch.kwargs["console_origin"] == "https://console.acme"
+
+    assert dispatch.stopped
+
+
+@pytest.mark.parametrize("setting", ["safety_interval_sec", "webhook_interval_sec"])
+def test_the_interval_stays_under_the_lease(setting):
     with pytest.raises(ValueError):
-        _settings(safety_interval_sec=60)
+        _settings(**{setting: 60})
 
 
 def _production(**overrides) -> ProxySettings:

@@ -101,6 +101,20 @@ class WebhookService:
             row_id=webhook.id,
         )
 
+    async def attempt(
+        self, webhook: Webhook, delivery_id: str, body: dict, *, at: datetime
+    ) -> Attempt:
+        """one signed try at a delivery. a secret that can't be read fails it
+        without sending: never unsigned."""
+        try:
+            secret = self.secret_of(webhook)
+        except SecretUnreadableError:
+            logger.warning(f"webhook secret unreadable in tenant {webhook.tenant_id}")
+            return Attempt(at=at, error=UNREADABLE)
+        return await self._sender.send(
+            webhook.url, secret, delivery_id, body, public_only=self.public_only
+        )
+
     async def configured(self, tenant_id: str) -> bool:
         async with get_session() as session:
             return await WebhookRepository(session, tenant_id).exists()
@@ -209,20 +223,7 @@ class WebhookService:
             "sent_at": sent_at.isoformat(),
         }
 
-        try:
-            secret = self.secret_of(webhook)
-        except SecretUnreadableError:
-            logger.warning(f"webhook secret unreadable in tenant {tenant_id}")
-            attempt = Attempt(at=sent_at, error=UNREADABLE)
-        else:
-            attempt = await self._sender.send(
-                webhook.url,
-                secret,
-                delivery_id,
-                payload,
-                public_only=self.public_only,
-            )
-
+        attempt = await self.attempt(webhook, delivery_id, payload, at=sent_at)
         delivery = WebhookDelivery(
             id=delivery_id,
             tenant_id=tenant_id,
