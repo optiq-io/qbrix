@@ -374,7 +374,7 @@ async def create_api_key(
         if "limit" in error_msg.lower():
             raise APIKeyLimitException(error_msg)
         raise BadRequestException(error_msg)
-    except (APIKeyLimitException, BadRequestException):
+    except APIKeyLimitException, BadRequestException:
         raise
     except Exception as e:
         logger.error(f"api key creation error: {str(e)}")
@@ -554,7 +554,7 @@ async def update_profile(
         raise InvalidIdentityException(str(e))
     except ValueError as e:
         raise BadRequestException(str(e))
-    except (UserNotFoundException, BadRequestException):
+    except UserNotFoundException, BadRequestException:
         raise
     except Exception as e:
         logger.error(f"profile update error: {str(e)}")
@@ -799,7 +799,7 @@ async def update_workspace(
         raise InvalidIdentityException(str(e))
     except ValueError as e:
         raise BadRequestException(str(e))
-    except (NotFoundException, BadRequestException):
+    except NotFoundException, BadRequestException:
         raise
     except Exception as e:
         logger.error(f"workspace update error: {str(e)}")
@@ -859,7 +859,7 @@ async def update_user_status(
         status_str = "activated" if body.is_active else "deactivated"
         logger.info(f"user {user_id} {status_str} by admin {admin_user.id}")
         return _user_response(updated_user)
-    except (UserNotFoundException, BadRequestException):
+    except UserNotFoundException, BadRequestException:
         raise
     except Exception as e:
         logger.error(f"user status update error: {str(e)}")
