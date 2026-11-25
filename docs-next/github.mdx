@@ -1,0 +1,65 @@
+---
+title: GitHub
+description: Connect your workspace's own read-only GitHub App, so pull requests and commits that mention a loop show up in its history.
+order: 8
+---
+
+GitHub is the one tool qbrix connects to itself, and it is optional. Once a workspace connects it, a pull request or commit that mentions a loop shows up in that loop's history.
+
+## Connecting
+
+An admin connects GitHub from the console, under Settings · GitHub. It takes one pass through GitHub's own pages, and nobody copies a key by hand:
+
+1. Choose whether the app belongs to your personal account or to an organisation, and select **Connect**.
+2. GitHub shows its "Create GitHub App" page, already filled in with this install's addresses. Keep the name or change it, and create the app.
+3. GitHub asks where to install it. Choose the repositories qbrix may see.
+4. GitHub sends you back to Settings · GitHub, which lists those repositories.
+
+Each workspace creates its own app. An install that hosts several workspaces has one app per workspace, and events from an app only ever reach the workspace that created it. The app is private: it can only be installed on the account or organisation that owns it.
+
+Connecting is a setting, not a change. It doesn't appear in any loop's history, and it can't be done over MCP or with a key. Only an admin connects and disconnects. Everyone in the workspace can see whether GitHub is connected, who set it up, and which repositories it can see.
+
+To change which repositories qbrix sees, use **Change on GitHub** in Settings · GitHub, which opens the installation's page on GitHub.
+
+## What the app can see
+
+The app asks GitHub for these permissions, all read-only:
+
+| Permission | Why |
+|---|---|
+| Pull requests: read | To see pull requests that mention a loop |
+| Contents: read | GitHub only sends push events, which carry commit messages, to apps with this permission |
+| Metadata: read | Required by GitHub for every app |
+
+It subscribes to two events, `pull_request` and `push`. qbrix keeps only the title, number, author, state, time and link of what mentions a loop. It never fetches files or diffs, even though GitHub shows "Contents: read" as read access to code, and it can't write anything to GitHub.
+
+The app's private key and webhook secret come from GitHub once, when the app is created. qbrix stores them encrypted under `PROXY_SECRET_BOX_KEY` (see [configuration](/docs/configuration)) and never shows them. If that key changes, qbrix can no longer act as the app: disconnect and connect again.
+
+## GitHub must reach the install
+
+GitHub tells qbrix about a pull request or commit by sending an event to this install's public address, `PROXY_PUBLIC_URL`. An install GitHub can't reach, such as one on a laptop or on a private network, can't link pull requests.
+
+Settings · GitHub says so instead of failing quietly:
+
+- **Before you connect**, when `PROXY_PUBLIC_URL` isn't a public `https` address: `localhost`, a private IP, or a name such as `qbrix.internal`.
+- **A minute after you install the app**, when no event from GitHub has arrived. Check that the address is public and that nothing in front of qbrix, such as a proxy or a firewall, blocks `/api/v1/github/events/`.
+
+As soon as an event arrives, the warning goes away.
+
+### Trying it on a local install
+
+A tunnel gives a local install a public `https` address. With [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) installed, from the repository:
+
+```bash
+make dev-next-tunnel
+```
+
+It opens a quick tunnel to `localhost:8080`, needing no Cloudflare account, and starts the proxy with `PROXY_PUBLIC_URL` set to the tunnel's address. A quick tunnel's address changes every time it starts, so an app created through one stops receiving events when the tunnel closes. Disconnect it before you stop.
+
+## Disconnecting
+
+**Disconnect** in Settings · GitHub removes the app's installation on GitHub, then the credentials qbrix kept. Mentions already in loops' history stay.
+
+The app itself stays on GitHub, owned by whoever created it. Settings · GitHub links to its page on GitHub, where its owner can delete it. Connecting again creates a new app.
+
+If GitHub doesn't answer, nothing is removed, so you can try again. If the app was already uninstalled or deleted on GitHub, disconnecting only removes the credentials.

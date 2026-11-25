@@ -2,6 +2,7 @@ from datetime import datetime, time, timezone
 from uuid import uuid4
 from typing import List, Optional
 from sqlalchemy import String, Boolean, Float, Integer, ForeignKey, JSON, DateTime, Time
+from sqlalchemy import BigInteger
 from sqlalchemy import Text
 from sqlalchemy import Index, UniqueConstraint
 from sqlalchemy import text
@@ -922,6 +923,40 @@ class WebhookDelivery(Base):
         DateTime(timezone=True), nullable=True
     )
     sent_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class GitHubApp(Base):
+    """the workspace's own GitHub App, which it created through GitHub's
+    manifest flow. its private key and webhook secret are kept sealed, because
+    qbrix signs with the one and verifies GitHub's events with the other."""
+
+    __tablename__ = "github_apps"
+
+    id: Mapped[str] = mapped_column(
+        String(32), primary_key=True, default=lambda: uuid4().hex
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("tenants.id"), nullable=False, unique=True
+    )
+    app_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    slug: Mapped[str] = mapped_column(String(64), nullable=False)
+    client_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    owner: Mapped[str] = mapped_column(String(64), nullable=False)
+    owner_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    private_key_ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
+    webhook_secret_ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
+    events_token: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    installation_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    installed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_event_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

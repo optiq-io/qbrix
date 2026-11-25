@@ -564,3 +564,31 @@ class InvalidWebhookURLException(UnprocessableEntityException):
 
     detail = "invalid webhook url"
     code = "INVALID_WEBHOOK_URL"
+
+
+class GitHubNotConnectedException(NotFoundException):
+    """the workspace has no github app."""
+
+    detail = "the workspace hasn't connected github"
+    code = "GITHUB_NOT_CONNECTED"
+
+
+class GitHubAlreadyConnectedException(ConflictException):
+    """the workspace's github app is already installed."""
+
+    detail = "github is already connected; disconnect it first"
+    code = "GITHUB_ALREADY_CONNECTED"
+
+
+class GitHubUnavailableException(ServiceUnavailableException):
+    """github didn't answer."""
+
+    detail = "github didn't answer; try again"
+    code = "GITHUB_UNAVAILABLE"
+
+
+class GitHubSignatureException(UnauthorizedException):
+    """an event github didn't sign."""
+
+    detail = "the event isn't signed by the workspace's github app"
+    code = "GITHUB_SIGNATURE_INVALID"
