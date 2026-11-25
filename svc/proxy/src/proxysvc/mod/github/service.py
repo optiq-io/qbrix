@@ -18,6 +18,7 @@ from cachebox import TTLCache
 from cachebox import VTTLCache
 
 from qbrixstore.postgres.models import GitHubApp
+from qbrixstore.postgres.models import Mention
 from qbrixstore.postgres.session import get_session
 
 from proxysvc.config import ProxySettings
@@ -32,10 +33,19 @@ from proxysvc.core.secretbox import SecretUnreadableError
 from proxysvc.mod.github.client import Conversion
 from proxysvc.mod.github.client import GitHubClient
 from proxysvc.mod.github.client import app_jwt
+from proxysvc.mod.github.mention import CLOSED
+from proxysvc.mod.github.mention import COMMIT
+from proxysvc.mod.github.mention import MERGED
+from proxysvc.mod.github.mention import OPEN
+from proxysvc.mod.github.mention import PULL_REQUEST
+from proxysvc.mod.github.mention import mentioned_keys
+from proxysvc.mod.github.mention import squashed_number
 from proxysvc.mod.github.reach import host_of
 from proxysvc.mod.github.reach import unreachable_reason
 from proxysvc.mod.github.repository import GitHubAppRepository
+from proxysvc.mod.github.repository import MentionRepository
 from proxysvc.mod.github.repository import by_events_token
+from proxysvc.mod.github.repository import first_delivery
 from proxysvc.mod.github.state import State
 from proxysvc.mod.github.state import StateSigner
 from proxysvc.mod.people import People
@@ -53,6 +63,7 @@ ORGANISATION = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?")
 
 PERMISSIONS = {"pull_requests": "read", "contents": "read", "metadata": "read"}
 EVENTS = ["pull_request", "push"]
+PULL_REQUEST_ACTIONS = frozenset({"opened", "edited", "reopened", "closed"})
 
 REACH_WINDOW = timedelta(seconds=60)
 REPOSITORIES_TTL_SEC = 60.0
@@ -73,6 +84,10 @@ def _utc(value: datetime | None) -> datetime | None:
 def _iso(value: datetime | None) -> str | None:
     value = _utc(value)
     return value.isoformat() if value else None
+
+
+def _time(value: str | None) -> datetime | None:
+    return datetime.fromisoformat(value) if value else None
 
 
 def _account_settings(app: GitHubApp) -> str:
@@ -134,6 +149,7 @@ class GitHubService:
             people = await People.load(
                 session, tenant_id, [app.created_by if app else ""]
             )
+            counts = await MentionRepository(session, tenant_id).counts_by_repository()
         reachable, note = self._reach(app)
         found: dict = {
             "connected": bool(app and app.installation_id),
@@ -163,7 +179,7 @@ class GitHubService:
                 )
             return found
         found["manage_url"] = manage_url(app)
-        found["repositories"] = await self._repository_list(app)
+        found["repositories"] = await self._repository_list(app, counts)
         return found
 
     def _reach(self, app: GitHubApp | None) -> tuple[bool | None, str | None]:
@@ -186,9 +202,11 @@ class GitHubService:
             )
         return None, None
 
-    async def _repository_list(self, app: GitHubApp) -> list[dict] | None:
-        """the repositories the installation may see, or None when github
-        couldn't be asked."""
+    async def _repository_list(
+        self, app: GitHubApp, counts: dict[str, tuple[int, datetime]]
+    ) -> list[dict] | None:
+        """the repositories the installation may see, each with how many
+        entries mention a loop, or None when github couldn't be asked."""
         names = self._repositories.get(app.installation_id)
         if names is None:
             try:
@@ -201,7 +219,12 @@ class GitHubService:
                 return None
             self._repositories.insert(app.installation_id, names)
         return [
-            {"full_name": name, "mentions": 0, "last_mention": None} for name in names
+            {
+                "full_name": name,
+                "mentions": counts.get(name, (0, None))[0],
+                "last_mention": _iso(counts.get(name, (0, None))[1]),
+            }
+            for name in names
         ]
 
     async def _installation_token(self, app: GitHubApp) -> str:
@@ -396,7 +419,9 @@ class GitHubService:
     ) -> str:
         """take one event github sent to the app's address, once its signature
         checks out, and return its name. any event shows github reaches the
-        install; installation events keep the installation current."""
+        install; installation events keep the installation current; pull
+        requests and commits that mention a loop go into its history. a
+        delivery github sends again changes nothing."""
         async with get_session() as session:
             app = await by_events_token(session, events_token)
             if app is None:
@@ -413,10 +438,132 @@ class GitHubService:
             if not _signed(secret, body, headers.get("x-hub-signature-256", "")):
                 raise GitHubSignatureError("the event isn't signed by the app")
             name = headers.get("x-github-event", "")
-            app.last_event_at = self._clock()
+            now = self._clock()
+            app.last_event_at = now
+            delivery = headers.get("x-github-delivery")
+            if delivery and not await first_delivery(
+                session, app.tenant_id, delivery, now=now
+            ):
+                return name
             if name == "installation":
                 self._installation_event(app, json.loads(body))
+            elif name == "pull_request":
+                await self._pull_request(
+                    MentionRepository(session, app.tenant_id), json.loads(body)
+                )
+            elif name == "push":
+                await self._push(
+                    MentionRepository(session, app.tenant_id), json.loads(body)
+                )
         return name
+
+    async def _pull_request(self, mentions: MentionRepository, payload: dict) -> None:
+        """one entry per loop the pull request names, following its state. a
+        loop whose mention was edited away keeps its entry, which still follows."""
+        action = payload.get("action")
+        if action not in PULL_REQUEST_ACTIONS:
+            return
+        pull = payload["pull_request"]
+        repository = payload["repository"]["full_name"]
+        ref = str(pull["number"])
+        keys = mentioned_keys(
+            (pull.get("title"), pull.get("body")),
+            console_origin=self._settings.console_origin,
+            branch=pull["head"]["ref"],
+        )
+        loops = set((await mentions.resolve_keys(keys)).values())
+        held = {
+            m.loop_id: m for m in await mentions.for_ref(repository, PULL_REQUEST, ref)
+        }
+        for loop_id in sorted(loops | set(held)):
+            mention = held.get(loop_id)
+            if mention is None:
+                mention = Mention(
+                    tenant_id=mentions.tenant_id,
+                    loop_id=loop_id,
+                    repository=repository,
+                    kind=PULL_REQUEST,
+                    ref=ref,
+                    number=pull["number"],
+                )
+                mentions.add(mention)
+            self._follow(mention, pull, reopened=action == "reopened")
+
+    def _follow(self, mention: Mention, pull: dict, *, reopened: bool) -> None:
+        merged_at = _time(pull.get("merged_at"))
+        closed_at = _time(pull.get("closed_at"))
+        mention.title = pull["title"]
+        mention.author = pull["user"]["login"]
+        mention.url = pull["html_url"]
+        mention.opened_at = _time(pull["created_at"])
+        mention.updated_at = self._clock()
+        if merged_at is not None:
+            mention.state = MERGED
+            mention.at = merged_at
+            mention.merged_at = merged_at
+            mention.closed_at = closed_at
+            mention.merged_by = (pull.get("merged_by") or {}).get("login")
+        elif pull["state"] == "closed":
+            mention.state = CLOSED
+            mention.at = closed_at or self._clock()
+            mention.closed_at = closed_at
+        else:
+            if reopened:
+                mention.at = _time(pull.get("updated_at")) or self._clock()
+            elif mention.at is None or mention.state != OPEN:
+                mention.at = mention.opened_at
+            mention.state = OPEN
+            mention.merged_at = None
+            mention.closed_at = None
+            mention.merged_by = None
+
+    async def _push(self, mentions: MentionRepository, payload: dict) -> None:
+        """one entry per loop each commit names, once the commits reach the
+        default branch. a squash merge's commit is left out where its pull
+        request already has the loop's entry, so the merge shows once."""
+        repository = payload["repository"]
+        if payload.get("ref") != f"refs/heads/{repository['default_branch']}":
+            return
+        name = repository["full_name"]
+        pushed_at = repository.get("pushed_at")
+        at = (
+            datetime.fromtimestamp(pushed_at, timezone.utc)
+            if isinstance(pushed_at, int)
+            else self._clock()
+        )
+        for commit in payload.get("commits") or []:
+            message = commit["message"]
+            keys = mentioned_keys(
+                (message,), console_origin=self._settings.console_origin
+            )
+            if not keys:
+                continue
+            loops = set((await mentions.resolve_keys(keys)).values())
+            number = squashed_number(message)
+            if number is not None:
+                loops -= {
+                    m.loop_id
+                    for m in await mentions.for_ref(name, PULL_REQUEST, str(number))
+                }
+            sha = commit["id"]
+            loops -= {m.loop_id for m in await mentions.for_ref(name, COMMIT, sha)}
+            author = commit.get("author") or {}
+            for loop_id in sorted(loops):
+                mentions.add(
+                    Mention(
+                        tenant_id=mentions.tenant_id,
+                        loop_id=loop_id,
+                        repository=name,
+                        kind=COMMIT,
+                        ref=sha,
+                        sha=sha,
+                        title=message.split("\n", 1)[0],
+                        author=author.get("username") or author.get("name") or "",
+                        url=commit["url"],
+                        at=at,
+                        updated_at=self._clock(),
+                    )
+                )
 
     def _installation_event(self, app: GitHubApp, payload: dict) -> None:
         installation_id = payload["installation"]["id"]

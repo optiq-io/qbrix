@@ -21,6 +21,32 @@ Connecting is a setting, not a change. It doesn't appear in any loop's history, 
 
 To change which repositories qbrix sees, use **Change on GitHub** in Settings · GitHub, which opens the installation's page on GitHub.
 
+## Mentioning a loop
+
+A pull request or commit links to a loop only when it names the loop explicitly. Loop keys are ordinary words, so qbrix never links by guesswork:
+
+| Where | How to mention `checkout-headline` |
+|---|---|
+| A pull request's title or description | `qbrix:checkout-headline`, or a link to the loop in the console |
+| A pull request's branch | `qbrix/checkout-headline`, anywhere in the branch name: `ada/qbrix/checkout-headline` works too. A branch can't hold a colon. |
+| A commit message | `qbrix:checkout-headline`, or a link to the loop in the console |
+
+A bare `checkout-headline` links nothing, and neither does a link to another install. Both console links count: `/loops/checkout-headline` and `/next/loops/checkout-headline`, with anything after them.
+
+One pull request can mention several loops, and each gets its own entry. A key a draft had before it was renamed still links to that loop, unless another loop has that key now.
+
+## What appears in history
+
+| On GitHub | In the loop's history |
+|---|---|
+| A pull request that mentions the loop is opened | The pull request, its number, title, author and a link, as open |
+| It is merged or closed | The same entry shows merged or closed, at the time it happened. Reopened, it shows open again. |
+| A commit that mentions the loop reaches the default branch | The commit, its first line, its author and a link |
+
+A squash merge's commit doesn't add a second entry when its pull request already has one. Commits on other branches don't appear until they reach the default branch. If a later edit removes the mention, the entry stays and still follows the pull request.
+
+These entries aren't changes: they never alter the loop, and they don't appear on the Changes page. Read them in the loop's history, with the GitHub filter to see only them, or over MCP with `loop_history`.
+
 ## What the app can see
 
 The app asks GitHub for these permissions, all read-only:

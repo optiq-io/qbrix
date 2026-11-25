@@ -274,7 +274,7 @@ class TestMinors:
         changes = await loops.get("/api/v1/changes", params={"who": "qbrix"})
 
         assert history.status_code == 200, history.text
-        [entry] = [e for e in history.json()["changes"] if e["kind"] == "engine.minor"]
+        [entry] = [e for e in history.json()["entries"] if e["kind"] == "engine.minor"]
         assert entry["verb"] == "updated the engine of"
         assert entry["who"]["kind"] == "qbrix"
         assert changes.status_code == 200, changes.text

@@ -66,7 +66,7 @@ async def _added(client, text: str) -> dict:
 async def _history(client, **params) -> list[dict]:
     resp = await client.get("/api/v1/loops/checkout-headline/history", params=params)
     assert resp.status_code == 200, resp.text
-    return resp.json()["changes"]
+    return resp.json()["entries"]
 
 
 async def _post(client, path: str, json: dict | None = None) -> dict:

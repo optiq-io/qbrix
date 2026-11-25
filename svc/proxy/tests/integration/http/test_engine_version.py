@@ -166,7 +166,7 @@ class TestStaying:
 
         assert history.status_code == 200, history.text
         [entry] = [
-            e for e in history.json()["changes"] if e["kind"] == "engine.version"
+            e for e in history.json()["entries"] if e["kind"] == "engine.version"
         ]
         assert entry["verb"] == "changed the engine version of"
         [row] = [r for r in changes.json()["changes"] if r["kind"] == "engine.version"]

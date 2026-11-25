@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+from typing import Annotated
 from typing import Any
 from typing import Literal
 from typing import Optional
+from typing import Union
 
 from pydantic import BaseModel
+from pydantic import Field
 
 from proxysvc.core.autonomy import Level
 from proxysvc.transport.http.router.change import ChangeEntry
-from proxysvc.transport.http.router.change import ChangePage
 from proxysvc.transport.http.router.loop import Alert
 from proxysvc.transport.http.router.loop import HistoryEntry
 from proxysvc.transport.http.router.loop import LoopResults
+from proxysvc.transport.http.router.loop import MentionEntry
 from proxysvc.transport.http.router.loop import LoopSummary
 from proxysvc.transport.http.router.loop import OpenAlert
 from proxysvc.transport.http.router.loop import PreviewResponse
@@ -124,7 +127,11 @@ class ChangeView(ChangeEntry):
     url: str
 
 
-class HistoryPage(ChangePage):
+class HistoryPage(BaseModel):
+    entries: list[
+        Annotated[Union[ChangeEntry, MentionEntry], Field(discriminator="type")]
+    ]
+    next_cursor: Optional[str] = None
     url: str
 
 

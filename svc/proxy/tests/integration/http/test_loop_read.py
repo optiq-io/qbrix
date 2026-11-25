@@ -402,7 +402,7 @@ class TestHistory:
 
         page = await _get(loops, "/checkout-headline/history")
 
-        assert [c["kind"] for c in page["changes"]] == [
+        assert [c["kind"] for c in page["entries"]] == [
             "loop.launch",
             "loop.rename",
             "loop.create",
@@ -413,7 +413,7 @@ class TestHistory:
         created = await _create(loops)
         await _add_user(created["owner"]["id"], "Ada", "ada@example.com")
 
-        (change,) = (await _get(loops, "/checkout-headline/history"))["changes"]
+        (change,) = (await _get(loops, "/checkout-headline/history"))["entries"]
 
         assert change["who"] == {
             "kind": "member",
@@ -435,7 +435,7 @@ class TestHistory:
         )
         await _record(created["id"], "loop.rename", via, "a clearer name")
 
-        change = (await _get(loops, "/checkout-headline/history"))["changes"][0]
+        change = (await _get(loops, "/checkout-headline/history"))["entries"][0]
 
         assert change["who"] == {
             "kind": "connection",
@@ -451,7 +451,7 @@ class TestHistory:
             created["id"], "loop.pause", Actor(kind="qbrix", user_id=""), "errors"
         )
 
-        change = (await _get(loops, "/checkout-headline/history"))["changes"][0]
+        change = (await _get(loops, "/checkout-headline/history"))["entries"][0]
 
         assert change["who"] == {"kind": "qbrix", "user_id": None, "name": None}
         assert change["via"] is None
@@ -461,7 +461,7 @@ class TestHistory:
         await _launch(loops, "checkout-headline")
         await _pause_by_qbrix(wired_app, "checkout-headline")
 
-        changes = (await _get(loops, "/checkout-headline/history"))["changes"]
+        changes = (await _get(loops, "/checkout-headline/history"))["entries"]
 
         assert [(c["kind"], c["evidence"]) for c in changes] == [
             ("loop.pause", EVIDENCE),
@@ -475,7 +475,7 @@ class TestHistory:
             created["id"], "loop.rename", Actor.member("user-gone"), "before leaving"
         )
 
-        change = (await _get(loops, "/checkout-headline/history"))["changes"][0]
+        change = (await _get(loops, "/checkout-headline/history"))["entries"][0]
 
         assert change["who"]["user_id"] == "user-gone"
         assert change["who"]["name"] == "former member"
@@ -492,8 +492,8 @@ class TestHistory:
             loops, "/checkout-headline/history", limit=3, cursor=first["next_cursor"]
         )
 
-        assert len(first["changes"]) == 3
-        assert [c["kind"] for c in second["changes"]] == ["loop.create"]
+        assert len(first["entries"]) == 3
+        assert [c["kind"] for c in second["entries"]] == ["loop.create"]
         assert second["next_cursor"] is None
 
     async def test_an_unknown_loop_is_not_found(self, loops):

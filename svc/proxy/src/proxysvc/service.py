@@ -928,11 +928,12 @@ class ProxyService:
         ref: str,
         *,
         show: HistoryShow = "all",
+        statuses: Collection[str] = HAPPENED,
         cursor: str | None = None,
         limit: int,
     ) -> dict | None:
         return await LoopReadService.loop_history(
-            tenant_id, ref, show=show, cursor=cursor, limit=limit
+            tenant_id, ref, show=show, statuses=statuses, cursor=cursor, limit=limit
         )
 
     async def select_loop(
