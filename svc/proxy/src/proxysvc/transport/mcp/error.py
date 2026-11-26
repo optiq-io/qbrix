@@ -48,6 +48,17 @@ def unknown_loop(ref: str, keys: Iterable[str]) -> Refusal:
     return Refusal(f"No loop with key or id {ref}.{hint}")
 
 
+def docs_ask() -> Refusal:
+    return Refusal(
+        "Give docs_search either a query to search the docs or a page to read one, not both."
+    )
+
+
+def unknown_docs_page(ref: str, slugs: Iterable[str]) -> Refusal:
+    hint = _did_you_mean(ref, slugs) or f" The pages are: {', '.join(sorted(slugs))}."
+    return Refusal(f"No docs page {ref}.{hint}")
+
+
 def unknown_metric(ref: str, names: Iterable[str]) -> Refusal:
     hint = (
         _did_you_mean(ref, names)

@@ -41,6 +41,8 @@ WORKDIR /app
 COPY --from=builder /workspace/.venv /app/.venv
 
 COPY svc/proxy/src ./src
+COPY docs ./docs/docs
+COPY docs-next ./docs/docs-next
 
 ENV PATH="/app/.venv/bin:$PATH"
 

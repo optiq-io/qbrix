@@ -130,6 +130,8 @@ class ProxySettings(GrpcSettings):
     # each connection's own limit on /mcp, per minute
     mcp_calls_per_minute: int = Field(default=120, ge=1)
     mcp_changes_per_minute: int = Field(default=30, ge=1)
+    # the folder holding docs/ and docs-next/, which docs_search serves
+    docs_path: str = "/app/docs"
 
     # email
     email_provider: Literal["auto", "smtp", "resend", "none"] = "auto"
