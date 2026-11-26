@@ -4,6 +4,80 @@ description: A loop is a place in your product where qbrix decides on every requ
 order: 1
 ---
 
+A loop is one choice in your product that qbrix makes on every request: which headline a checkout shows, which plan a pricing page leads with, which model answers a question. Your app asks the loop for a decision with `select`, reports what happened with `outcome` or `track`, and the loop learns which option works. A loop has no finished state: it runs for as long as the choice exists in your product.
+
+## What a loop is
+
+- **Name and key.** People see the name and can rename the loop at any time. Code calls the key, which qbrix makes from the name when you create the loop: `Checkout headline` becomes `checkout-headline`, or `checkout-headline-2` if that key is taken. You can choose the key yourself, and change it while the loop is a draft. It locks at launch, because deployed code calls it. Every loop also has an id, and the API takes either.
+- **Options.** What the loop can serve, at least two. Each has a key, a name and a **config**: any JSON your app needs to show the option, returned with every decision. `{"headline": "Only 3 left"}` is enough; an option needs no code of its own.
+- **Metric.** What the loop improves, such as `purchase`. It says which outcomes count and how long a decision waits for one. See [Metrics and outcomes](/docs/metrics-and-outcomes).
+- **Engine.** What chooses an option on every request and learns from each outcome. Spinoza is the default. See [Engines](/docs/engines).
+- **Cycle.** One run of the loop's options, engine and learning. Launching starts the first cycle; new options, a new engine or a reset start the next one. Earlier cycles stay readable, and nothing they learned mixes into a new one.
+- **Delivery and fallback.** Who the loop decides for, and the option everyone else gets. See [who gets what](#who-gets-what).
+- **Context.** What your app tells the loop about each request: the `unit` it is for, such as a visitor or an account, and properties such as `device` or `plan`. See [what a loop learns from](#what-a-loop-learns-from).
+- **Brief.** What the loop is for, and its owner: the person who created it, directly or through their client.
+
+Every change to a loop, from creating it to retiring it, is recorded in its [history](#history) with who made it, through which client and why.
+
+## States
+
+| State | What `select` answers | Learning |
+|---|---|---|
+| **Draft** | The fallback, reason `draft` | None yet |
+| **Live** | The engine's choice, reason `live`, inside its delivery | From every decision |
+| **Committed** | One option for everyone in its delivery, reason `committed`. Exploring stops. | The committed option keeps learning; the others keep what they learned |
+| **Paused** | The fallback, reason `paused` | Decisions made before the pause still seal and teach |
+| **Retired** | The fallback, reason `retired` | Decisions made before it retired seal as their windows close; then none |
+
+Outside its delivery, a live or committed loop answers the fallback with the reason `outside_delivery`. Only the answers with the reasons `live` and `committed` are decisions: they carry a `request_id`, are recorded, and count toward usage. Fallback answers are counted per loop by their reason and never billed.
+
+- **Draft to live.** You wire and deploy your code while the loop is a draft: it answers the fallback until it is launched. Launching starts the first cycle and can't be undone.
+- **Live to committed, and back.** Commit a live loop to one option once you want everyone to get it. It still decides, so outcomes keep arriving and its health keeps working. Reopening returns it to live in the same cycle, with everything it learned.
+- **Paused.** Pause a live or committed loop to stop it for a while: everyone gets the fallback. Resuming returns it to the state it was paused from. qbrix pauses a loop itself when it fails its decisions; see [alerts](/docs/alerts).
+- **Retired.** Retire a loop when its choice leaves your product: you built the chosen option in and are removing the `select` call. A live, committed or paused loop can be retired. Apps that still call it get the fallback, and its history stays readable. Retiring can't be undone; to serve the choice again, create a new loop.
+- **Deleting a draft.** A draft that never launched can be deleted instead. Its key is free at once, and `select` on it returns `404 LOOP_NOT_FOUND` rather than the fallback, so code wired to a deleted draft must handle that error.
+
+## Asking for a decision
+
+Your app calls `select` with the loop's key and the request's context, usually through an [SDK](/docs/sdks):
+
+```bash
+curl -X POST $QBRIX_BASE_URL/api/v1/select \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "loop": "checkout-headline",
+    "context": {"unit": "visitor-42", "properties": {"device": "mobile"}}
+  }'
+```
+
+```json
+{
+  "option": {"key": "control", "name": "Control", "config": {"headline": "Buy now"}},
+  "request_id": "Acyci_ohG0lZvMk9cpXQZnysUj-6WXlPmZbcCQLG-NgaxZlqqMp7TaOP_5D4PxA4HddjFPqk802prcVQuJLwfk4AAAGiGdT9xJBptLVsfj4yQTdBZw",
+  "reason": "live",
+  "metric": "purchase",
+  "window_seconds": 172800
+}
+```
+
+- **`unit`** is required: who or what sees the decision, such as a visitor, a session or an account, at most 256 characters. Keep it stable for as long as an outcome can arrive.
+- **`properties`** is an object with what your app knows about the request. Every property is recorded with the decision and can be used in the [audience](#conditions).
+- **`option`** is what to show. Render it from its `config`.
+- **`request_id`**, `metric` and `window_seconds` come with a decision: send the `request_id` back with its [outcome](/docs/metrics-and-outcomes#outcomes) within `window_seconds`. A fallback answer has none of them:
+
+```json
+{
+  "option": {"key": "control", "name": "Control", "config": {"headline": "Buy now"}},
+  "request_id": null,
+  "reason": "paused",
+  "metric": null,
+  "window_seconds": null
+}
+```
+
+Read the `reason` when a page shows something you didn't expect: it says whether the loop decided, and if not, why.
+
 ## Who gets what
 
 Every answer from `select` is one of two things:
@@ -134,6 +208,10 @@ On a draft, the brief also holds the options, the engine and the metric, and cha
 
 `cycle_start` over MCP, or `POST /api/v1/loops/{loop}/cycles`, starts a new cycle of a live or paused loop with new options, a new engine, a new metric, a new context, or any of them together. The new cycle pins the metric's newest version, and a metric of any type works: the engine is chosen again for it. The current cycle ends and stays readable. A new cycle can't be undone.
 
+A paused loop stays paused in its new cycle. A committed loop is reopened first, and a loop paused from committed is resumed and reopened first, because a new cycle explores again. The one exception is a metric's [new semantic](/docs/metrics-and-outcomes#versions): it starts a new cycle on committed loops too, and they stay committed.
+
+`cycle_reset` over MCP, or `POST /api/v1/loops/{loop}/cycles/reset`, starts a new cycle with the same options, engine and fallback, learning afresh. Reset when what the loop learned is wrong, for example after outcomes were sent broken. It can't be undone either.
+
 ### Its engine version
 
 A cycle on `spinoza:1` follows its major: it takes each new 1.x as qbrix is upgraded. One on `spinoza:1.3` stays exactly on 1.3. Once launched, a loop switches between the two without a new cycle, with `engine_version` over MCP or the engine alone in the `cycle` part of an apply below. The cycle keeps what it learned. Staying pins the minor the cycle runs now; following again moves it to the newest minor qbrix ships. It is one change, `engine.version`, and it can be undone. Another minor, another major or another engine starts a new cycle.
@@ -159,3 +237,380 @@ A cycle on `spinoza:1` follows its major: it takes each new 1.x as qbrix is upgr
 
 `POST /api/v1/loops/{loop}/edits/check` takes the same body and applies nothing. It answers with the changes the apply would make, the parts each carries, whether each can be undone, and the number of the cycle it would start.
 
+
+## History
+
+A loop's history lists, newest first:
+
+- **Its changes:** what changed, who made it, through which client, and why, with their status: `applied`, `undone`, `waiting` for approval, or `declined`. A change made by a [connection](/docs/connections-and-autonomy) that asked first shows who answered it, where and why.
+- **Notes:** plain text anyone who can change the loop adds, such as "Black Friday traffic from today until Monday". A note stays: it can't be edited or undone, and a correction is a new note.
+- **Pull requests and commits** that mention the loop, once [GitHub is connected](/docs/github#mentioning-a-loop).
+
+`loop_history` and `note_add` over MCP read it and add to it. Changes that can be undone are undone from the history or the workspace's changes, with `change_undo` over MCP.
+
+## Loops API
+
+The examples use the same variables as the [API reference](/docs/api-reference):
+
+```bash
+export QBRIX_BASE_URL="http://localhost:8000"
+export QBRIX_API_KEY="your-api-key"
+```
+
+Every role can read loops. Admins and members can change them ([Roles and limits](/docs/roles-and-limits)), and every change is recorded in the loop's history. Committing, reopening, pausing, resuming, retiring, starting or resetting a cycle, editing and adding a note are a person's changes: made in the console, or by a person's client over [MCP](/docs/mcp-server). An API key gets `403 FORBIDDEN` from them.
+
+Every `{loop}` is the loop's key or its id.
+
+### Create a loop
+
+<Endpoint method="POST" path="/api/v1/loops" description="Create a draft loop" />
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | What people see. Required. |
+| `key` | string | What code calls. Lowercase letters, digits, `_`, `-` and `.`, starting with a letter or digit, at most 64 characters, unique in the workspace. Made from the name when left out. |
+| `purpose` | string | What the loop is for. Optional. |
+| `metric` | string | The metric the loop improves, by name or id. Required. |
+| `options` | array | At least two, each `{"name", "key"?, "config"?}`. An option's key follows the same rules as the loop's and is made from its name when left out; `config` is any JSON object. |
+| `fallback` | string | The key of the option everyone the loop isn't deciding for gets. The first option when left out. |
+| `engine` | string | `spinoza` by default. See [Engines](/docs/engines). |
+| `context` | array | The properties its engine learns from, as in [What a loop learns from](#what-a-loop-learns-from). Leibniz needs one. |
+
+```bash
+curl -X POST $QBRIX_BASE_URL/api/v1/loops \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Checkout headline",
+    "purpose": "lift checkout",
+    "metric": "purchase",
+    "options": [
+      {"name": "Control", "config": {"headline": "Buy now"}},
+      {"name": "Urgency", "config": {"headline": "Only 3 left"}}
+    ]
+  }'
+```
+
+Response, `201 Created`:
+
+```json
+{
+  "id": "ac523fba59794f9996dc0902c6f8d81a",
+  "key": "checkout-headline",
+  "name": "Checkout headline",
+  "purpose": "lift checkout",
+  "metric": {
+    "id": "d76314faa4f34da9adc550b892f07e4e",
+    "name": "purchase",
+    "type": "conversion",
+    "version": "1.0",
+    "semantic": "The visitor completes a checkout.",
+    "window_seconds": 172800
+  },
+  "engine": "spinoza",
+  "state": "draft",
+  "paused_from": null,
+  "committed": null,
+  "live_since": null,
+  "owner": {"id": "<user-id>", "name": "Ana"},
+  "fallback": "control",
+  "delivery": {
+    "audience": [],
+    "rollout": 100,
+    "schedule": {"hours": null, "starts_on": null, "timezone": null}
+  },
+  "context": null,
+  "options": [
+    {"id": "3aac76c6ddc84020b7ce837818ea2417", "key": "control", "name": "Control", "config": {"headline": "Buy now"}},
+    {"id": "361e40fceb834ba3af590eecbc910d75", "key": "urgency", "name": "Urgency", "config": {"headline": "Only 3 left"}}
+  ],
+  "cycle": null,
+  "created_at": "2026-11-26T21:48:38.566590+00:00",
+  "updated_at": "2026-11-26T21:48:38.566591+00:00"
+}
+```
+
+This is the loop as every route returns it:
+
+- `state` is `draft`, `live`, `committed`, `paused` or `retired`. A paused loop's `paused_from` is the state it returns to, and a committed loop's `committed` is the key of its option, kept while it is paused.
+- `live_since` is when it last went live: at launch, and again when it resumes.
+- `cycle` is the current cycle, `null` until launch: its `number`, its `engine` as pinned (`spinoza:1`), the `engine_version` it runs, the `metric_version` it started with, its `context`, and when it `started_at` and `ended_at`.
+
+Creating a loop can be undone.
+
+### List loops
+
+<Endpoint method="GET" path="/api/v1/loops" description="List the workspace's loops, newest first" />
+
+```bash
+curl "$QBRIX_BASE_URL/api/v1/loops?state=live&state=committed" \
+  -H "X-API-Key: $QBRIX_API_KEY"
+```
+
+| Query | Description |
+|---|---|
+| `state` | Only loops in this state. Repeat it for several. |
+| `limit` | Loops per page, 50 by default and 200 at most. |
+| `cursor` | The `next_cursor` of the page before. |
+
+Response, `200 OK`: `{"loops": [...], "next_cursor": "..."}`, with `next_cursor` `null` on the last page. Each loop leaves out its options' config, and adds:
+
+- `latest_change`: its newest history entry.
+- `alerts`: its open [alerts](/docs/alerts), each `{"signal", "opened_at"}`.
+- `results`: each option's share of decisions over the last day, lift over an even split with `early`, and `decisions_per_second`. A draft has none.
+
+### Get a loop
+
+<Endpoint method="GET" path="/api/v1/loops/{loop}" description="Get a loop by its key or its id" />
+
+```bash
+curl $QBRIX_BASE_URL/api/v1/loops/checkout-headline \
+  -H "X-API-Key: $QBRIX_API_KEY"
+```
+
+Response, `200 OK`: the loop with its options' config and its `latest_change`.
+
+### Rename a loop
+
+<Endpoint method="PATCH" path="/api/v1/loops/{loop}" description="Give a loop a new name, or a draft a new key" />
+
+```bash
+curl -X PATCH $QBRIX_BASE_URL/api/v1/loops/checkout-headline \
+  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Checkout page headline"}'
+```
+
+Send a `name`, a `key` or both. The name can change in any state; the key only while the loop is a draft, and a launched loop's new key is refused with `409 LOOP_NOT_DRAFT`. Response, `200 OK`: the loop. Renaming can be undone.
+
+### Launch a loop
+
+<Endpoint method="POST" path="/api/v1/loops/{loop}/launch" description="Take a draft live and start its first cycle" />
+
+```bash
+curl -X POST $QBRIX_BASE_URL/api/v1/loops/checkout-headline/launch \
+  -H "X-API-Key: $QBRIX_API_KEY"
+```
+
+Response, `200 OK`: the loop, `live`, with its first `cycle`. A loop that isn't a draft is refused with `409 LOOP_NOT_DRAFT`. Launching can't be undone.
+
+### Delete a draft
+
+<Endpoint method="DELETE" path="/api/v1/loops/{loop}" description="Delete a draft that never launched" />
+
+```bash
+curl -X DELETE $QBRIX_BASE_URL/api/v1/loops/checkout-headline \
+  -H "X-API-Key: $QBRIX_API_KEY"
+```
+
+Response, `204 No Content`. A loop that has launched is refused with `409 LOOP_NOT_DRAFT`: retire it instead. Deleting can't be undone, and the key is free at once.
+
+### Commit and reopen
+
+<Endpoint method="POST" path="/api/v1/loops/{loop}/commit" description="Commit a live loop to one option" />
+
+```json
+{"option": "urgency", "reason": "urgency leads by a wide margin"}
+```
+
+<Endpoint method="POST" path="/api/v1/loops/{loop}/reopen" description="Return a committed loop to live, in the same cycle" />
+
+```json
+{"reason": "a new season"}
+```
+
+Both answer `200 OK` with the loop. `option` is the key of one of the current cycle's options. Committing a loop that isn't live is refused with `409 LOOP_NOT_LIVE`, and reopening one that isn't committed with `409 LOOP_NOT_COMMITTED`. Both can be undone.
+
+### Pause and resume
+
+<Endpoint method="POST" path="/api/v1/loops/{loop}/pause" description="Pause a live or committed loop" />
+
+<Endpoint method="POST" path="/api/v1/loops/{loop}/resume" description="Resume a paused loop to the state it was paused from" />
+
+Both take an optional `{"reason": "..."}` and answer `200 OK` with the loop and how soon every replica serves the change:
+
+```json
+{
+  "loop": {"key": "checkout-headline", "state": "paused", "paused_from": "live", "...": "..."},
+  "serving_within_seconds": 30
+}
+```
+
+Pausing a draft, paused or retired loop is refused with `409 LOOP_NOT_PAUSABLE`, and resuming a loop that isn't paused with `409 LOOP_NOT_PAUSED`. Both can be undone. Resuming a loop qbrix paused ends its alert.
+
+### Retire a loop
+
+<Endpoint method="POST" path="/api/v1/loops/{loop}/retire" description="Retire a live, committed or paused loop" />
+
+```json
+{"reason": "the urgency headline is built in"}
+```
+
+Response, `200 OK`: the loop, `retired`, with its cycle's `ended_at` set. Retiring ends every alert on the loop. A draft is refused with `409 LOOP_NOT_RETIRABLE`, whose detail says to delete it instead. Retiring can't be undone.
+
+### Start or reset a cycle
+
+<Endpoint method="POST" path="/api/v1/loops/{loop}/cycles" description="Start a new cycle of a live or paused loop" />
+
+| Field | Type | Description |
+|---|---|---|
+| `options` | array | All of the new cycle's options, as at create. Kept when left out. |
+| `engine` | string | The new cycle's engine, such as `leibniz:1`. |
+| `metric` | string | The new cycle's metric, by name or id. Its newest version is pinned. |
+| `context` | array | The new cycle's context, as for `PUT /context`. Kept when left out. |
+| `fallback` | string | Kept if its option stays; required when it doesn't. |
+| `reason` | string | Why, recorded in history. Optional. |
+
+```json
+{
+  "options": [
+    {"key": "control", "name": "Control", "config": {"headline": "Buy now"}},
+    {"key": "urgency", "name": "Urgency", "config": {"headline": "Only 3 left"}},
+    {"name": "Social proof", "config": {"headline": "1,204 bought today"}}
+  ],
+  "reason": "add social proof"
+}
+```
+
+<Endpoint method="POST" path="/api/v1/loops/{loop}/cycles/reset" description="Start a new cycle with the same options, engine and fallback" />
+
+Both answer `200 OK` with the loop, its new `cycle`, and `serving_within_seconds`. A draft, committed or retired loop, or one paused from committed, is refused with `409 LOOP_NOT_CYCLABLE`, whose detail says what to do first. Neither can be undone. See [a new cycle](#a-new-cycle).
+
+### Read a loop's cycles
+
+<Endpoint method="GET" path="/api/v1/loops/{loop}/cycles" description="List a loop's cycles, newest first, each with its options as they were" />
+
+```bash
+curl $QBRIX_BASE_URL/api/v1/loops/checkout-headline/cycles \
+  -H "X-API-Key: $QBRIX_API_KEY"
+```
+
+Response, `200 OK`: `{"cycles": [...]}`, each cycle as in the loop's `cycle` with its `options`.
+
+### Read a loop's history
+
+<Endpoint method="GET" path="/api/v1/loops/{loop}/history" description="Read a loop's changes, notes and mentions, newest first" />
+
+```bash
+curl "$QBRIX_BASE_URL/api/v1/loops/checkout-headline/history?limit=2" \
+  -H "X-API-Key: $QBRIX_API_KEY"
+```
+
+| Query | Description |
+|---|---|
+| `show` | `all` (default), `changes`, `notes` or `github` |
+| `limit` | Entries per page, 50 by default and 200 at most. |
+| `cursor` | The `next_cursor` of the page before. |
+
+Response, `200 OK`:
+
+```json
+{
+  "entries": [
+    {
+      "type": "change",
+      "id": "7294bc987ce8474382a4d119a25b2705",
+      "kind": "note.add",
+      "verb": "added a note to",
+      "at": "2026-11-26T21:48:38.927863+00:00",
+      "status": "applied",
+      "who": {"kind": "member", "user_id": "<user-id>", "name": "Ana"},
+      "via": null,
+      "reason": null,
+      "evidence": null,
+      "note": "Black Friday traffic from today until Monday.",
+      "request_id": "0e604cf01e6345bb850de7a2b19a5054",
+      "undoes_id": null,
+      "level": null,
+      "asked_at": null,
+      "decision": null
+    },
+    {
+      "type": "change",
+      "id": "d7abb3890960470ea024d07bf314dc38",
+      "kind": "cycle.reset",
+      "verb": "reset",
+      "at": "2026-11-26T21:48:38.911643+00:00",
+      "status": "applied",
+      "who": {"kind": "member", "user_id": "<user-id>", "name": "Ana"},
+      "via": null,
+      "reason": "tracking was broken until today",
+      "evidence": null,
+      "note": null,
+      "request_id": "24b47824e1a34b40a8f0a5a5146cc9ec",
+      "undoes_id": null,
+      "level": null,
+      "asked_at": null,
+      "decision": null
+    }
+  ],
+  "next_cursor": "MjAyNi0xMS0yNlQyMTo0ODozOC45MTE2NDMrMDA6MDB8ZDdhYmIzODkwOTYwNDcwZWEwMjRkMDdiZjMxNGRjMzg"
+}
+```
+
+- A change's `who` has the `kind` `member`, `connection` (a person's client, named in `via`) or `qbrix`, for a change qbrix made itself. `evidence` is what qbrix saw when it paused the loop itself.
+- Changes made together share their `request_id`, so an [apply](#several-edits-at-once) reads as one.
+- A change that asked first carries its `level`, when it was `asked_at`, and the `decision` that answered it.
+- A pull request or commit is an entry of `type` `mention`; see [GitHub](/docs/github#what-appears-in-history).
+
+### Add a note
+
+<Endpoint method="POST" path="/api/v1/loops/{loop}/notes" description="Add a note to a loop's history" />
+
+```json
+{"text": "Black Friday traffic from today until Monday."}
+```
+
+Plain text, at most 4,000 characters. Response, `201 Created`: the note as its history reads it.
+
+### Read a loop's results
+
+<Endpoint method="GET" path="/api/v1/loops/{loop}/results" description="Read a cycle's results from the ledger" />
+
+```bash
+curl "$QBRIX_BASE_URL/api/v1/loops/checkout-headline/results?range=7d" \
+  -H "X-API-Key: $QBRIX_API_KEY"
+```
+
+| Query | Description |
+|---|---|
+| `cycle` | The cycle's number. The current one when left out; an unknown number is `404 CYCLE_NOT_FOUND`. |
+| `range` | How far back share reads: `24h` (default), `7d` or the whole `cycle`. |
+
+Response, `200 OK`:
+
+- `share`: each option's `decisions` in the range and its `share` of them, with how many have `sealed` and how many are `waiting` for their outcome, and a `series` of decisions per option, `step_seconds` apart. Share counts every decision, sealed or not.
+- `lift`: lift over an even split, from sealed decisions only. A current cycle reads the 7 days that end one metric window ago, so every decision in them has sealed; an ended cycle reads all of itself. `early` is true until those 7 days are full, and each option has its `mean` with a `low` to `high` range. `null` until the cycle's first window has closed.
+- `calls`: the last hour's answers by their reason.
+- `decisions_per_second`, over the last few minutes.
+- `health`: the loop's alerts, failed decisions, how its outcomes ended, when the last one arrived and was learned, and how far the ledger is behind.
+
+### Errors
+
+Errors carry a stable `code` and a `detail` that says what was wrong and, where it can, what to do instead:
+
+```json
+{
+  "code": "LOOP_NOT_CYCLABLE",
+  "detail": "only a live or paused loop can start a new cycle: the loop 'checkout-headline' is committed; reopen it first"
+}
+```
+
+| Status | Code | When |
+|---|---|---|
+| `400` | `INVALID_LOOP` | The name, key, options, metric, engine, fallback, context or delivery is refused. The detail names the rule. |
+| `400` | `INVALID_CONTEXT` | A `select` or preview without a `unit`, or with `properties` that aren't an object |
+| `400` | `INVALID_CURSOR` | A `cursor` no earlier page returned |
+| `403` | `INSUFFICIENT_SCOPES` | Your role can't make the change: a viewer only reads |
+| `403` | `FORBIDDEN` | An API key sent a person's change |
+| `404` | `LOOP_NOT_FOUND` | No loop in the workspace has that key or id |
+| `404` | `CYCLE_NOT_FOUND` | The loop has no cycle with that number |
+| `409` | `LOOP_KEY_TAKEN` | The workspace already has a loop with that key |
+| `409` | `LOOP_NOT_DRAFT` | Launching, deleting or changing the key of a loop that has launched |
+| `409` | `LOOP_NOT_LIVE` | Committing a loop that isn't live |
+| `409` | `LOOP_NOT_COMMITTED` | Reopening a loop that isn't committed |
+| `409` | `LOOP_NOT_PAUSABLE` | Pausing a draft, paused or retired loop |
+| `409` | `LOOP_NOT_PAUSED` | Resuming a loop that isn't paused |
+| `409` | `LOOP_NOT_RETIRABLE` | Retiring a draft or a retired loop |
+| `409` | `LOOP_NOT_CYCLABLE` | A new cycle or a reset on a draft, committed or retired loop, or one paused from committed |
+| `409` | `LOOP_RETIRED` | Changing the delivery or context of a retired loop, directly or in an apply |
