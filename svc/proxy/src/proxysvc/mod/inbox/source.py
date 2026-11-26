@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from datetime import timedelta
+from typing import Any
 from typing import Literal
 from typing import Protocol
 
@@ -10,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from proxysvc.mod.change.repository import ChangeRepository
 from proxysvc.mod.change.service import workspace_rows
+from proxysvc.mod.github.mention import mention_entry
+from proxysvc.mod.github.repository import MentionRepository
 from proxysvc.mod.safety.entry import kind_of
 from proxysvc.mod.safety.read import OPEN_LIMIT
 from proxysvc.mod.safety.read import RECOVERED_SHOWN
@@ -43,7 +46,7 @@ class Source(Protocol):
     ) -> list[dict]: ...
 
 
-def _item(kind: str, at: datetime, **parts: dict | None) -> dict:
+def _item(kind: str, at: datetime, **parts: Any) -> dict:
     return {
         "kind": kind,
         "at": at.isoformat(),
@@ -51,6 +54,8 @@ def _item(kind: str, at: datetime, **parts: dict | None) -> dict:
         "asked": None,
         "loop": None,
         "alert": None,
+        "pull_request": None,
+        "pieces": None,
         **parts,
     }
 
@@ -169,9 +174,40 @@ class RecoveredAlertSource:
         return [_alert_item(alert, alert["resolved_at"]) for alert in alerts]
 
 
+class LaunchSource:
+    """the reader's drafts whose pull request merged, each suggesting its
+    launch until it launches or is deleted. a merge is not a deploy, so it
+    only suggests."""
+
+    section: Section = "suggestions"
+    needs_change = False
+
+    async def items(
+        self, session: AsyncSession, reader: Reader, now: datetime
+    ) -> list[dict]:
+        drafts = await MentionRepository(session, reader.tenant_id).merged_drafts(
+            reader.user_id
+        )
+        return [
+            _item(
+                "launch",
+                mention.merged_at or mention.at,
+                loop={"id": loop.id, "key": loop.key, "name": loop.name},
+                pull_request=mention_entry(mention),
+                pieces=[
+                    {"kind": "text", "text": "The code for "},
+                    {"kind": "loop", "name": loop.name},
+                    {"kind": "text", "text": " is merged. Launch it?"},
+                ],
+            )
+            for loop, mention in drafts
+        ]
+
+
 SOURCES: tuple[Source, ...] = (
     WaitingSource(),
     NotifiedSource(),
     OpenAlertSource(),
     RecoveredAlertSource(),
+    LaunchSource(),
 )

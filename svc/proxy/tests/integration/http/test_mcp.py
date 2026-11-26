@@ -1515,6 +1515,55 @@ class TestReads:
         assert "qbrix.outcome(decision.requestId, 1)" in wire["javascript"]
         assert "```python" in result.content[0].text
 
+    async def test_loop_get_says_how_to_mention_the_loop(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            await _draft(client)
+            result = await _call(client, "loop_get", {"loop": "checkout-headline"})
+
+        text = result.content[0].text
+        assert (
+            "Put qbrix:checkout-headline in the title or description of the pull "
+            "requests you open for this loop, or qbrix/checkout-headline in the "
+            "branch name, so they appear in its history."
+        ) in text
+        assert "Its pull request" not in text
+        assert result.structured_content["merged_pull_request"] is None
+
+    @pytest.mark.parametrize(
+        ("levels", "launch"),
+        [
+            (None, "Launch it with loop_launch; launching asks your person first."),
+            (ON_ITS_OWN, "Launch it with loop_launch."),
+        ],
+    )
+    async def test_loop_get_on_a_draft_names_its_merged_pull_request(
+        self, mcp, wired_app, levels, launch
+    ):
+        async with _session(mcp, wired_app, levels=levels) as client:
+            await _draft(client)
+            loop = await wired_app.svc.get_loop(TENANT, "checkout-headline")
+            await _mention(
+                loop["id"],
+                kind="pull_request",
+                ref="42",
+                number=42,
+                state="merged",
+                merged_by="grace",
+                merged_at=datetime(2030, 1, 2, tzinfo=timezone.utc),
+                at=datetime(2030, 1, 2, tzinfo=timezone.utc),
+            )
+            result = await _call(client, "loop_get", {"loop": "checkout-headline"})
+
+        assert not result.is_error, result
+        merged = result.structured_content["merged_pull_request"]
+        assert merged["number"] == 42
+        assert merged["merged_by"] == "grace"
+        assert (
+            "Its pull request acme/shop#42 merged at 2030-01-02T00:00:00+00:00: "
+            "Try three checkout headlines · https://github.com/acme/shop/pull/42. "
+            + launch
+        ) in result.content[0].text
+
     async def test_concise_leaves_out_option_config(self, mcp, wired_app):
         async with _session(mcp, wired_app) as client:
             await _draft(client)

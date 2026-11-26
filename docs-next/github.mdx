@@ -35,6 +35,8 @@ A bare `checkout-headline` links nothing, and neither does a link to another ins
 
 One pull request can mention several loops, and each gets its own entry. A key a draft had before it was renamed still links to that loop, unless another loop has that key now.
 
+Agents add the mention themselves: over MCP, `loop_get` tells an agent both forms for that loop, so the pull requests it opens link without anyone remembering to.
+
 ## What appears in history
 
 | On GitHub | In the loop's history |
@@ -46,6 +48,14 @@ One pull request can mention several loops, and each gets its own entry. A key a
 A squash merge's commit doesn't add a second entry when its pull request already has one. Commits on other branches don't appear until they reach the default branch. If a later edit removes the mention, the entry stays and still follows the pull request.
 
 These entries aren't changes: they never alter the loop, and they don't appear on the Changes page. Read them in the loop's history, with the GitHub filter to see only them, or over MCP with `loop_history`.
+
+## Ready to launch
+
+When a pull request that mentions a **draft** is merged, the inbox of the person who created the draft shows "The code for Checkout headline is merged. Launch it?", with the pull request. A draft an agent created over MCP suggests to the agent's person. If several merged pull requests mention the draft, the suggestion shows the latest one.
+
+The suggestion stays until the draft launches or is deleted; there is no dismiss. A pull request that is closed without merging never suggests, and neither does one merged after the loop launched.
+
+qbrix never launches on its own, because a merge is not a deploy. Launching stays a change like any other: you launch the draft, or your agent proposes it. An agent sees the merged pull request in the draft's `loop_get`, and a launch it proposes asks you first unless you let it launch on its own.
 
 ## What the app can see
 

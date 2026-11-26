@@ -13,7 +13,11 @@ invariants verified:
   sends twice changes nothing. one workspace's app never touches another's
   loops. history interleaves mentions with changes under one cursor, and
   show=github reads only them; the changes list never holds them. the
-  repository read counts them. mcp loop_history reads them as lines.
+  repository read counts them. mcp loop_history reads them as lines. a
+  merged pull request suggests launching its draft in the creator's inbox
+  alone, from the newest merge, until the draft launches or is deleted; an
+  open or closed one never does, nor one on a launched loop, and nothing
+  launches on its own.
 """
 
 from __future__ import annotations
@@ -476,3 +480,113 @@ class TestRepositoryCounts:
             "mentions": 0,
             "last_mention": None,
         }
+
+
+async def _inbox(api) -> dict:
+    resp = await api.get("/api/v1/inbox")
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+async def _merged(api, app: _App, number: int = 42, merged_at: str | None = None):
+    await _sent(api, app, "pull_request", _pull_request(number=number))
+    merged = _pull_request("pull_request_closed", number=number)
+    if merged_at is not None:
+        merged["pull_request"]["merged_at"] = merged_at
+    await _sent(api, app, "pull_request", merged)
+
+
+class TestLaunchSuggestion:
+    async def test_a_merged_pull_request_suggests_launching_the_draft(
+        self, api, linked
+    ):
+        await _merged(api, linked)
+
+        inbox = await _inbox(api)
+        (item,) = inbox["suggestions"]
+        assert item["kind"] == "launch"
+        assert item["loop"]["key"] == "checkout-headline"
+        assert item["at"].startswith("2026-11-24T15:30:00")
+        assert item["pull_request"]["number"] == 42
+        assert item["pull_request"]["state"] == "merged"
+        assert item["pull_request"]["merged_by"] == "grace"
+        assert "".join(p.get("text") or p["name"] for p in item["pieces"]) == (
+            "The code for Checkout headline is merged. Launch it?"
+        )
+        assert (await api.get("/api/v1/inbox/count")).json() == {"waiting": 0}
+        loop = await api.get("/api/v1/loops/checkout-headline")
+        assert loop.json()["state"] == "draft"
+
+    async def test_only_the_drafts_creator_sees_it(self, wired_app, api, linked):
+        await _merged(api, linked)
+
+        overrides = wired_app.app.dependency_overrides
+        overrides[get_actor] = lambda: Actor.member(BEN)
+        try:
+            assert (await _inbox(api))["suggestions"] == []
+        finally:
+            overrides[get_actor] = lambda: Actor.member(ADA)
+
+    async def test_a_draft_a_connection_created_suggests_to_its_person(
+        self, wired_app, api, linked
+    ):
+        await wired_app.svc.create_loop(
+            TENANT,
+            name="Pricing page",
+            metric="purchase",
+            options=OPTIONS,
+            actor=Actor.connection(
+                ADA, connection_id="conn-claude", client_name="Claude Code"
+            ),
+        )
+        await _sent(
+            api,
+            linked,
+            "pull_request",
+            _pull_request("pull_request_closed", number=7, body="qbrix:pricing-page"),
+        )
+
+        assert [i["loop"]["key"] for i in (await _inbox(api))["suggestions"]] == [
+            "pricing-page"
+        ]
+
+    async def test_the_newest_merge_replaces_the_earlier_one(self, api, linked):
+        await _merged(api, linked, 41, merged_at="2026-11-24T12:00:00Z")
+        await _merged(api, linked, 42)
+
+        (item,) = (await _inbox(api))["suggestions"]
+        assert item["pull_request"]["number"] == 42
+
+    async def test_launching_ends_it(self, api, linked):
+        await _merged(api, linked)
+        launched = await api.post("/api/v1/loops/checkout-headline/launch", json={})
+        assert launched.status_code == 200, launched.text
+
+        assert (await _inbox(api))["suggestions"] == []
+
+    async def test_deleting_the_draft_ends_it(self, api, linked):
+        await _merged(api, linked)
+        deleted = await api.delete("/api/v1/loops/checkout-headline")
+        assert deleted.status_code in (200, 204), deleted.text
+
+        assert (await _inbox(api))["suggestions"] == []
+
+    async def test_an_open_or_closed_pull_request_never_suggests(self, api, linked):
+        await _sent(api, linked, "pull_request", _pull_request(number=1))
+        closed = _pull_request(
+            "pull_request_closed",
+            number=2,
+            merged=False,
+            merged_at=None,
+            merged_by=None,
+        )
+        await _sent(api, linked, "pull_request", closed)
+
+        assert (await _inbox(api))["suggestions"] == []
+
+    async def test_a_merge_after_launch_never_suggests(self, api, linked):
+        launched = await api.post("/api/v1/loops/checkout-headline/launch", json={})
+        assert launched.status_code == 200, launched.text
+        await _merged(api, linked)
+
+        assert (await _inbox(api))["suggestions"] == []

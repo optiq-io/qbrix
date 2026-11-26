@@ -15,6 +15,8 @@ from proxysvc.transport.http.auth.dependencies import get_person
 from proxysvc.transport.http.auth.dependencies import require_scopes
 from proxysvc.transport.http.router.change import ChangeEntry
 from proxysvc.transport.http.router.loop import Alert
+from proxysvc.transport.http.router.loop import AlertPiece
+from proxysvc.transport.http.router.loop import MentionEntry
 
 router = APIRouter(prefix="/inbox", tags=["inbox"])
 
@@ -51,14 +53,17 @@ class LoopRef(BaseModel):
 class InboxItem(BaseModel):
     """one item, in one shape: a change carries change (and asked while it
     waits), an alert carries its loop and alert, recovered once it has
-    resolved_at."""
+    resolved_at, and a launch suggestion carries its draft, the merged pull
+    request and its sentence in pieces."""
 
-    kind: Literal["change", "safety_pause", "warning"]
+    kind: Literal["change", "safety_pause", "warning", "launch"]
     at: str
     change: Optional[ChangeEntry] = None
     asked: Optional[Asked] = None
     loop: Optional[LoopRef] = None
     alert: Optional[Alert] = None
+    pull_request: Optional[MentionEntry] = None
+    pieces: Optional[list[AlertPiece]] = None
 
 
 class WebhookState(BaseModel):
@@ -92,7 +97,9 @@ async def read_inbox(
     """the reader's inbox: changes waiting on them, oldest first; what their
     connections did at act and notify in the last seven days, and the
     workspace's alerts that recovered in them, newest first; the workspace's
-    open alerts, safety pauses and warnings, oldest first; and suggestions."""
+    open alerts, safety pauses and warnings, oldest first; and suggestions: the
+    reader's drafts whose pull request merged, newest first, until each
+    launches or is deleted."""
     found = await get_proxy_service().inbox(tenant_id, actor.user_id, user.role)
     return Inbox(**found)
 
