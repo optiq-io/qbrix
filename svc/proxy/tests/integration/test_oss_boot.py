@@ -114,6 +114,7 @@ def run_probe(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
             "PROXY_JWT_SECRET_KEY": "probe-jwt-secret",
             "PROXY_TOKEN_SECRET": "probe-token-secret",
             "PROXY_SECRET_BOX_KEY": "probe-secret-box-key-of-at-least-32-chars",
+            "PROXY_DOCS_PATH": os.environ["PROXY_DOCS_PATH"],
             **env,
         },
     )
@@ -160,6 +161,32 @@ class TestCloudPluginStaysOut:
 
     def test_no_billing_route_is_mounted(self, oss):
         assert mounted(oss["routes"], BILLING_PREFIX) == []
+
+
+class TestDocsAreRequiredWithNext:
+    def test_boot_refuses_missing_docs_and_names_the_folder(self, tmp_path):
+        result = run_probe(
+            {
+                "PROXY_EE_ENABLED": "false",
+                "PROXY_NEXT_ENABLED": "true",
+                "PROXY_CLICKHOUSE_HOST": "localhost",
+                "PROXY_DOCS_PATH": str(tmp_path),
+            }
+        )
+
+        assert result.returncode != 0
+        assert f"no docs pages in {tmp_path / 'docs-next'}" in result.stderr
+
+    def test_without_next_the_docs_are_never_read(self, tmp_path):
+        result = run_probe(
+            {
+                "PROXY_EE_ENABLED": "false",
+                "PROXY_CLICKHOUSE_HOST": "localhost",
+                "PROXY_DOCS_PATH": str(tmp_path),
+            }
+        )
+
+        assert result.returncode == 0, result.stderr
 
 
 class TestClickhouseIsRequired:

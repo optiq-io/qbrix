@@ -140,3 +140,25 @@ class NoteAdded(BaseModel):
     status: ChangeStatus
     change: ChangeRef
     note: ChangeEntry
+
+
+class DocsSection(BaseModel):
+    page: str
+    page_title: str
+    path: list[str]
+    anchor: str
+    url: str
+    text: str
+
+
+class DocsHeading(BaseModel):
+    path: list[str]
+    anchor: str
+    url: str
+
+
+class DocsAnswer(BaseModel):
+    sections: list[DocsSection]
+    truncated: bool
+    outline: Optional[list[DocsHeading]] = None
+    pages: Optional[list[str]] = None

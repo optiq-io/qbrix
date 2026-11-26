@@ -89,6 +89,7 @@ TOOLS = [
     "loop_history",
     "milestones_list",
     "workspace_summary",
+    "docs_search",
     "loop_create",
     "loop_rename",
     "loop_launch",
@@ -383,6 +384,7 @@ class TestProtocol:
             "loop_preview",
             "metrics_list",
             "change_get",
+            "docs_search",
         ):
             assert tools[name].annotations.read_only_hint is True
         assert tools["loop_launch"].annotations.destructive_hint is True
@@ -1444,6 +1446,7 @@ class TestViewer:
                 await _call(viewer, "changes_list"),
                 await _call(viewer, "change_get", {"change": draft["change"]["id"]}),
                 await _call(viewer, "loop_history", {"loop": "checkout-headline"}),
+                await _call(viewer, "docs_search", {"query": "report an outcome"}),
             ]
 
         assert not any(result.is_error for result in results)
@@ -1623,6 +1626,69 @@ class TestReads:
         assert result.content[0].text.endswith(
             " · 0 outcomes a minute · half within 1.5h · 4% late"
         )
+
+    async def test_docs_search_returns_sections_of_this_installs_docs(
+        self, mcp, wired_app
+    ):
+        async with _session(mcp, wired_app) as client:
+            result = await _call(client, "docs_search", {"query": "record an outcome"})
+
+        sections = result.structured_content["sections"]
+        assert sections[0]["page"] == "metrics-and-outcomes"
+        assert sections[0]["url"].startswith(
+            "https://qbrix.io/docs/metrics-and-outcomes#"
+        )
+        assert result.structured_content["outline"] is None
+        text = result.content[0].text
+        assert text.startswith("From this install's docs.")
+        assert "## Metrics and outcomes" in text
+
+    async def test_docs_search_reads_a_page_with_its_outline(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            result = await _call(client, "docs_search", {"page": "mcp-server"})
+
+        answer = result.structured_content
+        assert {section["page"] for section in answer["sections"]} == {"mcp-server"}
+        assert answer["truncated"] is False
+        assert "https://qbrix.io/docs/mcp-server#tools" in [
+            heading["url"] for heading in answer["outline"]
+        ]
+        assert "Outline:" in result.content[0].text
+
+    @pytest.mark.parametrize("arguments", [{}, {"query": "loop", "page": "loops"}])
+    async def test_docs_search_takes_a_query_or_a_page(self, mcp, wired_app, arguments):
+        async with _session(mcp, wired_app) as client:
+            result = await _call(client, "docs_search", arguments)
+
+        assert _error(result).startswith("Give docs_search either a query")
+
+    async def test_docs_search_refuses_an_unknown_page(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            result = await _call(client, "docs_search", {"page": "metric-and-outcome"})
+
+        assert _error(result) == (
+            "No docs page metric-and-outcome. Did you mean metrics-and-outcomes?"
+        )
+
+    async def test_docs_search_logs_what_it_found_nothing_for(
+        self, mcp, wired_app, caplog
+    ):
+        with caplog.at_level("INFO", logger="proxysvc.transport.mcp.tool"):
+            async with _session(mcp, wired_app) as client:
+                result = await _call(client, "docs_search", {"query": "xyzzy plugh"})
+
+        assert not result.is_error
+        assert result.structured_content["sections"] == []
+        assert "metrics-and-outcomes" in result.structured_content["pages"]
+        assert result.content[0].text.startswith(
+            "Nothing in the docs matches 'xyzzy plugh'."
+        )
+        [record] = [
+            r for r in caplog.records if r.getMessage().startswith("docs search")
+        ]
+        assert record.getMessage() == "docs search found nothing: 'xyzzy plugh'"
+        assert TENANT not in record.getMessage()
+        assert "user-member" not in record.getMessage()
 
     async def test_engines_list_says_what_each_engine_needs(self, mcp, wired_app):
         async with _session(mcp, wired_app) as client:

@@ -46,6 +46,8 @@ jobs:
               - 'uv.lock'
             proxy:
               - 'svc/proxy/**'
+              - 'docs/**'
+              - 'docs-next/**'
               - *python_shared
             motor:
               - 'svc/motor/**'

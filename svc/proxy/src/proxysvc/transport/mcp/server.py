@@ -25,6 +25,7 @@ from starlette.types import ASGIApp
 from qbrixlog import get_logger
 
 from proxysvc.config import ProxySettings
+from proxysvc.mod.docs.index import DocsIndex
 from proxysvc.service import ProxyService
 from proxysvc.transport.mcp.tool import register
 from proxysvc.transport.mcp.verifier import ConnectionVerifier
@@ -75,7 +76,7 @@ def build_mcp(settings: ProxySettings) -> tuple[MCPServer, ASGIApp]:
             audience=settings.mcp_resource,
         ),
     )
-    register(server, settings, get_proxy_service)
+    register(server, settings, get_proxy_service, DocsIndex.at(settings.docs_path))
     # the bearer token is the only credential, and a browser never attaches
     # it for another origin, so dns rebinding has nothing to ride on
     server.streamable_http_app(

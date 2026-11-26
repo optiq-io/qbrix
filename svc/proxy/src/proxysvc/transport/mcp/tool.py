@@ -24,6 +24,7 @@ from pydantic import Field
 from qbrixcore.engine import ENGINES
 from qbrixcore.engine import EngineSpec
 from qbrixcore.engine.spec import ACCEPTED_FORMS
+from qbrixlog import get_logger
 
 from proxysvc.config import ProxySettings
 from proxysvc.core import autonomy
@@ -47,6 +48,10 @@ from proxysvc.mod.change.proposal import STATUSES
 from proxysvc.mod.change.proposal import Waiting
 from proxysvc.mod.change.undo import undo_scope
 from proxysvc.mod.connection.service import ConnectionPrincipal
+from proxysvc.mod.docs.index import Answer
+from proxysvc.mod.docs.index import DocsIndex
+from proxysvc.mod.docs.index import link
+from proxysvc.mod.docs.page import Section
 from proxysvc.mod.engine.catalog import engine_catalog
 from proxysvc.mod.loop.delivery import delivery_of
 from proxysvc.mod.loop.service import DECIDING
@@ -76,6 +81,9 @@ from proxysvc.transport.mcp.schema import ChangeStatus
 from proxysvc.transport.mcp.schema import ChangeUndone
 from proxysvc.transport.mcp.schema import ChangeView
 from proxysvc.transport.mcp.schema import Detail
+from proxysvc.transport.mcp.schema import DocsAnswer
+from proxysvc.transport.mcp.schema import DocsHeading
+from proxysvc.transport.mcp.schema import DocsSection
 from proxysvc.transport.mcp.schema import HistoryPage
 from proxysvc.transport.mcp.schema import LoopChanged
 from proxysvc.transport.mcp.schema import LoopPage
@@ -87,6 +95,8 @@ from proxysvc.transport.mcp.schema import PreviewView
 from proxysvc.transport.mcp.schema import ResultsView
 from proxysvc.transport.mcp.verifier import current_principal
 from proxysvc.transport.mcp.wire import wiring
+
+logger = get_logger(__name__)
 
 LIMIT_DEFAULT = 20
 DECLINES_SHOWN = 3
@@ -810,10 +820,68 @@ def _share_line(share: list[dict]) -> str:
     )
 
 
+def _docs_heading(section: Section) -> str:
+    return " › ".join((section.page_title, *section.path[-2:]))
+
+
+def _docs_lines(answer: Answer) -> list[str]:
+    lines = [
+        "From this install's docs. Links open the website's version, which may be newer."
+    ]
+    if answer.outline is not None:
+        lines.append("")
+        lines.append("Outline:")
+        lines.extend(
+            f"- {' › '.join(heading.path) or heading.page_title} · {link(heading)}"
+            for heading in answer.outline
+        )
+    for section in answer.sections:
+        lines.extend(
+            ["", f"## {_docs_heading(section)}", link(section), "", section.text]
+        )
+    if answer.truncated:
+        lines.append("")
+        lines.append(
+            "More than fits in one answer: search for a section by its heading."
+            if answer.outline is not None
+            else "More matched than fits in one answer: search with more specific "
+            "words, or read a page with page=."
+        )
+    return lines
+
+
+def _docs_answer(answer: Answer) -> DocsAnswer:
+    return DocsAnswer(
+        sections=[
+            DocsSection(
+                page=section.slug,
+                page_title=section.page_title,
+                path=list(section.path),
+                anchor=section.anchor,
+                url=link(section),
+                text=section.text,
+            )
+            for section in answer.sections
+        ],
+        truncated=answer.truncated,
+        outline=(
+            None
+            if answer.outline is None
+            else [
+                DocsHeading(
+                    path=list(heading.path), anchor=heading.anchor, url=link(heading)
+                )
+                for heading in answer.outline
+            ]
+        ),
+    )
+
+
 def register(
     server: MCPServer,
     settings: ProxySettings,
     service: Callable[[], ProxyService],
+    docs: DocsIndex,
 ) -> None:
     """add the tools to the server, in the order tools/list returns them."""
 
@@ -1544,6 +1612,50 @@ def register(
         except Refusal as refusal:
             return _refused(refusal)
         return _result("\n".join(_week_lines(week)), WeekSummary(**week))
+
+    async def docs_search(
+        query: Annotated[
+            Optional[str],
+            Field(
+                description="What you want to know, in words, such as 'report an outcome from the browser'."
+            ),
+        ] = None,
+        page: Annotated[
+            Optional[str],
+            Field(
+                description="A page to read whole, by its slug from a link, such as 'metrics-and-outcomes'."
+            ),
+        ] = None,
+    ) -> Annotated[CallToolResult, DocsAnswer]:
+        """Search this qbrix install's own docs, so the code you write matches the API it runs: give a query for the best sections in full, or a page to read one whole with its outline. Use it before writing select, outcome or track calls. The text is this install's version; each link opens the website's, which may be newer."""
+        principal = current_principal()
+        try:
+            _require(principal, "loop:read", "read the docs")
+            if (query is None) == (page is None):
+                raise error.docs_ask()
+            if page is not None:
+                answer = docs.page(page)
+                if answer is None:
+                    raise error.unknown_docs_page(
+                        page, [known.slug for known in docs.pages]
+                    )
+            else:
+                answer = docs.search(query)
+        except Refusal as refusal:
+            return _refused(refusal)
+        if not answer.sections:
+            logger.info("docs search found nothing: %r", query)
+            titles = [f"{known.title} ({known.slug})" for known in docs.pages]
+            return _result(
+                f"Nothing in the docs matches {query!r}. Try other words, or read "
+                f"a page with page=: {', '.join(titles)}.",
+                DocsAnswer(
+                    sections=[],
+                    truncated=False,
+                    pages=[known.slug for known in docs.pages],
+                ),
+            )
+        return _result("\n".join(_docs_lines(answer)), _docs_answer(answer))
 
     async def loop_create(
         ctx: Context,
@@ -2643,6 +2755,7 @@ def register(
         (loop_history, _READ),
         (milestones_list, _READ),
         (workspace_summary, _READ),
+        (docs_search, _READ),
         (loop_create, _CREATE),
         (loop_rename, _DESTRUCTIVE),
         (loop_launch, _DESTRUCTIVE),

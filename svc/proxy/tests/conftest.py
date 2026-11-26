@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 # the suite runs as the cloud edition unless the caller picks otherwise, so
 # `PROXY_EE_ENABLED=false pytest` exercises the oss edition. set before
@@ -8,6 +9,8 @@ os.environ.setdefault("PROXY_CLICKHOUSE_HOST", "localhost")
 # the suite's baseline is the cloud's open signup; the self-host modes have
 # their own tests, which set the mode themselves.
 os.environ.setdefault("PROXY_SIGNUP_MODE", "open")
+# the repository holds the docs the image ships at /app/docs
+os.environ.setdefault("PROXY_DOCS_PATH", str(Path(__file__).resolve().parents[3]))
 
 import pytest
 

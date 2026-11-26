@@ -113,7 +113,7 @@ dev-proxy:
 	uv run python -m proxysvc.cli serve
 
 dev-next:
-	PROXY_NEXT_ENABLED=true PROXY_PUBLIC_URL=http://localhost:8080 $(MAKE) dev-proxy
+	PROXY_NEXT_ENABLED=true PROXY_PUBLIC_URL=http://localhost:8080 PROXY_DOCS_PATH=$(CURDIR) $(MAKE) dev-proxy
 
 dev-next-tunnel:
 	@command -v cloudflared >/dev/null || { echo "cloudflared is not installed: brew install cloudflared"; exit 1; }
