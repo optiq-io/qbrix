@@ -465,6 +465,26 @@ def _mention_line(entry: dict) -> str:
     return f"{entry['at']} · {sentence}: {entry['title']} · {entry['url']}"
 
 
+def _merged_line(pull_request: dict, level: str) -> str:
+    """a draft's merged pull request, and how its launch goes from here."""
+    launch = "Launch it with loop_launch" + (
+        "; launching asks your person first." if level == "ask" else "."
+    )
+    return (
+        f"Its pull request {pull_request['repository']}#{pull_request['number']} "
+        f"merged at {pull_request['merged_at']}: {pull_request['title']} · "
+        f"{pull_request['url']}. {launch}"
+    )
+
+
+def _mention_hint(key: str) -> str:
+    return (
+        f"Put qbrix:{key} in the title or description of the pull requests you "
+        f"open for this loop, or qbrix/{key} in the branch name, so they appear "
+        "in its history."
+    )
+
+
 def _history_line(entry: dict) -> str:
     return _mention_line(entry) if entry["type"] == "mention" else _change_line(entry)
 
@@ -1097,7 +1117,7 @@ def register(
     async def loop_get(
         loop: LoopRef, detail: DetailArg = "concise"
     ) -> Annotated[CallToolResult, LoopView]:
-        """Read one loop, leading with what needs a look: each open alert (outcomes stopped, outcomes not learned, or a safety pause) with its value, then alerts that recovered in the last 7 days. Then its purpose, options, metric, owner, who it decides for (its delivery) and what everyone else gets (its fallback), state (and the option it is committed to, if committed) and current cycle, its latest change, who paused it, when and why if it is paused, this connection's autonomy for each change to the loop, its most recent declined changes with the reasons given, and how to wire it: the select and outcome calls for this loop in Python and JavaScript."""
+        """Read one loop, leading with what needs a look: each open alert (outcomes stopped, outcomes not learned, or a safety pause) with its value, then alerts that recovered in the last 7 days. Then its purpose, options, metric, owner, who it decides for (its delivery) and what everyone else gets (its fallback), state (and the option it is committed to, if committed) and current cycle, its latest change, who paused it, when and why if it is paused, this connection's autonomy for each change to the loop, its most recent declined changes with the reasons given, on a draft the pull request mentioning it that merged (launch it then), how to mention it in the pull requests you open for it, and how to wire it: the select and outcome calls for this loop in Python and JavaScript."""
         principal = current_principal()
         try:
             _require(principal, "loop:read", "read loops")
@@ -1128,6 +1148,11 @@ def register(
             key=lambda a: a["resolved_at"],
             reverse=True,
         )
+        merged = (
+            await service().github.merged_pull_request(principal.tenant_id, found["id"])
+            if found["state"] == "draft"
+            else None
+        )
         view = LoopView(
             **_concise(found, detail),
             alerts=open_alerts,
@@ -1135,6 +1160,7 @@ def register(
             wire=wire,
             autonomy=levels,
             declined=declines,
+            merged_pull_request=merged,
         )
         options = "\n".join(
             f"- {option['key']}: {option['name']}"
@@ -1153,6 +1179,11 @@ def register(
             "".join(f"{line}\n" for line in looks)
             + f"{_loop_line(found)}\n"
             + (f"{paused}\n" if paused else "")
+            + (
+                f"{_merged_line(merged, principal.level('loop.launch'))}\n"
+                if merged
+                else ""
+            )
             + "".join(f"{_recovered_line(alert)}\n" for alert in recovered)
             + f"Purpose: {found['purpose'] or '(none)'}\n"
             f"{_delivery_line(found, datetime.now(timezone.utc))}\n"
@@ -1164,6 +1195,11 @@ def register(
                 + "\n".join(f"- {_change_line(entry)}" for entry in declines)
                 + "\n"
                 if declines
+                else ""
+            )
+            + (
+                f"{_mention_hint(found['key'])}\n"
+                if found["state"] != "retired"
                 else ""
             )
             + f"Options:\n{options}\n\n"

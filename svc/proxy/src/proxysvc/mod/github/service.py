@@ -38,6 +38,7 @@ from proxysvc.mod.github.mention import COMMIT
 from proxysvc.mod.github.mention import MERGED
 from proxysvc.mod.github.mention import OPEN
 from proxysvc.mod.github.mention import PULL_REQUEST
+from proxysvc.mod.github.mention import mention_entry
 from proxysvc.mod.github.mention import mentioned_keys
 from proxysvc.mod.github.mention import squashed_number
 from proxysvc.mod.github.reach import host_of
@@ -140,6 +141,12 @@ class GitHubService:
 
     def events_url(self, events_token: str) -> str:
         return f"{self._origin}/api/v1/github/events/{events_token}"
+
+    async def merged_pull_request(self, tenant_id: str, loop_id: str) -> dict | None:
+        """the loop's most recently merged pull request, as history reads it."""
+        async with get_session() as session:
+            mention = await MentionRepository(session, tenant_id).latest_merged(loop_id)
+        return mention_entry(mention) if mention else None
 
     async def read(self, tenant_id: str, *, admin_id: str | None = None) -> dict:
         """the workspace's connection as every role sees it. an admin also

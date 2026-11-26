@@ -21,6 +21,8 @@ from qbrixstore.postgres.models import Tenant
 
 from proxysvc.core.cursor import Position
 from proxysvc.mod.change.proposal import HAPPENED
+from proxysvc.mod.github.mention import MERGED
+from proxysvc.mod.github.mention import PULL_REQUEST
 
 DELIVERIES_KEPT = timedelta(days=7)
 
@@ -128,6 +130,45 @@ class MentionRepository:
             )
         stmt = stmt.order_by(Mention.at.desc(), Mention.id.desc()).limit(limit)
         return list((await self._session.execute(stmt)).scalars().all())
+
+    def _merged(self):
+        return select(Mention).where(
+            Mention.tenant_id == self._tenant_id,
+            Mention.kind == PULL_REQUEST,
+            Mention.state == MERGED,
+        )
+
+    async def latest_merged(self, loop_id: str) -> Mention | None:
+        """the loop's most recently merged pull request."""
+        stmt = (
+            self._merged()
+            .where(Mention.loop_id == loop_id)
+            .order_by(Mention.merged_at.desc(), Mention.id.desc())
+            .limit(1)
+        )
+        return (await self._session.execute(stmt)).scalar_one_or_none()
+
+    async def merged_drafts(self, owner_user_id: str) -> list[tuple[Loop, Mention]]:
+        """each of a person's drafts that a merged pull request mentions, with
+        the latest such pull request, newest first."""
+        stmt = (
+            self._merged()
+            .add_columns(Loop)
+            .join(
+                Loop,
+                and_(
+                    Loop.id == Mention.loop_id,
+                    Loop.tenant_id == self._tenant_id,
+                    Loop.state == "draft",
+                    Loop.owner_user_id == owner_user_id,
+                ),
+            )
+            .order_by(Mention.merged_at.desc(), Mention.id.desc())
+        )
+        latest: dict[str, tuple[Loop, Mention]] = {}
+        for mention, loop in (await self._session.execute(stmt)).all():
+            latest.setdefault(loop.id, (loop, mention))
+        return list(latest.values())
 
     async def counts_by_repository(self) -> dict[str, tuple[int, datetime]]:
         """how many entries each repository has, and the latest one's time."""

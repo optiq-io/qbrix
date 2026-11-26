@@ -51,6 +51,7 @@ class LoopView(Loop):
     wire: Wiring
     autonomy: dict[str, Level]
     declined: list[ChangeEntry]
+    merged_pull_request: Optional[MentionEntry] = None
 
 
 class LoopListItem(Loop):
