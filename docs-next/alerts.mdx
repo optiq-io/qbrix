@@ -4,6 +4,139 @@ description: What qbrix tells you when a loop needs attention.
 order: 6
 ---
 
+qbrix watches every loop that is deciding, live or committed. When it can't answer for a loop reliably, it pauses the loop itself, a **safety pause**: everyone gets the fallback. When something looks wrong but serving is fine, such as outcomes that stopped arriving, it **warns** instead. Either is an **alert**, shown in the console and to agents, and sent to the [workspace webhook](#the-workspace-webhook) when one is set. qbrix never resumes a loop on its own.
+
+## What qbrix watches
+
+| Signal | Opens when | What qbrix does |
+|---|---|---|
+| `decision_errors` | More than 5% of the loop's `select` calls failed on qbrix's side in the last 10 minutes, over at least 100 calls | [Safety pause](#the-safety-pause) |
+| `outcomes_stopped` | At least 100 decisions since the last outcome, and either a whole metric window has passed with none, or 30 minutes have and those decisions are more than ten times the cycle's usual decisions per outcome | [Warning](#outcomes-stopped) |
+| `outcomes_not_learned` | More than 10% of the last hour's outcomes were late, duplicates or invalid, over at least 100 outcomes | [Warning](#outcomes-not-learned) |
+| `calls_stopped` | No `select` call since the last full hour began, after at least 60 calls in the same hour yesterday | [Warning](#calls-stopped) |
+
+- The thresholds are fixed, the same for every loop.
+- Only live and committed loops are watched. A draft, a paused loop and a retired one open no new alerts.
+- Each signal opens at most one alert per loop at a time. While it stays unhealthy, nothing new is sent.
+
+## The safety pause
+
+qbrix pauses a loop when it fails more than 5% of the loop's `select` calls over 10 minutes, with at least 100 calls. A failure is a call qbrix couldn't answer for its own reasons. Calls your app got wrong, such as a missing `unit` or a quota, and calls for a loop that doesn't exist are counted apart and never count toward the rate or the 100 calls.
+
+The pause is a change made by qbrix itself, the only change without a person behind it. History shows "Paused by qbrix" with the share of calls that failed, the number of calls and the window, and the reasons the calls failed.
+
+- It works like any [pause](/docs/loops#states): everyone gets the fallback and no new decisions are made. Decisions already made still seal and teach.
+- Your app was already serving its offline option for the calls that failed: the SDKs never throw.
+- **qbrix never resumes the loop.** A loop paused at night stays on its fallback until a person resumes it, in the console or through their client with `loop_resume`, or with `POST /api/v1/loops/{loop}/resume`. A pause that flapped on and off would be worse than a steady fallback.
+- **Resuming ends the alert,** and its recovery says who resumed the loop and how long it was on the fallback. Retiring the loop ends it too.
+- Before you resume, check that qbrix is healthy again: its services, Redis and the network between them. Resuming counts failures afresh from that moment, so earlier errors never pause it again.
+
+The safety pause always runs: it can't be turned off.
+
+## Warnings
+
+A warning leaves the loop serving as it is. It says something needs a look.
+
+### Outcomes stopped
+
+The loop keeps deciding, but outcomes stopped arriving: at least 100 decisions since the last outcome or `track` event, and either a whole window of the metric has passed with none, or at least 30 minutes have and those decisions are more than ten times what the cycle usually makes per outcome. A loop that made no decision in the last hour isn't judged.
+
+It usually means the integration broke, often after a deploy. Meanwhile decisions are being [sealed](/docs/metrics-and-outcomes#the-window) with the metric's value for no outcome, so the loop learns that nothing works.
+
+**What to check:** that the code sending `outcome` or `track` still runs, with the right metric name and the `request_id` or decisions token from `select`. A metric's [health](/docs/metrics-and-outcomes#a-metrics-health) shows whether outcomes arrive at all.
+
+The count restarts when the loop resumes or a new cycle starts.
+
+### Outcomes not learned
+
+Outcomes arrive, but more than 10% of the last hour's were late, duplicates or invalid, with at least 100 outcomes in that hour. qbrix doesn't judge this while it is more than 5 minutes behind on its [ledger](/docs/running-the-ledger), because outcomes it hasn't read yet would look missing.
+
+**What to check:** the alert's `value` names how many fell under each reason.
+
+- **Late:** the window is shorter than outcomes really take, or outcomes wait in a queue. Send `at` with each outcome, or [lengthen the window](/docs/metrics-and-outcomes#versions).
+- **Duplicate:** the same `id` sent again, or a conversion reported twice. Retries are safe; reporting every step of one purchase isn't.
+- **Invalid:** values the metric's type refuses, such as `2` for a conversion.
+
+See [what qbrix records but never learns from](/docs/metrics-and-outcomes#what-qbrix-records-but-never-learns-from).
+
+### Calls stopped
+
+A loop that was deciding through the last full hour and the same hour yesterday had no `select` call since the last full hour began, and at least 60 calls in that hour yesterday. Hours are whole UTC hours, so a quiet night is compared with the night before.
+
+It usually means a release dropped the call, or a page or route stopped reaching it. Nothing errors, because your app serves its own offline option.
+
+**What to check:** that the code calling `select` for this loop's key still runs, and with which key. The loop's results show the last hour's calls by reason.
+
+- qbrix opens it only once it has counted calls without a gap since the last full hour began, so a restart or an outage of qbrix never looks like silence. After a restart it can take one to two hours before the signal is judged again.
+- A loop that went live, resumed or started a new cycle within the last day isn't judged yet, because it has no hour yesterday to compare with.
+
+## Recovering
+
+- **A warning ends when its signal stays clear for 10 minutes.** If it returns during those 10 minutes, the wait starts again. Calls stopped ends only when calls arrive again, never because yesterday's hour was quiet.
+- **A safety pause ends when a person resumes the loop.**
+- **Retiring a loop ends every alert on it.**
+- **Pausing a loop yourself leaves its warnings open.** A paused loop isn't judged, so its warnings end when it is resumed and the signal clears, or when it is retired. A person's own pause is never an alert.
+
+Nobody dismisses an alert by hand. Each recovery is sent as one message, with how the alert ended: `cleared`, `resumed` or `retired`.
+
+## Where alerts appear
+
+| Where | What it shows |
+|---|---|
+| **The inbox** | Every open alert under Alerts, for every member of the workspace, viewers included. Once recovered, an alert stays 7 days under For your information, marked recovered. `GET /api/v1/inbox` |
+| **The loops list** | Each loop's open alerts, as `alerts` on `GET /api/v1/loops`, so home shows what needs a look |
+| **A loop's health** | Its open alerts first, on its page and in `health` on [its results](/docs/loops#read-a-loops-results) |
+| **Agents** | `loop_get` leads with what needs a look and the alerts that recovered in the last 7 days; `loops_list` marks the loop; `loop_results` and `workspace_summary` carry them too. See the [MCP server](/docs/mcp-server#tools). |
+| **The webhook** | Every alert and its recovery, once an admin [adds one](#adding-it) |
+
+`GET /api/v1/alerts` lists the workspace's alerts, newest first. Every role can read it.
+
+| Query | Description |
+|---|---|
+| `loop` | One loop's alerts, by key or id |
+| `open` | `true` for open alerts only, `false` for ended ones |
+| `limit` | 50 by default, 200 at most |
+
+```json
+{
+  "alerts": [
+    {
+      "id": "1d6c0b6f2a3e4f0e9a7b5c4d3e2f1a0b",
+      "signal": "outcomes_stopped",
+      "opened_at": "2026-11-25T09:14:00+00:00",
+      "resolved_at": null,
+      "resolution": null,
+      "resolved_by": null,
+      "loop": {"id": "ac523fba59794f9996dc0902c6f8d81a", "key": "checkout-headline", "name": "Checkout headline"},
+      "cycle_id": "86624cd93ee441b8a9521b757af7cf3c",
+      "evidence": {
+        "signal": "outcomes_stopped",
+        "decisions_since_outcome": 412,
+        "usual_decisions_per_outcome": 18.5,
+        "last_outcome_at": "2026-11-25T08:31:12+00:00",
+        "silent_since": "2026-11-25T08:31:12+00:00",
+        "window_sec": 172800,
+        "checked_at": "2026-11-25T09:14:00+00:00"
+      },
+      "pieces": [
+        {"kind": "loop", "text": null, "name": "Checkout headline"},
+        {"kind": "text", "text": " stopped receiving outcomes: none in its last 412 decisions.", "name": null}
+      ]
+    }
+  ]
+}
+```
+
+- `evidence` is what qbrix measured when it opened the alert. Its fields depend on the signal.
+- `pieces` is the alert as one sentence, with the loop's name as its own piece so a page can link it.
+- An ended alert carries `resolved_at`, its `resolution`, and `resolved_by`: `{"kind", "user_id", "name"}` of the person, or `kind` `qbrix` when the signal cleared.
+
+## When qbrix itself is down
+
+If the whole install is down, it can't pause or warn about anything. Your apps keep working on their offline option, which is why the SDKs never throw. Watching qbrix itself, its services, stores and how fast it answers, is the job of whoever runs the install, with the monitoring they already use, through its health endpoints and logs. qbrix's own alerts are only about loops.
+
+When qbrix falls behind on its ledger, the console's workspace menu says so, such as "Learning is 4 minutes behind". It sends no alert for it.
+
 ## The workspace webhook
 
 Outside the console, alerts reach your team through one webhook per workspace. Until one is added, alerts only reach you in the console.
