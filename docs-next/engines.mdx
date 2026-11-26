@@ -3,3 +3,129 @@ title: Engines
 description: An engine chooses an option on every request and learns from each outcome.
 order: 2
 ---
+
+An engine is what decides inside a [loop](/docs/loops): it chooses an option on every request and learns from every sealed decision. You pick an engine by name, never a method. The loop's [metric type](/docs/metrics-and-outcomes#metric-types), and for Leibniz its context, decide what runs underneath, so an engine has no settings: no prior, scale, reward type or exploration rate to get right.
+
+## The engines
+
+| Engine | For | Learns from | Needs |
+|---|---|---|---|
+| **Spinoza** (default) | Most loops: find what works for everyone, and keep a little doubt. | Outcomes | Nothing |
+| **Leibniz** | Personalization: different options for different requests, by what the app knows about them. | Outcomes and context | A context on the loop, and more traffic than Spinoza |
+| **Buridan** | An even split that never prefers an option: a baseline, or data nobody steered. | Nothing; outcomes are still recorded and shown | Nothing |
+
+- **Spinoza** suits a loop whose best option is the same for everyone. It sends more traffic to what works as outcomes arrive, and never stops checking the others completely.
+- **Leibniz** suits a loop where the best option depends on the request: the plan, the device, how many seats. It learns from the properties in the loop's [context](/docs/loops#what-a-loop-learns-from), and needs enough traffic for each kind of request to tell them apart.
+- **Buridan** gives every option the same share, whatever happens. Use it for a baseline to compare against, or to collect data no engine steered.
+
+Every engine works with every metric type: a conversion, a count, a revenue value in euros or a rating from 1 to 5, without rescaling anything. Underneath, Spinoza runs Thompson sampling suited to the metric type, Leibniz its contextual form, and Buridan a uniform random choice.
+
+Results read the same whatever the engine: share of decisions, lift over an even split and health never depend on it.
+
+## Choosing an engine
+
+A loop runs Spinoza unless you name another when you create it, with `engine` on `POST /api/v1/loops` or `loop_create` over MCP:
+
+```json
+{
+  "name": "Pricing page plan",
+  "metric": "purchase",
+  "engine": "leibniz",
+  "context": [{"name": "plan", "type": "categorical", "values": ["free", "pro"]}],
+  "options": [{"name": "Monthly"}, {"name": "Yearly"}]
+}
+```
+
+Leibniz without a context is refused: "leibniz learns from context; declare the context first". Declare it in the same call, as above, or with `context_update` while the loop is a draft. Spinoza and Buridan ignore the context.
+
+To change a launched loop's engine, start a new cycle with it: `cycle_start` over MCP, or `engine` in `POST /api/v1/loops/{loop}/cycles`. What the loop learned doesn't carry over to another engine, so the new cycle learns afresh, and the earlier one stays readable. Like every new cycle, it can't be undone, and a connection's new cycle asks its person first by default. See [a new cycle](/docs/loops#a-new-cycle).
+
+## Versions
+
+Engines have versions, such as Spinoza 1.0:
+
+- **A major version** (Spinoza 1, Spinoza 2) is a method. A new major can learn differently, so moving to it starts a new cycle.
+- **A minor version** (Spinoza 1.0, 1.1) is the same method, improved: how it decides from what it learned, fixes, speed. A minor never changes what was learned, so a loop keeps everything when it moves to one, and every minor says what it changed.
+
+A loop names its engine in one of three forms:
+
+| Form | What the cycle runs |
+|---|---|
+| `spinoza` | The newest major at launch, then its minors, as `spinoza:1` |
+| `spinoza:1` | Major 1, following its minors |
+| `spinoza:1.0` | Exactly 1.0, until you change it |
+
+### Following minors
+
+A cycle that names a major runs the newest minor of it that your install ships. When you upgrade qbrix to a release with a new minor, every live, paused and committed loop on that major moves to it when qbrix starts, keeping everything it learned. Downgrading qbrix moves them back. Each move is noted in the loop's [history](/docs/loops#history), as qbrix's own change: "qbrix updated the engine of …", with what the minor changed, such as "Spinoza 1.0 → 1.1 with qbrix 0.6: explores less once an option is clearly ahead". It can't be undone; to roll a minor back, downgrade qbrix, or stay on the minor before it.
+
+A loop never moves to a new major on its own. When Spinoza 2 ships, a loop on Spinoza 1 stays there until someone starts a cycle on Spinoza 2.
+
+### Staying on a minor
+
+Name the minor, such as `spinoza:1.0`, for a loop that needs exact behaviour, for example for an audit. It stays on that minor through every upgrade. A launched loop switches between staying on its minor and following its major without a new cycle, keeping what it learned: `engine_version` over MCP, or the engine alone in the cycle part of an apply. See [its engine version](/docs/loops#its-engine-version).
+
+## Listing engines
+
+`engines_list` over MCP, or `GET /api/v1/engines`, lists the engines your install ships, the default first. Every role can read it.
+
+```bash
+curl $QBRIX_BASE_URL/api/v1/engines \
+  -H "X-API-Key: $QBRIX_API_KEY"
+```
+
+Response, `200 OK`:
+
+```json
+{
+  "engines": [
+    {
+      "name": "spinoza",
+      "title": "Spinoza",
+      "default": true,
+      "latest": "1.0",
+      "versions": ["1.0"],
+      "suits": "Most loops: find what works for everyone, and keep a little doubt.",
+      "learns_from": "outcomes",
+      "needs": "nothing",
+      "needs_context": false
+    },
+    {
+      "name": "buridan",
+      "title": "Buridan",
+      "default": false,
+      "latest": "1.0",
+      "versions": ["1.0"],
+      "suits": "An even split that never prefers an option: a baseline, or data nobody steered.",
+      "learns_from": "nothing; outcomes are still recorded and shown",
+      "needs": "nothing",
+      "needs_context": false
+    },
+    {
+      "name": "leibniz",
+      "title": "Leibniz",
+      "default": false,
+      "latest": "1.0",
+      "versions": ["1.0"],
+      "suits": "Personalization: different options for different requests, by what the app knows about them.",
+      "learns_from": "outcomes and context",
+      "needs": "a context on the loop, and more traffic than Spinoza",
+      "needs_context": true
+    }
+  ],
+  "forms": "spinoza, spinoza:1 or spinoza:1.3"
+}
+```
+
+`versions` lists every version the install ships, oldest first, and `needs_context` says the engine is refused without a context.
+
+## Errors
+
+An engine that can't run is refused with `400 INVALID_LOOP`, and the detail says which forms and engines are accepted:
+
+| Sent | Detail |
+|---|---|
+| `Spinoza` | invalid engine spec 'Spinoza'; accepted forms: spinoza, spinoza:1 or spinoza:1.3 |
+| `darwin` | unknown engine 'darwin'; engines are buridan, leibniz, spinoza, … |
+| `spinoza:2` | spinoza has no major 2; available: spinoza:1, … |
+| `leibniz` without a context | leibniz learns from context; declare the context first |
