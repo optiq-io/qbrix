@@ -22,7 +22,9 @@ invariants verified:
   in product words, an open safety pause first. delivery_update changes who
   a loop decides for, says so in one line that loop_get repeats, waits when
   it asks first and applies when approved. every refusal says what to do
-  next.
+  next. the instructions reach a client in both versions, and the three
+  prompts list and render in both; every tool they name is registered, and
+  none of their words is a bandit word, a verdict or a claim of cause.
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ from collections.abc import AsyncIterator
 from datetime import datetime
 from datetime import timezone
 from contextlib import asynccontextmanager
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -42,6 +45,7 @@ import httpx2
 import pytest
 import pytest_asyncio
 from mcp import Client
+from mcp import MCPError
 from mcp.client.streamable_http import streamable_http_client
 from mcp_types import ElicitResult
 from mcp_types import InputRequiredResult
@@ -63,6 +67,8 @@ from proxysvc.mod.safety.rule import OUTCOMES_STOPPED
 from proxysvc.mod.safety.service import CLEARED
 from proxysvc.mod.safety.service import AlertService
 from proxysvc.next import next_routes
+from proxysvc.transport.mcp.instructions import INSTRUCTIONS
+from proxysvc.transport.mcp.prompt import PROMPTS
 from proxysvc.transport.mcp.server import MCP_PATH
 from proxysvc.transport.mcp.schema import LoopPage
 from proxysvc.transport.mcp.schema import LoopView
@@ -420,6 +426,113 @@ class TestProtocol:
             "checkout-headline"
         ]
         assert transport.served == {0, 1}
+
+
+DOCS_NEXT = Path(__file__).resolve().parents[5] / "docs-next"
+REQUEST_PATH = {"select", "outcome", "track"}
+FORBIDDEN = (
+    "bandit",
+    "arm",
+    "arms",
+    "policy",
+    "experiment",
+    "reward",
+    "explore",
+    "exploit",
+    "winner",
+    "significant",
+    "ready to commit",
+    "because",
+)
+RENDERS = [
+    ("start-loop", {}),
+    ("start-loop", {"choice": "the checkout headline"}),
+    ("explain-loop", {"loop": "checkout-headline"}),
+    ("weekly-review", {}),
+    ("weekly-review", {"since": "2026-11-20"}),
+]
+
+
+def _named(text: str) -> set[str]:
+    return set(re.findall(r"`([^`]+)`", text))
+
+
+def _unquoted(text: str) -> str:
+    return re.sub(r'"[^"]*"', "", text).lower()
+
+
+async def _rendered(client: Client) -> list[str]:
+    texts = []
+    for name, arguments in RENDERS:
+        result = await client.get_prompt(name, arguments)
+        texts.extend(message.content.text for message in result.messages)
+    return texts
+
+
+class TestInstructionsAndPrompts:
+
+    async def test_a_modern_client_discovers_the_instructions(self, mcp, wired_app):
+        async with _session(mcp, wired_app, mode="auto") as client:
+            assert client.protocol_version == MODERN
+            assert client.session.discover_result.instructions == INSTRUCTIONS
+
+    async def test_a_legacy_client_is_given_them_on_initialize(self, mcp, wired_app):
+        async with _session(mcp, wired_app, mode=LEGACY) as client:
+            assert client.instructions == INSTRUCTIONS
+
+    @pytest.mark.parametrize("mode", [MODERN, LEGACY])
+    async def test_both_versions_list_and_render_the_prompts(
+        self, mcp, wired_app, mode
+    ):
+        async with _session(mcp, wired_app, mode=mode) as client:
+            listed = (await client.list_prompts()).prompts
+            texts = await _rendered(client)
+
+        assert [p.name for p in listed] == list(PROMPTS)
+        arguments = {
+            p.name: {a.name: a.required for a in p.arguments or []} for p in listed
+        }
+        assert arguments == {
+            "start-loop": {"choice": False},
+            "explain-loop": {"loop": True},
+            "weekly-review": {"since": False},
+        }
+        assert "for: the checkout headline" in texts[1]
+        assert "checkout-headline" in texts[2]
+        assert "since 2026-11-20" in texts[4]
+        assert "last 7 days" in texts[3]
+
+    async def test_explaining_needs_a_loop(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            with pytest.raises(MCPError):
+                await client.get_prompt("explain-loop", {})
+
+    async def test_every_name_they_give_is_registered(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            tools = {tool.name for tool in (await client.list_tools()).tools}
+            texts = await _rendered(client)
+
+        known = tools | set(PROMPTS) | REQUEST_PATH
+        for text in [INSTRUCTIONS, *texts]:
+            assert _named(text) <= known, _named(text) - known
+        assert {"change_get", "metric_update", "docs_search"} <= _named(INSTRUCTIONS)
+
+    async def test_their_words_are_product_words(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            texts = await _rendered(client)
+
+        for text in [INSTRUCTIONS, *texts]:
+            words = _unquoted(text)
+            for word in FORBIDDEN:
+                assert not re.search(rf"\b{word}\b", words), (word, text)
+
+    def test_the_instructions_fit_on_one_screen(self):
+        assert len(INSTRUCTIONS.split()) < 400
+
+    def test_the_docs_quote_them_as_sent(self):
+        page = (DOCS_NEXT / "mcp-server.mdx").read_text()
+
+        assert f"```text\n{INSTRUCTIONS}```" in page
 
 
 class _RoundRobin(httpx2.AsyncBaseTransport):
