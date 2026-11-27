@@ -502,6 +502,18 @@ class TestInstructionsAndPrompts:
         assert "since 2026-11-20" in texts[4]
         assert "last 7 days" in texts[3]
 
+    async def test_explaining_a_safety_pause_finds_its_cause_before_resuming(
+        self, mcp, wired_app
+    ):
+        async with _session(mcp, wired_app) as client:
+            result = await client.get_prompt("explain-loop", {"loop": "checkout"})
+        text = result.messages[0].content.text
+
+        cause = text.index("find the cause with me first")
+        assert text.index("`loop_resume`") > cause
+        assert "only once the cause is understood" in text
+        assert "never as the alternative to finding it" in text
+
     async def test_explaining_needs_a_loop(self, mcp, wired_app):
         async with _session(mcp, wired_app) as client:
             with pytest.raises(MCPError):

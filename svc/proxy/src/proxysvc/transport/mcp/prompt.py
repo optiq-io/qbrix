@@ -61,6 +61,9 @@ def explain_loop(
             "Say what changed and by whom. Where a shift follows a change, put "
             'the two side by side with both times and say "likely" at most.',
             "Read its declined changes and their reasons.",
+            "If qbrix paused the loop for safety, find the cause with me first. "
+            "Propose `loop_resume` only once the cause is understood, never as "
+            "the alternative to finding it.",
             "Propose one next step with its reason, one that doesn't repeat a "
             "declined change whose reason still holds, or say that none is "
             f"needed. {_NO_CHANGE}",
