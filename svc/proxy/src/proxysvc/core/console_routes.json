@@ -1,0 +1,4 @@
+{
+  "routes": ["/next/changes", "/next/loops/[loop]"],
+  "pending": ["/next/loops/[loop]/history", "/next/metrics/[metric]"]
+}

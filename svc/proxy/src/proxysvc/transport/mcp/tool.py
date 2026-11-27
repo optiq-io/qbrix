@@ -29,6 +29,9 @@ from qbrixlog import get_logger
 from proxysvc.config import ProxySettings
 from proxysvc.core import autonomy
 from proxysvc.core.actor import Actor
+from proxysvc.core.console import change_url
+from proxysvc.core.console import changes_url
+from proxysvc.core.console import history_url
 from proxysvc.core.error import ChangeAnsweredError
 from proxysvc.core.error import ChangeNoLongerAppliesError
 from proxysvc.core.error import ChangeWaitingError
@@ -71,9 +74,6 @@ from proxysvc.transport.mcp import ask
 from proxysvc.transport.mcp import error
 from proxysvc.transport.mcp.error import Refusal
 from proxysvc.transport.mcp.error import refusals
-from proxysvc.transport.mcp.link import change_url
-from proxysvc.transport.mcp.link import changes_url
-from proxysvc.transport.mcp.link import history_url
 from proxysvc.transport.mcp.repeat import RepeatGuard
 from proxysvc.transport.mcp.repeat import repeat_key
 from proxysvc.transport.mcp.schema import ChangeStatus

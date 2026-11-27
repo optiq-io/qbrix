@@ -180,7 +180,7 @@ def test_durations(seconds, expected):
 def test_one_alert_is_one_line_with_its_link():
     body = message([Notice(_entry(DECISION_ERRORS), OPENED)], "Acme", ORIGIN)
 
-    assert body["text"].endswith(f" {ORIGIN}/loops/search-ranking")
+    assert body["text"].endswith(f" {ORIGIN}/next/loops/search-ranking")
     assert "\n" not in body["text"]
     (item,) = body["alerts"]
     assert item == {
@@ -189,7 +189,7 @@ def test_one_alert_is_one_line_with_its_link():
         "signal": DECISION_ERRORS,
         "value": {k: v for k, v in EVIDENCE[DECISION_ERRORS].items() if k != "signal"},
         "opened_at": OPENED_AT.isoformat(),
-        "url": f"{ORIGIN}/loops/search-ranking",
+        "url": f"{ORIGIN}/next/loops/search-ranking",
     }
 
 
@@ -223,7 +223,7 @@ def test_several_alerts_get_one_first_line():
 
     assert lines[0] == "3 loops need a look in Acme"
     assert len(lines) == 4
-    assert lines[3].endswith(f"{ORIGIN}/loops/loop-2")
+    assert lines[3].endswith(f"{ORIGIN}/next/loops/loop-2")
 
 
 def test_the_first_line_says_how_many_are_healthy_again():

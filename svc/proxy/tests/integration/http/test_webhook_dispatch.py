@@ -211,7 +211,7 @@ async def test_a_safety_pause_is_one_message_within_the_minute(
     (body,) = receiver.bodies()
     assert body["text"] == (
         "qbrix paused Search ranking: 7% of its decisions failed. Everyone gets"
-        f" the fallback until a person resumes it. {ORIGIN}/loops/{loop['key']}"
+        f" the fallback until a person resumes it. {ORIGIN}/next/loops/{loop['key']}"
     )
     assert body["kind"] == "alert"
     assert body["workspace"] == {"name": "Acme"}

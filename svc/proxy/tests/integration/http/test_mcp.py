@@ -587,7 +587,7 @@ class TestChanges:
         assert draft["change"]["kind"] == "loop.create"
         assert draft["change"]["undoable"] is True
         assert draft["change"]["url"] == (
-            f"{proxysvc.config.settings.console_origin}/loops/checkout-headline"
+            f"{proxysvc.config.settings.console_origin}/next/loops/checkout-headline"
             f"/history?change={draft['change']['id']}"
         )
         assert draft["loop"]["state"] == "draft"
@@ -618,7 +618,7 @@ class TestChanges:
         change = result.structured_content["change"]
         assert change["kind"] == "metric.create"
         assert change["url"] == (
-            f"{proxysvc.config.settings.console_origin}/metrics/purchase"
+            f"{proxysvc.config.settings.console_origin}/next/metrics/purchase"
             f"?change={change['id']}"
         )
 
@@ -807,7 +807,7 @@ class TestChangesAndUndo:
         assert undone["via"]["client"]
         change = result.structured_content["change"]
         assert change["url"] == (
-            f"{proxysvc.config.settings.console_origin}/changes?change={change['id']}"
+            f"{proxysvc.config.settings.console_origin}/next/changes?change={change['id']}"
         )
 
     async def test_a_repeated_undo_applies_once(self, mcp, wired_app):
@@ -1425,7 +1425,7 @@ class TestNotesAndHistory:
         note = result.structured_content["note"]
         assert (change["kind"], change["undoable"]) == ("note.add", False)
         assert change["url"] == (
-            f"{proxysvc.config.settings.console_origin}/loops/checkout-headline"
+            f"{proxysvc.config.settings.console_origin}/next/loops/checkout-headline"
             f"/history?change={change['id']}"
         )
         assert note["note"] == NOTE["text"]
@@ -1451,7 +1451,7 @@ class TestNotesAndHistory:
         assert "can be undone" not in note_line
         assert "Claude Code created Checkout headline." in create_line
         assert result.structured_content["url"] == (
-            f"{proxysvc.config.settings.console_origin}/loops/checkout-headline/history"
+            f"{proxysvc.config.settings.console_origin}/next/loops/checkout-headline/history"
         )
 
     async def test_loop_history_shows_only_notes_or_only_changes(self, mcp, wired_app):
@@ -2133,7 +2133,7 @@ class TestAskingFirst:
         assert structured["loop"]["state"] == "draft"
         assert structured["change"]["kind"] == "loop.launch"
         assert structured["change"]["url"] == (
-            f"{proxysvc.config.settings.console_origin}/changes"
+            f"{proxysvc.config.settings.console_origin}/next/changes"
             f"?change={structured['change']['id']}"
         )
         text = launched.content[0].text
@@ -2544,7 +2544,7 @@ class TestChangeGetAndRename:
         assert entry["via"] is None
         assert entry["reason"] == "support calls it the title"
         assert entry["url"] == (
-            f"{proxysvc.config.settings.console_origin}/changes?change={change_id}"
+            f"{proxysvc.config.settings.console_origin}/next/changes?change={change_id}"
         )
         text = result.content[0].text
         assert "Mustafa renamed" in text

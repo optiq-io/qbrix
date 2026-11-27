@@ -3,6 +3,13 @@ from __future__ import annotations
 from typing import Literal
 from urllib.parse import quote
 
+BASE = "/next"
+
+
+def loop_url(console_origin: str, key: str) -> str:
+    """a loop's page in the console."""
+    return f"{console_origin}{BASE}/loops/{quote(key, safe='')}"
+
 
 def change_url(
     console_origin: str,
@@ -14,15 +21,15 @@ def change_url(
     the metric's page, opened at that change."""
     ref = quote(ref, safe="")
     if target == "loop":
-        return f"{console_origin}/loops/{ref}/history?change={change_id}"
-    return f"{console_origin}/metrics/{ref}?change={change_id}"
+        return f"{console_origin}{BASE}/loops/{ref}/history?change={change_id}"
+    return f"{console_origin}{BASE}/metrics/{ref}?change={change_id}"
 
 
 def history_url(console_origin: str, loop: str) -> str:
     """a loop's whole history in the console."""
-    return f"{console_origin}/loops/{quote(loop, safe='')}/history"
+    return f"{console_origin}{BASE}/loops/{quote(loop, safe='')}/history"
 
 
 def changes_url(console_origin: str, change_id: str) -> str:
     """the workspace's changes, opened at one."""
-    return f"{console_origin}/changes?change={change_id}"
+    return f"{console_origin}{BASE}/changes?change={change_id}"
