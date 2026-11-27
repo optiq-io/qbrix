@@ -17,7 +17,7 @@ from proxysvc.core.error import LoopNotFoundError
 from proxysvc.core.error import TokenInvalidError
 from proxysvc.service import ProxyService
 from proxysvc.transport.http.auth.dependencies import get_current_tenant_id
-from proxysvc.transport.http.auth.dependencies import require_scopes
+from proxysvc.transport.http.auth.dependencies import require_request_scope
 from proxysvc.transport.http.exception import InternalServerException
 from proxysvc.transport.http.exception import InvalidOutcomeException
 from proxysvc.transport.http.exception import InvalidRequestIdException
@@ -69,7 +69,7 @@ class OutcomeResponse(BaseModel):
 async def outcome(
     body: OutcomeRequest,
     tenant_id: str = Depends(get_current_tenant_id),
-    _scoped=Depends(require_scopes(["agent:write"])),
+    _scoped=Depends(require_request_scope("agent:write")),
 ):
     """an outcome for one decision, recorded for its loop's metric."""
     try:

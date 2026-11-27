@@ -146,6 +146,23 @@ def require_scopes(required_scopes: List[str]):
     return scope_dependency
 
 
+def require_request_scope(scope: str):
+    """dependency factory for select, outcome and track: a workspace key,
+    which the middleware let through only to these routes, or a person whose
+    role holds the scope."""
+
+    async def request_scope_dependency(
+        request: Request, user_id: str | None = Depends(get_current_user_id)
+    ) -> None:
+        if user_id is None and getattr(request.state, "api_key", None) is not None:
+            return
+        user = await get_current_active_user(await get_current_user(user_id))
+        if scope not in operator.auth_operator.get_scopes_for_role(user.role):
+            raise InsufficientScopesException(f"required scope '{scope}' not available")
+
+    return request_scope_dependency
+
+
 def require_feature(feature: str):
     """dependency factory that requires the caller's entitlements to grant a
     feature, so routers gate on features rather than tier sets.

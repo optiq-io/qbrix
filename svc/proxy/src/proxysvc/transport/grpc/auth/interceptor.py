@@ -9,6 +9,8 @@ from qbrixlog.context import set_request_id
 
 from proxysvc.config import ProxySettings
 from proxysvc.core.actor import inbound_request_id
+from proxysvc.mod.auth.scope import KEY_METHODS
+from proxysvc.mod.auth.scope import KEY_REFUSED
 from proxysvc.mod.auth.scope import ROLE_SCOPES
 from proxysvc.mod.auth.scope import RPC_SCOPES
 from proxysvc.transport.grpc.auth.context import GRPCAuthContext, set_grpc_auth_context
@@ -83,14 +85,18 @@ class AuthInterceptor(grpc.aio.ServerInterceptor):
         # authenticate — only rate-limit operational rpc methods
         try:
             apply_rate_limit = method in RATE_LIMITED_METHODS
-            auth_ctx = await self._authenticate(metadata, apply_rate_limit)
+            auth_ctx = await self._authenticate(metadata, method, apply_rate_limit)
+        except _KeyRefused:
+            return _error_handler(
+                handler, grpc.StatusCode.PERMISSION_DENIED, KEY_REFUSED
+            )
         except _AuthError as e:
             return _error_handler(handler, grpc.StatusCode.UNAUTHENTICATED, str(e))
 
         required_scope = RPC_SCOPES.get(
             method
         )  # authorize: check required scope for this rpc method
-        if required_scope:
+        if required_scope and not auth_ctx.workspace_key:
             if (
                 required_scope not in auth_ctx.scopes
                 and "system:admin" not in auth_ctx.scopes
@@ -104,13 +110,15 @@ class AuthInterceptor(grpc.aio.ServerInterceptor):
         return _wrap_handler(handler, replace(auth_ctx, request_id=request_id))
 
     async def _authenticate(
-        self, metadata: dict, apply_rate_limit: bool = True
+        self, metadata: dict, method: str, apply_rate_limit: bool = True
     ) -> GRPCAuthContext:
         """extract and validate credentials from grpc metadata."""
         api_key_value = metadata.get("x-api-key")
 
         if api_key_value:
-            return await self._authenticate_api_key(api_key_value, apply_rate_limit)
+            return await self._authenticate_api_key(
+                api_key_value, method, apply_rate_limit
+            )
 
         auth_header = metadata.get("authorization")
         if not auth_header:
@@ -125,19 +133,37 @@ class AuthInterceptor(grpc.aio.ServerInterceptor):
 
         # api key passed via bearer header
         if token.startswith("optiq_"):
-            return await self._authenticate_api_key(token, apply_rate_limit)
+            return await self._authenticate_api_key(token, method, apply_rate_limit)
 
         # jwt token
         return await self._authenticate_jwt(token, apply_rate_limit)
 
-    @staticmethod
     async def _authenticate_api_key(
-        plain_key: str, apply_rate_limit: bool = True
+        self, plain_key: str, method: str, apply_rate_limit: bool = True
     ) -> GRPCAuthContext:
-        """validate api key and resolve user context."""
+        """validate api key and resolve its principal: with next on the
+        workspace, otherwise the key's creator."""
         api_key = await operator.auth_operator.validate_api_key(plain_key)
         if not api_key:
             raise _AuthError("invalid api key")
+
+        if self._settings.next_enabled:
+            if method not in KEY_METHODS:
+                raise _KeyRefused()
+            if (
+                apply_rate_limit
+                and not await operator.auth_operator.check_key_rate_limit(api_key)
+            ):
+                raise _AuthError(
+                    f"rate limit exceeded: {api_key.rate_limit_per_minute} requests per minute"
+                )
+            return GRPCAuthContext(
+                tenant_id=api_key.tenant_id,
+                user_id="",
+                role="",
+                api_key_id=api_key.id,
+                source=api_key.source,
+            )
 
         user = await operator.auth_operator.get_user(api_key.user_id)
         if not user or not user.is_active:
@@ -190,6 +216,10 @@ class _AuthError(Exception):
     """internal exception for auth failures within the interceptor."""
 
     pass
+
+
+class _KeyRefused(Exception):
+    """a key calling off the request path with next on."""
 
 
 def _wrap_handler(handler, auth_ctx: GRPCAuthContext):

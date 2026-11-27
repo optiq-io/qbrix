@@ -196,12 +196,14 @@ What the browser stores is decision ids and their loops, in `localStorage`, and 
 
 ## Metrics API
 
-The examples use the same variables as the [API reference](/docs/api-reference):
+The examples use these variables:
 
 ```bash
 export QBRIX_BASE_URL="http://localhost:8000"
-export QBRIX_API_KEY="your-api-key"
+export QBRIX_TOKEN="your-sign-in-token"
 ```
+
+`QBRIX_TOKEN` is a person's sign-in token: the `access_token` that `POST /api/auth/login` returns, which lasts 30 minutes. An API key only asks for decisions and sends outcomes and events: `select`, `outcome` and `track`. Every other route refuses a key with `403 FORBIDDEN`.
 
 Every role can read metrics. Admins and members can create, change and delete them ([Roles and limits](/docs/roles-and-limits)). Each of those is recorded as a change in the workspace's history.
 
@@ -219,7 +221,7 @@ Every role can read metrics. Admins and members can create, change and delete th
 
 ```bash
 curl -X POST $QBRIX_BASE_URL/api/v1/metrics \
-  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Authorization: Bearer $QBRIX_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "purchase",
@@ -250,7 +252,7 @@ A score metric declares its range:
 
 ```bash
 curl -X POST $QBRIX_BASE_URL/api/v1/metrics \
-  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Authorization: Bearer $QBRIX_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "answer.rating",
@@ -266,7 +268,7 @@ curl -X POST $QBRIX_BASE_URL/api/v1/metrics \
 
 ```bash
 curl $QBRIX_BASE_URL/api/v1/metrics \
-  -H "X-API-Key: $QBRIX_API_KEY"
+  -H "Authorization: Bearer $QBRIX_TOKEN"
 ```
 
 Response, `200 OK`:
@@ -326,7 +328,7 @@ Response, `200 OK`:
 
 ```bash
 curl $QBRIX_BASE_URL/api/v1/metrics/purchase \
-  -H "X-API-Key: $QBRIX_API_KEY"
+  -H "Authorization: Bearer $QBRIX_TOKEN"
 ```
 
 The response, `200 OK`, is the metric in the same shape as when it was created, with its `versions`, newest first. Each version has its `version`, `semantic`, `window_seconds`, `created_by` (`{"id", "name"}`), `created_at`, the `reason` given by the change that made it, and `changed`: what moved since the version before, as `{"field", "before", "after"}` for `window` and `semantic`.
@@ -352,7 +354,7 @@ Admins and members can change metrics. Send any of:
 
 ```bash
 curl -X PATCH $QBRIX_BASE_URL/api/v1/metrics/purchase \
-  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Authorization: Bearer $QBRIX_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "semantic": "A paid order, sent from the payment webhook since https://github.com/acme/shop/pull/491",
@@ -379,7 +381,7 @@ A change that changes nothing, or a semantic without `semantic_change`, is refus
 
 ```bash
 curl -X DELETE $QBRIX_BASE_URL/api/v1/metrics/signup \
-  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Authorization: Bearer $QBRIX_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"reason": "never wired"}'
 ```
@@ -390,7 +392,7 @@ Response, `204 No Content`. A metric a loop uses, or ran in an earlier cycle, is
 
 <Endpoint method="POST" path="/api/v1/outcome" description="Record the outcome of one decision" />
 
-Admins and members can report outcomes.
+An API key can report outcomes, and so can admins and members.
 
 | Field | Type | Description |
 |---|---|---|
@@ -405,7 +407,7 @@ The response, `202 Accepted`, returns the outcome's `id` and `at`, as recorded. 
 
 <Endpoint method="POST" path="/api/v1/track" description="Record an event for a metric, or a batch of up to 500" />
 
-Admins and members can track events.
+An API key can track events, and so can admins and members.
 
 | Field | Type | Description |
 |---|---|---|

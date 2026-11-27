@@ -71,6 +71,9 @@ class Tenant(Base):
     connections: Mapped[list["Connection"]] = relationship(
         "Connection", back_populates="tenant", cascade="all, delete-orphan"
     )
+    api_keys: Mapped[list["APIKey"]] = relationship(
+        "APIKey", back_populates="tenant", cascade="all, delete-orphan"
+    )
 
 
 class Pool(Base):
@@ -254,24 +257,35 @@ class User(Base):
 
     tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="users")
     api_keys: Mapped[list["APIKey"]] = relationship(
-        "APIKey", back_populates="user", cascade="all, delete-orphan"
+        "APIKey",
+        back_populates="user",
+        foreign_keys="APIKey.user_id",
+        passive_deletes=True,
     )
 
 
 class APIKey(Base):
     __tablename__ = "api_keys"
     __table_args__ = (
-        # serves list_by_user and the tenant-wide count join; user_id alone is
-        # covered by the leading column.
         Index("ix_api_keys_user_id_is_active", "user_id", "is_active"),
+        Index("ix_api_keys_tenant_id_is_active", "tenant_id", "is_active"),
     )
 
     id: Mapped[str] = mapped_column(
         String(32), primary_key=True, default=lambda: uuid4().hex
     )
-    user_id: Mapped[str] = mapped_column(
-        String(32), ForeignKey("users.id"), nullable=False
+    tenant_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("tenants.id"), nullable=False
     )
+    # today's product reads the key through its creator; dropped after the release
+    user_id: Mapped[str | None] = mapped_column(
+        String(32), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_by_id: Mapped[str | None] = mapped_column(
+        String(32), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    app: Mapped[str] = mapped_column(String(255), nullable=False)
+    environment: Mapped[str] = mapped_column(String(64), nullable=False)
     key_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     name: Mapped[str] = mapped_column(
         String(255), nullable=False, default="Default API Key"
@@ -293,7 +307,10 @@ class APIKey(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
-    user: Mapped["User"] = relationship("User", back_populates="api_keys")
+    user: Mapped["User | None"] = relationship(
+        "User", back_populates="api_keys", foreign_keys=[user_id]
+    )
+    tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="api_keys")
 
 
 class Invite(Base):

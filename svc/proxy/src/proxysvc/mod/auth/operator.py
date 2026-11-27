@@ -127,6 +127,12 @@ class AuthOperator:
         allowed, _, _ = await self._service.check_api_key_rate_limit(api_key.id)
         return allowed
 
+    async def check_key_rate_limit(self, api_key) -> bool:
+        """check a workspace key's own rate limit, without its creator."""
+        return await self._service.check_key_rate_limit(
+            api_key.id, api_key.rate_limit_per_minute
+        )
+
     async def check_user_rate_limit(self, user) -> bool:
         """check rate limit for user."""
         allowed, _, _ = await self._service.check_user_rate_limit(user.id)
@@ -478,12 +484,29 @@ class _APIKeyWrapper:
         return self._data["id"]
 
     @property
-    def user_id(self) -> str:
+    def tenant_id(self) -> str:
+        return self._data["tenant_id"]
+
+    @property
+    def user_id(self) -> str | None:
         return self._data["user_id"]
 
     @property
     def name(self) -> str:
         return self._data["name"]
+
+    @property
+    def app(self) -> str:
+        return self._data["app"]
+
+    @property
+    def environment(self) -> str:
+        return self._data["environment"]
+
+    @property
+    def source(self) -> str:
+        """where a key's calls come from, as history names them."""
+        return f"{self.app} · {self.environment}"
 
     @property
     def rate_limit_per_minute(self) -> int:

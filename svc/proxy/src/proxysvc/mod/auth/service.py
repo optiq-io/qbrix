@@ -23,6 +23,7 @@ from proxysvc.core.email import EmailService
 from proxysvc.core.entitlements import Entitlements
 from proxysvc.core.error import InviteLimitError
 from proxysvc.core.error import SignupClosedError
+from proxysvc.mod.auth.constant import DEFAULT_KEY_ENVIRONMENT
 from proxysvc.mod.auth.repository import TenantRepository
 from proxysvc.mod.auth.repository import UserRepository
 from proxysvc.mod.auth.repository import APIKeyRepository
@@ -833,8 +834,12 @@ class AuthService:
             rate_limit = ABUSE_RATE_LIMIT_PER_MINUTE
 
             api_key = await api_key_repo.create(
-                user_id=user_id,
+                tenant_id=user.tenant_id,
                 key_hash=key_hash,
+                app=name,
+                environment=DEFAULT_KEY_ENVIRONMENT,
+                created_by_id=user_id,
+                user_id=user_id,
                 name=name,
                 rate_limit_per_minute=rate_limit,
                 scopes=scopes,
@@ -1039,6 +1044,16 @@ class AuthService:
             remaining = api_key.rate_limit_per_minute - current_count - 1
             return True, remaining, api_key.rate_limit_per_minute
 
+    async def check_key_rate_limit(self, api_key_id: str, limit: int) -> bool:
+        """a workspace key's own per-minute bucket, counted in redis alone."""
+        if limit == -1:
+            return True
+        current_minute = int(time.time() // 60)
+        current_count = await self._count_this_minute(
+            f"rate_limit:{api_key_id}:{current_minute}"
+        )
+        return current_count is None or current_count < limit
+
     async def check_user_rate_limit(self, user_id: str) -> tuple[bool, int, int]:
         """
         check rate limit for user.
@@ -1129,7 +1144,11 @@ class AuthService:
     def _api_key_to_dict(api_key) -> dict:
         return {
             "id": api_key.id,
+            "tenant_id": api_key.tenant_id,
             "user_id": api_key.user_id,
+            "created_by_id": api_key.created_by_id,
+            "app": api_key.app,
+            "environment": api_key.environment,
             "name": api_key.name,
             "rate_limit_per_minute": api_key.rate_limit_per_minute,
             "scopes": api_key.scopes,

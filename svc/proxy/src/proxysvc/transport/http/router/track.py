@@ -21,7 +21,7 @@ from proxysvc.mod.loop.track import BATCH_MAX
 from proxysvc.mod.loop.track import TrackEvent
 from proxysvc.service import ProxyService
 from proxysvc.transport.http.auth.dependencies import get_current_tenant_id
-from proxysvc.transport.http.auth.dependencies import require_scopes
+from proxysvc.transport.http.auth.dependencies import require_request_scope
 from proxysvc.transport.http.exception import BaseAPIException
 from proxysvc.transport.http.exception import InternalServerException
 from proxysvc.transport.http.exception import InvalidDecisionsException
@@ -142,7 +142,7 @@ def _http_error(error: Exception) -> BaseAPIException:
 async def track(
     body: Union[TrackBatchRequest, TrackRequest],
     tenant_id: str = Depends(get_current_tenant_id),
-    _scoped=Depends(require_scopes(["agent:write"])),
+    _scoped=Depends(require_request_scope("agent:write")),
 ):
     """an event for a metric, or a batch of up to 500, each answered in order."""
     service = get_proxy_service()
