@@ -1,0 +1,404 @@
+#!/usr/bin/env -S uv run python
+"""bring a fresh qbrix next install to the states story g's scenarios read,
+then keep its loops deciding until stopped.
+
+run against `make dev-next` (with motor, cortex and trace running), which
+answers every call as the dev user: the same person a claude code connection
+signs in as. metric windows are minutes long, so about an hour of traffic
+gives the loops a history to read.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import random
+import sys
+import time
+from dataclasses import dataclass
+from dataclasses import field
+from typing import Any
+
+import httpx
+from qbrixstore.config import RedisSettings
+from qbrixstore.redis.client import RedisClient
+from qbrixstore.redis.health import SelectErrorReason
+from qbrixstore.redis.health import SelectOutcome
+
+TENANT = "dev-tenant"
+MINUTE = 60
+
+METRICS = [
+    {
+        "name": "purchase",
+        "semantic": "A visitor completes an order after seeing the decision.",
+        "type": "conversion",
+        "window_seconds": 5 * MINUTE,
+    },
+    {
+        "name": "signup",
+        "semantic": "A visitor creates an account after seeing the decision.",
+        "type": "conversion",
+        "window_seconds": 10 * MINUTE,
+    },
+]
+
+SHIFTED = "checkout-headline"
+SILENCED = "onboarding-tour"
+FAILING = "pricing-cta"
+HELD = "search-ranking"
+DRAFT = "homepage-hero"
+
+ERRORS_AT = 8 * MINUTE
+SILENCE_AT = 12 * MINUTE
+NARROW_AT = 10 * MINUTE
+ERROR_SHARE = 0.15
+# a narrowed loop keeps its lead for an hour on a third of the traffic; more
+# mobile visitors compress that into minutes
+NARROWED_BOOST = 6
+
+
+@dataclass
+class Loop:
+    key: str
+    name: str
+    purpose: str
+    metric: str
+    options: list[dict[str, Any]]
+    rates: dict[str, dict[str, float]]
+    mobile_share: float = 0.5
+    launch: bool = True
+    outcomes: bool = True
+    calls: int = 0
+    cycle_id: str | None = None
+    state: str = "draft"
+    alerts: list[str] = field(default_factory=list)
+
+
+def _option(key: str, name: str, **config: Any) -> dict[str, Any]:
+    return {"key": key, "name": name, "config": config}
+
+
+LOOPS = [
+    Loop(
+        key=SHIFTED,
+        name="Checkout headline",
+        purpose="The line above the pay button: which one gets more orders.",
+        metric="purchase",
+        options=[
+            _option("free-shipping", "Free shipping", text="Free shipping today"),
+            _option("save-ten", "Save 10%", text="Save 10% on this order"),
+        ],
+        rates={
+            "free-shipping": {"mobile": 0.14, "desktop": 0.04},
+            "save-ten": {"mobile": 0.05, "desktop": 0.13},
+        },
+        mobile_share=0.3,
+    ),
+    Loop(
+        key=SILENCED,
+        name="Onboarding tour",
+        purpose="Whether new visitors see a guided tour before signing up.",
+        metric="signup",
+        options=[
+            _option("tour", "Guided tour", steps=4),
+            _option("no-tour", "No tour", steps=0),
+        ],
+        rates={
+            "tour": {"mobile": 0.10, "desktop": 0.12},
+            "no-tour": {"mobile": 0.09, "desktop": 0.10},
+        },
+    ),
+    Loop(
+        key=FAILING,
+        name="Pricing call to action",
+        purpose="The button on the pricing page.",
+        metric="purchase",
+        options=[
+            _option("start-trial", "Start a free trial", label="Start free trial"),
+            _option("talk-to-sales", "Talk to sales", label="Talk to sales"),
+        ],
+        rates={
+            "start-trial": {"mobile": 0.08, "desktop": 0.09},
+            "talk-to-sales": {"mobile": 0.06, "desktop": 0.08},
+        },
+    ),
+    Loop(
+        key=HELD,
+        name="Search ranking",
+        purpose="How search results are ordered for a query.",
+        metric="purchase",
+        options=[
+            _option("popular", "Most popular first", sort="popularity"),
+            _option("newest", "Newest first", sort="created_at"),
+            _option("cheapest", "Cheapest first", sort="price"),
+        ],
+        rates={
+            "popular": {"mobile": 0.22, "desktop": 0.24},
+            "newest": {"mobile": 0.05, "desktop": 0.06},
+            "cheapest": {"mobile": 0.07, "desktop": 0.06},
+        },
+    ),
+    Loop(
+        key=DRAFT,
+        name="Homepage hero",
+        purpose="The image and line at the top of the homepage.",
+        metric="purchase",
+        options=[
+            _option("people", "People using it", image="people.jpg"),
+            _option("product", "The product alone", image="product.jpg"),
+        ],
+        rates={},
+        launch=False,
+    ),
+]
+
+
+def say(message: str) -> None:
+    print(f"[{time.strftime('%H:%M:%S')}] {message}", flush=True)
+
+
+class Seed:
+    def __init__(self, url: str, rate: float, redis: RedisClient):
+        self._api = httpx.AsyncClient(base_url=f"{url}/api/v1", timeout=10)
+        self._url = url
+        self._rate = rate
+        self._redis = redis
+        self._loops = {loop.key: loop for loop in LOOPS}
+        self._started = 0.0
+        self._narrowed = False
+        self._led_before: str | None = None
+        self._extra: list[asyncio.Task] = []
+        self._leads: dict[str, str | None] = {}
+        self._ready = False
+
+    async def run(self) -> None:
+        await self._check_fresh()
+        await self._create()
+        self._started = time.monotonic()
+        self._print_plan()
+        live = [loop for loop in LOOPS if loop.launch]
+        tasks = [asyncio.create_task(self._traffic(loop)) for loop in live]
+        tasks.append(asyncio.create_task(self._failures()))
+        tasks.append(asyncio.create_task(self._watch()))
+        try:
+            await asyncio.gather(*tasks)
+        finally:
+            for task in tasks + self._extra:
+                task.cancel()
+            await self._api.aclose()
+
+    async def _check_fresh(self) -> None:
+        try:
+            response = await self._api.get("/loops")
+        except httpx.ConnectError:
+            sys.exit(f"nothing answers at {self._url}: start it with make dev-next")
+        if response.status_code == 404:
+            sys.exit("qbrix next is off: start the proxy with make dev-next")
+        response.raise_for_status()
+        taken = {item["key"] for item in response.json()["loops"]} & set(self._loops)
+        if taken:
+            sys.exit(
+                f"already seeded ({', '.join(sorted(taken))}): run make db-reset, "
+                "restart the proxy, and seed again"
+            )
+
+    async def _create(self) -> None:
+        for metric in METRICS:
+            (await self._api.post("/metrics", json=metric)).raise_for_status()
+            say(f"created metric {metric['name']}")
+        for loop in LOOPS:
+            response = await self._api.post(
+                "/loops",
+                json={
+                    "key": loop.key,
+                    "name": loop.name,
+                    "purpose": loop.purpose,
+                    "metric": loop.metric,
+                    "options": loop.options,
+                },
+            )
+            response.raise_for_status()
+            if loop.launch:
+                launched = await self._api.post(f"/loops/{loop.key}/launch")
+                launched.raise_for_status()
+                loop.cycle_id = launched.json()["cycle"]["id"]
+                loop.state = "live"
+            say(f"created {loop.key} ({loop.state})")
+
+    def _print_plan(self) -> None:
+        print(
+            f"""
+what happens next, from now:
+  {ERRORS_AT // MINUTE:>2} min  {FAILING}: qbrix starts failing its decisions; the safety pause follows within a minute or two
+  {SILENCE_AT // MINUTE:>2} min  {SILENCED}: outcomes stop arriving, as after a broken deploy; the warning opens about a window (10 min) later
+  {NARROW_AT // MINUTE:>2} min  {SHIFTED}: you narrow its audience to mobile, as the person (the command is printed then)
+         {HELD}: one option takes most of the decisions from the start
+         {DRAFT}: a draft, never launched
+
+keep this running while you run the scenarios. ctrl-c stops the traffic.
+connect claude code with: claude mcp add --transport http qbrix {self._url}/mcp
+its sign-in is approved in the console, so run it too: pnpm dev:console in web/
+""",
+            flush=True,
+        )
+
+    def _elapsed(self) -> float:
+        return time.monotonic() - self._started
+
+    async def _traffic(self, loop: Loop, mobile_only: bool = False) -> None:
+        pause = 1 / self._rate
+        while True:
+            mobile = mobile_only or random.random() < loop.mobile_share
+            device = "mobile" if mobile else "desktop"
+            unit = f"visitor-{random.randrange(10**9)}"
+            try:
+                answer = await self._api.post(
+                    "/select",
+                    json={
+                        "loop": loop.key,
+                        "context": {"unit": unit, "properties": {"device": device}},
+                    },
+                )
+                loop.calls += 1
+                body = answer.json() if answer.status_code == 200 else {}
+                request_id = body.get("request_id")
+                option = (body.get("option") or {}).get("key")
+                silenced = loop.key == SILENCED and self._elapsed() >= SILENCE_AT
+                if request_id and option and not silenced:
+                    if random.random() < loop.rates[option][device]:
+                        await self._api.post(
+                            "/outcome", json={"request_id": request_id, "value": 1}
+                        )
+            except httpx.HTTPError as e:
+                say(f"{loop.key}: call failed: {e}")
+            await asyncio.sleep(pause * random.uniform(0.5, 1.5))
+
+    async def _failures(self) -> None:
+        loop = self._loops[FAILING]
+        await asyncio.sleep(max(0.0, ERRORS_AT - self._elapsed()))
+        say(f"{FAILING}: qbrix starts failing a share of its decisions")
+        while loop.state == "live":
+            before = loop.calls
+            await asyncio.sleep(15)
+            failed = max(1, round((loop.calls - before) * ERROR_SHARE))
+            for _ in range(failed):
+                await self._redis.record_select(
+                    TENANT,
+                    loop.cycle_id,
+                    SelectOutcome.ERROR,
+                    SelectErrorReason.MOTOR_TIMEOUT,
+                )
+
+    async def _watch(self) -> None:
+        while True:
+            await asyncio.sleep(MINUTE)
+            listed = (await self._api.get("/loops")).json()["loops"]
+            for item in listed:
+                loop = self._loops.get(item["key"])
+                if loop is None:
+                    continue
+                if item["state"] != loop.state:
+                    say(f"{loop.key}: {loop.state} → {item['state']}")
+                loop.state = item["state"]
+                opened = [alert["signal"] for alert in item.get("alerts") or []]
+                for signal in set(opened) - set(loop.alerts):
+                    say(f"{loop.key}: {signal} opened")
+                loop.alerts = opened
+                if item["key"] == SHIFTED:
+                    narrowed = bool((item.get("delivery") or {}).get("audience"))
+                    if narrowed and not self._narrowed:
+                        self._led_before = self._leads.get(SHIFTED)
+                        say(
+                            f"{SHIFTED}: audience narrowed while {self._led_before} led"
+                        )
+                        self._extra += [
+                            asyncio.create_task(self._traffic(loop, mobile_only=True))
+                            for _ in range(NARROWED_BOOST)
+                        ]
+                    self._narrowed = narrowed
+            if self._elapsed() >= NARROW_AT and not self._narrowed:
+                self._ask_to_narrow()
+            await self._report()
+
+    def _ask_to_narrow(self) -> None:
+        say(f"""{SHIFTED}: narrow its audience to mobile now, as the person:
+
+  curl -s -X PUT {self._url}/api/v1/loops/{SHIFTED}/delivery \\
+    -H 'content-type: application/json' \\
+    -d '{{"audience": [{{"property": "device", "operator": "is", "value": "mobile"}}], "reason": "Desktop checkout is being redesigned; only mobile visitors see this line for now."}}'
+""")
+
+    async def _report(self) -> None:
+        lines = []
+        for loop in LOOPS:
+            if not loop.launch:
+                lines.append(f"  {loop.key:<18} draft")
+                continue
+            key, lead = await self._lead(loop.key)
+            self._leads[loop.key] = key
+            alerts = ", ".join(loop.alerts) or "no alert"
+            lines.append(f"  {loop.key:<18} {loop.state:<7} {alerts:<20} {lead}")
+        say(f"{int(self._elapsed() // MINUTE)} min in\n" + "\n".join(lines))
+        if not self._ready and self._reached():
+            self._ready = True
+            say("every loop is in its state: the scenarios can run")
+
+    async def _lead(self, key: str) -> tuple[str | None, str]:
+        """the option with most of the last five minutes' decisions."""
+        response = await self._api.get(f"/loops/{key}/results", params={"range": "24h"})
+        share = (
+            (response.json() or {}).get("share")
+            if response.status_code == 200
+            else None
+        )
+        if not share or not share.get("series"):
+            return None, "no decisions yet"
+        recent = share["series"][-5:]
+        options = share["options"]
+        totals = [
+            sum(point["decisions"][i] for point in recent) for i in range(len(options))
+        ]
+        whole = sum(totals)
+        if not whole:
+            return None, "no recent decisions"
+        top = max(range(len(totals)), key=totals.__getitem__)
+        return (
+            options[top]["key"],
+            f"lately {options[top]['key']} {totals[top] / whole:.0%}",
+        )
+
+    def _reached(self) -> bool:
+        loops = self._loops
+        shifted = self._led_before is not None and self._leads.get(SHIFTED) not in (
+            None,
+            self._led_before,
+        )
+        return (
+            loops[FAILING].state == "paused"
+            and "outcomes_stopped" in loops[SILENCED].alerts
+            and self._narrowed
+            and shifted
+        )
+
+
+async def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--url", default="http://localhost:8080")
+    parser.add_argument(
+        "--rate", type=float, default=3.0, help="decisions per second, per loop"
+    )
+    args = parser.parse_args()
+    redis = RedisClient(RedisSettings())
+    await redis.connect()
+    try:
+        await Seed(args.url, args.rate, redis).run()
+    finally:
+        await redis.close()
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        say("stopped")
