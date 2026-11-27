@@ -67,7 +67,6 @@ from proxysvc.service import ProxyService
 from proxysvc.transport.http.router.change import ChangePage
 from proxysvc.transport.http.router.engine import EngineList
 from proxysvc.transport.http.router.milestone import MilestoneList
-from proxysvc.transport.http.router.summary import WeekSummary
 from proxysvc.transport.mcp import ask
 from proxysvc.transport.mcp import error
 from proxysvc.transport.mcp.error import Refusal
@@ -93,6 +92,7 @@ from proxysvc.transport.mcp.schema import MetricList
 from proxysvc.transport.mcp.schema import NoteAdded
 from proxysvc.transport.mcp.schema import PreviewView
 from proxysvc.transport.mcp.schema import ResultsView
+from proxysvc.transport.mcp.schema import WeekView
 from proxysvc.transport.mcp.verifier import current_principal
 from proxysvc.transport.mcp.wire import wiring
 
@@ -243,6 +243,21 @@ def _who(entry: dict | None) -> str:
     name = "qbrix" if who["kind"] == "qbrix" else who["name"]
     via = entry.get("via")
     return f"{name} via {via['client']}" if via else name
+
+
+def _lift_percent(lift: float | None) -> float | None:
+    return None if lift is None else round(lift * 100, 1)
+
+
+def _with_lift_percent(found: dict) -> dict:
+    return {**found, "lift_percent": _lift_percent(found["lift"])}
+
+
+def _listed(loop: dict) -> dict:
+    results = loop.get("results")
+    if results is None:
+        return loop
+    return {**loop, "results": _with_lift_percent(results)}
 
 
 def _concise(loop: dict, detail: Detail) -> dict:
@@ -1157,7 +1172,7 @@ def register(
                 )
         except Refusal as refusal:
             return _refused(refusal)
-        loops = [_concise(loop, detail) for loop in page["loops"]]
+        loops = [_concise(_listed(loop), detail) for loop in page["loops"]]
         lines = []
         for loop in loops:
             line = _loop_line(loop)
@@ -1339,6 +1354,11 @@ def register(
             f"{health['outcomes']['learned']} outcomes learned, "
             f"{health['outcomes']['late']} late"
         )
+        if lift:
+            results = {
+                **results,
+                "lift": {**lift, "lift_percent": _lift_percent(lift["value"])},
+            }
         return _result("\n".join(lines), ResultsView(**results))
 
     async def loop_preview(
@@ -1421,7 +1441,7 @@ def register(
         who: Annotated[
             Optional[list[Literal["member", "connection", "qbrix"]]],
             Field(
-                description="Only changes by people in the console (member), "
+                description="Only changes by people (member), "
                 "through a connected client (connection), or by qbrix."
             ),
         ] = None,
@@ -1602,7 +1622,7 @@ def register(
                 "7 days ago when left out."
             ),
         ] = None,
-    ) -> Annotated[CallToolResult, WeekSummary]:
+    ) -> Annotated[CallToolResult, WeekView]:
         """Read the workspace since a date, 7 days by default, in one call: for each live, paused and committed loop, each option's share of decisions then and now, lift over an even split, its alerts open at any time since then (safety pauses and warnings) and how each ended, milestones, and its changes grouped by who made them and through which client; the drafts; and the workspace's change counts. Facts only: it ranks nothing and calls no option better."""
         principal = current_principal()
         try:
@@ -1611,7 +1631,15 @@ def register(
                 week = await service().workspace_summary(principal.tenant_id, since)
         except Refusal as refusal:
             return _refused(refusal)
-        return _result("\n".join(_week_lines(week)), WeekSummary(**week))
+        return _result(
+            "\n".join(_week_lines(week)),
+            WeekView(
+                **{
+                    **week,
+                    "loops": [_with_lift_percent(loop) for loop in week["loops"]],
+                }
+            ),
+        )
 
     async def docs_search(
         query: Annotated[
