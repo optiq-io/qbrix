@@ -48,6 +48,9 @@ from proxysvc.mod.loop.track import LoopTrackService
 from proxysvc.mod.loop.track import TrackEvent
 from proxysvc.mod.inbox.service import InboxService
 from proxysvc.mod.webhook.service import WebhookService
+from proxysvc.mod.key.service import KeyAnnouncer
+from proxysvc.mod.key.service import KeyService
+from proxysvc.core.invalidation import LocalKeyInvalidation
 from proxysvc.mod.github.service import GitHubService
 from proxysvc.mod.milestone.service import MilestoneService
 from proxysvc.mod.safety.read import AlertReadService
@@ -76,8 +79,11 @@ class ProxyService:
     crud and runtime health checks remain inline.
     """
 
-    def __init__(self, settings: ProxySettings):
+    def __init__(
+        self, settings: ProxySettings, key_announcer: KeyAnnouncer | None = None
+    ):
         self._settings = settings
+        self._key_announcer = key_announcer or LocalKeyInvalidation()
         self._redis: RedisClient | None = None
         self._clickhouse: ClickHouseClient | None = None
         self._events: EventEmitter | None = None
@@ -103,6 +109,7 @@ class ProxyService:
         self._inbox_service: InboxService | None = None
         self._webhook_service: WebhookService | None = None
         self._github_service: GitHubService | None = None
+        self._key_service: KeyService | None = None
         self._cimd: CIMDFetcher | None = None
         self._entitlements: Entitlements | None = None
 
@@ -242,6 +249,9 @@ class ProxyService:
             settings=self._settings, entitlements=self._entitlements
         )
         self._github_service = GitHubService(settings=self._settings)
+        self._key_service = KeyService(
+            entitlements=self._entitlements, announcer=self._key_announcer
+        )
 
     @property
     def entitlements(self) -> Entitlements:
@@ -278,6 +288,12 @@ class ProxyService:
         if self._webhook_service is None:
             raise RuntimeError("proxy service not started")
         return self._webhook_service
+
+    @property
+    def keys(self) -> KeyService:
+        if self._key_service is None:
+            raise RuntimeError("proxy service not started")
+        return self._key_service
 
     @property
     def github(self) -> GitHubService:

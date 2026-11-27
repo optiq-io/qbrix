@@ -357,6 +357,7 @@ async def wired_app(
         set_proxy_service as set_webhook,
     )
     from proxysvc.transport.http.router.github import set_proxy_service as set_github
+    from proxysvc.transport.http.router.key import set_proxy_service as set_key
     from proxysvc.transport.mcp.server import set_proxy_service as set_mcp
 
     test_settings = _make_test_settings()
@@ -379,6 +380,7 @@ async def wired_app(
         redis_client, EmailService(RecordingSender()), svc.entitlements
     )
     init_operators(auth_svc)
+    svc._key_announcer.register(auth_svc.evict_api_key)
 
     # gRPC clients — not on the hot path for management tests
     svc._motor_client = AsyncMock()
@@ -432,6 +434,7 @@ async def wired_app(
     set_pin(svc)
     set_webhook(svc)
     set_github(svc)
+    set_key(svc)
     set_oauth(svc)
     set_mcp(svc)
 

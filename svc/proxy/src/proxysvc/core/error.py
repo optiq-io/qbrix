@@ -278,6 +278,18 @@ class WebhookURLError(BaseAPIError):
     """raised when a webhook url breaks the edition's rule."""
 
 
+class KeyNotFoundError(BaseAPIError):
+    """raised when the workspace has no active key with that id."""
+
+
+class KeyLabelError(BaseAPIError):
+    """raised when a key's app or environment breaks the label rule."""
+
+
+class KeyLimitError(BaseAPIError):
+    """raised when the workspace's plan allows no more keys."""
+
+
 class GitHubNotConnectedError(BaseAPIError):
     """raised when the workspace has no github app to act on, or an event
     names an app qbrix doesn't know."""

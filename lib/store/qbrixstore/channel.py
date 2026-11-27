@@ -9,3 +9,7 @@ subscriber configured independently would drift into silence rather than fail.
 # published by proxy on a tier change; subscribed by every service that caches
 # tenant-derived entitlements.
 TENANT_INVALIDATION_CHANNEL = "qbrix:invalidate:tenant"
+
+# published by proxy when a key is revoked or rotated, with the hash it no
+# longer accepts; every replica evicts that hash from its key cache.
+KEY_INVALIDATION_CHANNEL = "qbrix:invalidate:key"

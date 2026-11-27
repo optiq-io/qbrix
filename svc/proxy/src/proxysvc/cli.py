@@ -90,6 +90,7 @@ def build_http_server(settings: ProxySettings, runtime: ProxyRuntime) -> uvicorn
         set_proxy_service as set_webhook,
     )
     from proxysvc.transport.http.router.github import set_proxy_service as set_github
+    from proxysvc.transport.http.router.key import set_proxy_service as set_key
     from proxysvc.transport.mcp.server import set_proxy_service as set_mcp
 
     for wire in (
@@ -112,6 +113,7 @@ def build_http_server(settings: ProxySettings, runtime: ProxyRuntime) -> uvicorn
         set_pin,
         set_webhook,
         set_github,
+        set_key,
         set_oauth,
         set_mcp,
     ):

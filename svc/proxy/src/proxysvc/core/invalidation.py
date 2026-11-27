@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from qbrixstore.channel import KEY_INVALIDATION_CHANNEL
 from qbrixstore.channel import TENANT_INVALIDATION_CHANNEL
 from qbrixstore.config import RedisSettings
 from qbrixstore.redis.pubsub import BroadcastBus
@@ -45,3 +46,19 @@ class LocalTenantInvalidation:
 
     async def stop(self) -> None:
         return None
+
+
+class KeyInvalidation(BroadcastBus):
+    """cross-replica eviction of a key's cached validation.
+
+    every replica caches a validated key by its hash, so a revoke or a rotate
+    broadcasts the hash it no longer accepts and every replica drops it. a
+    lost message leaves the old secret working until the cache's ttl.
+    """
+
+    def __init__(self, settings: RedisSettings | None = None):
+        super().__init__(KEY_INVALIDATION_CHANNEL, settings)
+
+
+class LocalKeyInvalidation(LocalTenantInvalidation):
+    """the key signal, confined to one process."""

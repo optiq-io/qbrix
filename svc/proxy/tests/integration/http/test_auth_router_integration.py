@@ -386,7 +386,7 @@ class TestAPIKeyLifecycle:
     ):
         """
         invariant: POST /api/auth/api-keys returns 201 and the raw key value
-        starts with the "optiq_" prefix defined in AuthService._api_key_prefix.
+        starts with the "optiq_" prefix defined in API_KEY_PREFIX in mod/auth/service.py.
         """
         login_data = await _register_and_login(
             auth_client,

@@ -566,6 +566,20 @@ class InvalidWebhookURLException(UnprocessableEntityException):
     code = "INVALID_WEBHOOK_URL"
 
 
+class KeyNotFoundException(NotFoundException):
+    """the workspace has no active key with that id."""
+
+    detail = "key not found"
+    code = "KEY_NOT_FOUND"
+
+
+class InvalidKeyLabelException(UnprocessableEntityException):
+    """a key label the rule refuses."""
+
+    detail = "invalid key label"
+    code = "INVALID_KEY_LABEL"
+
+
 class GitHubNotConnectedException(NotFoundException):
     """the workspace has no github app."""
 
