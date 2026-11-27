@@ -3,8 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from urllib.parse import quote
-
+from proxysvc.core.console import loop_url
 from proxysvc.mod.safety.rule import CALLS_STOPPED
 from proxysvc.mod.safety.rule import DECISION_ERRORS
 from proxysvc.mod.safety.rule import OUTCOMES_NOT_LEARNED
@@ -29,10 +28,6 @@ class Notice:
 
     entry: dict
     event: str
-
-
-def loop_url(console_origin: str, key: str) -> str:
-    return f"{console_origin}/loops/{quote(key, safe='')}"
 
 
 def duration(seconds: float) -> str:
