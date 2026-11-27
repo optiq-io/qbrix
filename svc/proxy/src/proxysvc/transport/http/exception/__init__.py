@@ -70,6 +70,8 @@ from proxysvc.transport.http.exception.base import ConnectionNotFoundException
 from proxysvc.transport.http.exception.base import OAuthRequestNotFoundException
 from proxysvc.transport.http.exception.base import WebhookNotFoundException
 from proxysvc.transport.http.exception.base import InvalidWebhookURLException
+from proxysvc.transport.http.exception.base import KeyNotFoundException
+from proxysvc.transport.http.exception.base import InvalidKeyLabelException
 from proxysvc.transport.http.exception.base import GitHubNotConnectedException
 from proxysvc.transport.http.exception.base import GitHubAlreadyConnectedException
 from proxysvc.transport.http.exception.base import GitHubUnavailableException
@@ -150,6 +152,8 @@ __all__ = [
     "PinTargetNotFoundException",
     "WebhookNotFoundException",
     "InvalidWebhookURLException",
+    "KeyNotFoundException",
+    "InvalidKeyLabelException",
     "GitHubNotConnectedException",
     "GitHubAlreadyConnectedException",
     "GitHubUnavailableException",

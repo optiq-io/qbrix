@@ -54,10 +54,13 @@ def watches(monkeypatch) -> list[_Component]:
     monkeypatch.setattr(runtime_module, "RedisClient", _Component)
     monkeypatch.setattr(runtime_module, "ProxyService", _Component)
     monkeypatch.setattr(runtime_module, "TenantInvalidation", _Component)
+    monkeypatch.setattr(runtime_module, "KeyInvalidation", _Component)
     monkeypatch.setattr(
         runtime_module,
         "create_auth_service",
-        lambda redis, entitlements: SimpleNamespace(invalidate_tenant=None),
+        lambda redis, entitlements: SimpleNamespace(
+            invalidate_tenant=None, evict_api_key=None
+        ),
     )
     monkeypatch.setattr(runtime_module, "init_operators", lambda auth: None)
     monkeypatch.setattr(

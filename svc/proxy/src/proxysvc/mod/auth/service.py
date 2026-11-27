@@ -43,6 +43,18 @@ logger = logging.getLogger(__name__)
 
 _DAY_SEC = 86400
 
+API_KEY_PREFIX = "optiq_"
+
+
+def hash_api_key(plain_key: str) -> str:
+    return hashlib.sha256(plain_key.encode()).hexdigest()
+
+
+def mint_api_key() -> tuple[str, str]:
+    """a new key's secret and the hash it is stored and looked up by."""
+    plain_key = API_KEY_PREFIX + secrets.token_urlsafe(32)
+    return plain_key, hash_api_key(plain_key)
+
 
 class AuthService:
     """core authentication service with business logic for user and api key management."""
@@ -56,7 +68,6 @@ class AuthService:
         self._redis = redis
         self._email = email
         self._entitlements = entitlements
-        self._api_key_prefix = "optiq_"
         self._api_key_cache: TTLCache = TTLCache(maxsize=500, ttl=60)
         self._user_cache: TTLCache = TTLCache(maxsize=500, ttl=60)
         # in first-user mode the answer only ever goes from open to closed, so
@@ -825,8 +836,7 @@ class AuthService:
                     f"({max_keys} active keys per workspace)"
                 )
 
-            plain_key = self._api_key_prefix + secrets.token_urlsafe(32)
-            key_hash = hashlib.sha256(plain_key.encode()).hexdigest()
+            plain_key, key_hash = mint_api_key()
 
             if scopes is None:
                 scopes = ROLE_SCOPES.get(user.role, [])
@@ -859,10 +869,10 @@ class AuthService:
 
     async def validate_api_key(self, plain_key: str) -> dict | None:
         """validate api key and return api key dict if valid."""
-        if not plain_key.startswith(self._api_key_prefix):
+        if not plain_key.startswith(API_KEY_PREFIX):
             return None
 
-        key_hash = hashlib.sha256(plain_key.encode()).hexdigest()
+        key_hash = hash_api_key(plain_key)
 
         cached = self._api_key_cache.get(key_hash)
         if cached is not None:
@@ -878,6 +888,9 @@ class AuthService:
                 return result
 
         return None
+
+    def evict_api_key(self, key_hash: str) -> None:
+        self._api_key_cache.pop(key_hash, None)
 
     async def list_user_api_keys(self, user_id: str) -> list[dict]:
         """list all api keys for user."""
@@ -915,8 +928,7 @@ class AuthService:
 
             expired_key_hash = api_key.key_hash
 
-            plain_key = self._api_key_prefix + secrets.token_urlsafe(32)
-            key_hash = hashlib.sha256(plain_key.encode()).hexdigest()
+            plain_key, key_hash = mint_api_key()
 
             api_key = await repo.update(api_key_id, key_hash=key_hash)
             if api_key:

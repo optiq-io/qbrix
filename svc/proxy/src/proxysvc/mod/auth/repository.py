@@ -358,6 +358,26 @@ class APIKeyRepository:
         response = await self._session.execute(stmt)
         return list(response.scalars().all())
 
+    async def get_active_in_tenant(
+        self, tenant_id: str, api_key_id: str
+    ) -> APIKey | None:
+        stmt = select(APIKey).where(
+            APIKey.id == api_key_id,
+            APIKey.tenant_id == tenant_id,
+            APIKey.is_active == True,
+        )
+        response = await self._session.execute(stmt)
+        return response.scalar_one_or_none()
+
+    async def list_by_tenant(self, tenant_id: str) -> list[APIKey]:
+        stmt = (
+            select(APIKey)
+            .where(APIKey.tenant_id == tenant_id, APIKey.is_active == True)
+            .order_by(APIKey.created_at.desc(), APIKey.id)
+        )
+        response = await self._session.execute(stmt)
+        return list(response.scalars().all())
+
     async def count_by_tenant(self, tenant_id: str) -> int:
         """count a workspace's active keys."""
         stmt = select(func.count(APIKey.id)).where(

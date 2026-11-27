@@ -8,6 +8,7 @@ from qbrixstore.redis.client import RedisClient
 
 from proxysvc import edition
 from proxysvc.config import ProxySettings
+from proxysvc.core.invalidation import KeyInvalidation
 from proxysvc.core.invalidation import TenantInvalidation
 from proxysvc.mod.auth import AuthService
 from proxysvc.mod.auth import create_auth_service
@@ -40,6 +41,7 @@ class ProxyRuntime:
         self._proxy_service: ProxyService | None = None
         self._auth_service: AuthService | None = None
         self._invalidation: TenantInvalidation | None = None
+        self._key_invalidation: KeyInvalidation | None = None
         self._safety: SafetyWatch | None = None
         self._dispatch: WebhookDispatch | None = None
 
@@ -78,7 +80,10 @@ class ProxyRuntime:
         self._redis = RedisClient(redis_settings)
         await self._redis.connect()
 
-        self._proxy_service = ProxyService(self._settings)
+        self._key_invalidation = KeyInvalidation(redis_settings)
+        self._proxy_service = ProxyService(
+            self._settings, key_announcer=self._key_invalidation
+        )
         await self._proxy_service.start()
 
         self._auth_service = create_auth_service(
@@ -93,6 +98,8 @@ class ProxyRuntime:
         self._invalidation.register(self._proxy_service.entitlements.invalidate)
         edition.register_components(self._settings, self._invalidation)
         await self._invalidation.start()
+        self._key_invalidation.register(self._auth_service.evict_api_key)
+        await self._key_invalidation.start()
 
         if self._settings.next_enabled:
             await self._follow_minors()
@@ -128,6 +135,8 @@ class ProxyRuntime:
             await self._dispatch.stop()
         if self._safety is not None:
             await self._safety.stop()
+        if self._key_invalidation is not None:
+            await self._key_invalidation.stop()
         if self._invalidation is not None:
             await self._invalidation.stop()
         if self._proxy_service is not None:
