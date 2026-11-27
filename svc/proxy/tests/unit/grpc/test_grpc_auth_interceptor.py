@@ -686,3 +686,133 @@ class TestErrorHandler:
         mock_context.abort.assert_awaited_once_with(
             grpc.StatusCode.UNAUTHENTICATED, "bad creds"
         )
+
+
+def _every_method() -> list[str]:
+    from qbrixproto import auth_pb2
+    from qbrixproto import loop_pb2
+    from qbrixproto import proxy_pb2
+
+    return sorted(
+        f"/{service.full_name}/{method.name}"
+        for module in (proxy_pb2, auth_pb2, loop_pb2)
+        for service in module.DESCRIPTOR.services_by_name.values()
+        for method in service.methods
+    )
+
+
+def _workspace_key(scopes=None):
+    api_key = _make_api_key(scopes=scopes or ["system:admin"])
+    api_key.id = "key-1"
+    api_key.tenant_id = "t-key"
+    api_key.source = "shop · production"
+    return api_key
+
+
+class TestAuthInterceptorWorkspaceKey:
+    """with next on, a key is its workspace and reaches only select and outcome."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "method",
+        [
+            m
+            for m in _every_method()
+            if m not in PUBLIC_METHODS
+            and m
+            not in {
+                "/qbrix.loop.LoopService/Select",
+                "/qbrix.loop.LoopService/Outcome",
+            }
+        ],
+    )
+    @patch("proxysvc.mod.auth.operator.auth_operator")
+    async def test_every_other_method_refuses_a_key(self, mock_auth_operator, method):
+        mock_auth_operator.validate_api_key = AsyncMock(return_value=_workspace_key())
+        mock_auth_operator.get_user = AsyncMock()
+
+        interceptor = AuthInterceptor(
+            ProxySettings(runenv="production", next_enabled=True)
+        )
+        handler = _make_handler()
+        result = await interceptor.intercept_service(
+            AsyncMock(return_value=handler),
+            _make_handler_call_details(method, metadata={"x-api-key": "optiq_k"}),
+        )
+
+        context = MagicMock()
+        context.abort = AsyncMock()
+        await result.unary_unary(MagicMock(), context)
+
+        assert context.abort.call_args[0][0] == grpc.StatusCode.PERMISSION_DENIED
+        assert context.abort.call_args[0][1] == (
+            "an api key can only ask for decisions and send outcomes"
+        )
+        handler.unary_unary.assert_not_awaited()
+        mock_auth_operator.get_user.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "method",
+        ["/qbrix.loop.LoopService/Select", "/qbrix.loop.LoopService/Outcome"],
+    )
+    @pytest.mark.parametrize(
+        "metadata",
+        [{"x-api-key": "optiq_k"}, {"authorization": "Bearer optiq_k"}],
+    )
+    @patch("proxysvc.mod.auth.operator.auth_operator")
+    async def test_select_and_outcome_take_the_workspace(
+        self, mock_auth_operator, method, metadata
+    ):
+        mock_auth_operator.validate_api_key = AsyncMock(
+            return_value=_workspace_key(scopes=[])
+        )
+        mock_auth_operator.check_key_rate_limit = AsyncMock(return_value=True)
+        mock_auth_operator.get_user = AsyncMock()
+
+        interceptor = AuthInterceptor(
+            ProxySettings(runenv="production", next_enabled=True)
+        )
+        handler = _make_handler()
+        seen = {}
+
+        async def _record(request, context):
+            seen["ctx"] = get_grpc_auth_context()
+            return "response"
+
+        handler.unary_unary = _record
+        result = await interceptor.intercept_service(
+            AsyncMock(return_value=handler),
+            _make_handler_call_details(method, metadata=metadata),
+        )
+        assert await result.unary_unary(MagicMock(), MagicMock()) == "response"
+
+        ctx = seen["ctx"]
+        assert ctx.tenant_id == "t-key"
+        assert ctx.user_id == ""
+        assert ctx.workspace_key
+        assert ctx.source == "shop · production"
+        mock_auth_operator.get_user.assert_not_awaited()
+        mock_auth_operator.check_key_rate_limit.assert_awaited_once()
+        set_grpc_auth_context(None)
+
+    @pytest.mark.asyncio
+    @patch("proxysvc.mod.auth.operator.auth_operator")
+    async def test_its_own_rate_limit_applies(self, mock_auth_operator):
+        mock_auth_operator.validate_api_key = AsyncMock(return_value=_workspace_key())
+        mock_auth_operator.check_key_rate_limit = AsyncMock(return_value=False)
+
+        interceptor = AuthInterceptor(
+            ProxySettings(runenv="production", next_enabled=True)
+        )
+        result = await interceptor.intercept_service(
+            AsyncMock(return_value=_make_handler()),
+            _make_handler_call_details(
+                "/qbrix.loop.LoopService/Select", metadata={"x-api-key": "optiq_k"}
+            ),
+        )
+        context = MagicMock()
+        context.abort = AsyncMock()
+        await result.unary_unary(MagicMock(), context)
+
+        assert context.abort.call_args[0][0] == grpc.StatusCode.UNAUTHENTICATED

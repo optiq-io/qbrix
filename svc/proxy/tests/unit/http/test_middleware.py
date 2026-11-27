@@ -121,6 +121,7 @@ class TestMiddlewareAPIKeyAuth:
         self, mock_token_op, mock_auth_op, mock_settings
     ):
         mock_settings.runenv = "prod"
+        mock_settings.next_enabled = False
 
         api_key = _make_api_key_wrapper()
         user = _make_user_wrapper()
@@ -152,6 +153,7 @@ class TestMiddlewareAPIKeyAuth:
         self, mock_token_op, mock_auth_op, mock_settings
     ):
         mock_settings.runenv = "prod"
+        mock_settings.next_enabled = False
         # api key validation returns None (invalid key)
         mock_auth_op.validate_api_key = AsyncMock(return_value=None)
 
@@ -174,6 +176,7 @@ class TestMiddlewareAPIKeyAuth:
         self, mock_token_op, mock_auth_op, mock_settings
     ):
         mock_settings.runenv = "prod"
+        mock_settings.next_enabled = False
 
         api_key = _make_api_key_wrapper()
         mock_auth_op.validate_api_key = AsyncMock(return_value=api_key)
@@ -202,6 +205,7 @@ class TestMiddlewareAPIKeyAuth:
     ):
         """management endpoints like /api/v1/pools should not be rate-limited."""
         mock_settings.runenv = "prod"
+        mock_settings.next_enabled = False
 
         api_key = _make_api_key_wrapper()
         user = _make_user_wrapper()
@@ -231,6 +235,7 @@ class TestMiddlewareAPIKeyAuth:
         self, mock_token_op, mock_auth_op, mock_settings
     ):
         mock_settings.runenv = "prod"
+        mock_settings.next_enabled = False
 
         api_key = _make_api_key_wrapper()
         user = _make_user_wrapper(is_active=False)
@@ -261,6 +266,7 @@ class TestMiddlewareBearerAPIKey:
         self, mock_token_op, mock_auth_op, mock_settings
     ):
         mock_settings.runenv = "prod"
+        mock_settings.next_enabled = False
 
         api_key = _make_api_key_wrapper()
         user = _make_user_wrapper()
@@ -292,6 +298,7 @@ class TestMiddlewareBearerAPIKey:
         self, mock_token_op, mock_auth_op, mock_settings
     ):
         mock_settings.runenv = "prod"
+        mock_settings.next_enabled = False
 
         api_key = _make_api_key_wrapper()
         mock_auth_op.validate_api_key = AsyncMock(return_value=api_key)
@@ -320,6 +327,7 @@ class TestMiddlewareBearerAPIKey:
     ):
         """no X-API-Key and no Authorization header at all."""
         mock_settings.runenv = "prod"
+        mock_settings.next_enabled = False
 
         app = MagicMock()
         middleware = AuthMiddleware(app)
@@ -340,6 +348,7 @@ class TestMiddlewareJWTAuth:
     @patch("proxysvc.mod.auth.operator.token_operator")
     async def test_valid_jwt_proceeds(self, mock_token_op, mock_auth_op, mock_settings):
         mock_settings.runenv = "prod"
+        mock_settings.next_enabled = False
 
         user = _make_user_wrapper()
         mock_token_op.get_user_id_from_token = MagicMock(return_value="u-1")
@@ -367,6 +376,7 @@ class TestMiddlewareJWTAuth:
         self, mock_token_op, mock_auth_op, mock_settings
     ):
         mock_settings.runenv = "prod"
+        mock_settings.next_enabled = False
 
         mock_token_op.get_user_id_from_token = MagicMock(return_value=None)
 
@@ -388,6 +398,7 @@ class TestMiddlewareJWTAuth:
         self, mock_token_op, mock_auth_op, mock_settings
     ):
         mock_settings.runenv = "prod"
+        mock_settings.next_enabled = False
 
         user = _make_user_wrapper(is_active=False)
         mock_token_op.get_user_id_from_token = MagicMock(return_value="u-1")
@@ -414,6 +425,7 @@ class TestMiddlewareScopeCheck:
         self, mock_token_op, mock_auth_op, mock_settings
     ):
         mock_settings.runenv = "prod"
+        mock_settings.next_enabled = False
 
         user = _make_user_wrapper()
         mock_token_op.get_user_id_from_token = MagicMock(return_value="u-1")
@@ -445,6 +457,7 @@ class TestMiddlewareScopeCheck:
         self, mock_token_op, mock_auth_op, mock_settings
     ):
         mock_settings.runenv = "prod"
+        mock_settings.next_enabled = False
 
         user = _make_user_wrapper()
         mock_token_op.get_user_id_from_token = MagicMock(return_value="u-1")
@@ -517,6 +530,7 @@ class TestMiddlewareRateLimitExemptPaths:
     ):
         """a rate-limited api key should still reach non-agent endpoints."""
         mock_settings.runenv = "prod"
+        mock_settings.next_enabled = False
 
         api_key = _make_api_key_wrapper()
         user = _make_user_wrapper()
@@ -552,6 +566,7 @@ class TestMiddlewareRateLimitExemptPaths:
     ):
         """a rate-limited jwt user should still reach non-agent endpoints."""
         mock_settings.runenv = "prod"
+        mock_settings.next_enabled = False
 
         user = _make_user_wrapper()
         mock_token_op.get_user_id_from_token = MagicMock(return_value="u-1")
@@ -585,6 +600,7 @@ class TestMiddlewareRateLimitExemptPaths:
     ):
         """verify rate limiting is enforced on operational agent paths."""
         mock_settings.runenv = "prod"
+        mock_settings.next_enabled = False
 
         api_key = _make_api_key_wrapper()
         mock_auth_op.validate_api_key = AsyncMock(return_value=api_key)
@@ -622,6 +638,7 @@ class TestMiddlewareAuthEndpointRateLimit:
         self, mock_auth_op, mock_settings
     ):
         mock_settings.runenv = "prod"
+        mock_settings.next_enabled = False
         mock_auth_op.check_auth_endpoint_rate_limit = AsyncMock(
             return_value=(False, 30)
         )
@@ -644,6 +661,7 @@ class TestMiddlewareAuthEndpointRateLimit:
     @patch("proxysvc.mod.auth.operator.auth_operator")
     async def test_login_under_ip_limit_proceeds(self, mock_auth_op, mock_settings):
         mock_settings.runenv = "prod"
+        mock_settings.next_enabled = False
         mock_auth_op.check_auth_endpoint_rate_limit = AsyncMock(return_value=(True, 59))
 
         app = MagicMock()
@@ -692,6 +710,7 @@ class TestMiddlewareAuthEndpointRateLimit:
         self, mock_token_op, mock_auth_op, mock_settings
     ):
         mock_settings.runenv = "prod"
+        mock_settings.next_enabled = False
         mock_auth_op.check_auth_endpoint_rate_limit = AsyncMock(
             return_value=(False, 30)
         )
@@ -726,6 +745,7 @@ class TestMiddlewareAuthEndpointRateLimit:
     ):
         """the existing per-principal limiter now also returns Retry-After."""
         mock_settings.runenv = "prod"
+        mock_settings.next_enabled = False
 
         api_key = _make_api_key_wrapper()
         mock_auth_op.validate_api_key = AsyncMock(return_value=api_key)
@@ -832,3 +852,131 @@ class TestMiddlewareAuthEndpointLimiterEndToEnd:
             for i in range(limit + 1)
         ]
         assert statuses[-1] == 429
+
+
+class TestMiddlewareWorkspaceKey:
+    """with next on, a key is its workspace and reaches only the request path."""
+
+    @staticmethod
+    def _workspace_key(**overrides):
+        return _make_api_key_wrapper(
+            tenant_id="t-key", app="shop", environment="production", **overrides
+        )
+
+    @staticmethod
+    def _next_on(mock_settings):
+        mock_settings.runenv = "prod"
+        mock_settings.next_enabled = True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "method,path",
+        [
+            ("POST", "/api/v1/select"),
+            ("POST", "/api/v1/outcome"),
+            ("POST", "/api/v1/track"),
+        ],
+    )
+    @patch("proxysvc.transport.http.auth.middleware.settings")
+    @patch("proxysvc.mod.auth.operator.auth_operator")
+    async def test_request_path_takes_the_workspace(
+        self, mock_auth_op, mock_settings, method, path
+    ):
+        self._next_on(mock_settings)
+        mock_auth_op.validate_api_key = AsyncMock(return_value=self._workspace_key())
+        mock_auth_op.check_key_rate_limit = AsyncMock(return_value=True)
+        mock_auth_op.check_api_key_rate_limit = AsyncMock()
+        mock_auth_op.get_user = AsyncMock()
+
+        request = _make_request(
+            method=method, path=path, headers={"X-API-Key": "optiq_k"}
+        )
+        ok = MagicMock(status_code=200)
+        response = await AuthMiddleware(MagicMock()).dispatch(
+            request, AsyncMock(return_value=ok)
+        )
+
+        assert response.status_code == 200
+        assert request.state.user_id is None
+        assert request.state.user is None
+        assert request.state.tenant_id == "t-key"
+        mock_auth_op.check_key_rate_limit.assert_awaited_once()
+        mock_auth_op.get_user.assert_not_awaited()
+        mock_auth_op.check_api_key_rate_limit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "headers",
+        [{"X-API-Key": "optiq_k"}, {"Authorization": "Bearer optiq_k"}],
+    )
+    @pytest.mark.parametrize(
+        "method,path",
+        [
+            ("GET", "/api/v1/loops"),
+            ("POST", "/api/auth/api-keys"),
+            ("GET", "/api/v1/select"),
+            ("POST", "/api/v1/agent/select"),
+        ],
+    )
+    @patch("proxysvc.transport.http.auth.middleware.settings")
+    @patch("proxysvc.mod.auth.operator.auth_operator")
+    async def test_anything_else_is_refused(
+        self, mock_auth_op, mock_settings, method, path, headers
+    ):
+        self._next_on(mock_settings)
+        mock_auth_op.validate_api_key = AsyncMock(
+            return_value=self._workspace_key(scopes=["system:admin"])
+        )
+        call_next = AsyncMock()
+
+        response = await AuthMiddleware(MagicMock()).dispatch(
+            _make_request(method=method, path=path, headers=headers), call_next
+        )
+
+        assert response.status_code == 403
+        assert b"an api key can only ask for decisions and send outcomes" in (
+            response.body
+        )
+        call_next.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @patch("proxysvc.transport.http.auth.middleware.settings")
+    @patch("proxysvc.mod.auth.operator.auth_operator")
+    async def test_its_own_rate_limit_applies(self, mock_auth_op, mock_settings):
+        self._next_on(mock_settings)
+        mock_auth_op.validate_api_key = AsyncMock(return_value=self._workspace_key())
+        mock_auth_op.check_key_rate_limit = AsyncMock(return_value=False)
+
+        response = await AuthMiddleware(MagicMock()).dispatch(
+            _make_request(
+                method="POST", path="/api/v1/select", headers={"X-API-Key": "optiq_k"}
+            ),
+            AsyncMock(),
+        )
+
+        assert response.status_code == 429
+
+    @pytest.mark.asyncio
+    @patch("proxysvc.transport.http.auth.middleware.settings")
+    @patch("proxysvc.mod.auth.operator.auth_operator")
+    @patch("proxysvc.mod.auth.operator.token_operator")
+    async def test_a_person_is_unchanged(
+        self, mock_token_op, mock_auth_op, mock_settings
+    ):
+        self._next_on(mock_settings)
+        mock_token_op.get_user_id_from_token = MagicMock(return_value="u-1")
+        mock_auth_op.get_user = AsyncMock(return_value=_make_user_wrapper())
+        mock_auth_op.user_has_permission = AsyncMock(return_value=True)
+
+        request = _make_request(
+            method="GET",
+            path="/api/v1/loops",
+            headers={"Authorization": "Bearer jwt-token"},
+        )
+        response = await AuthMiddleware(MagicMock()).dispatch(
+            request, AsyncMock(return_value=MagicMock(status_code=200))
+        )
+
+        assert response.status_code == 200
+        assert request.state.user_id == "u-1"
+        assert request.state.api_key is None

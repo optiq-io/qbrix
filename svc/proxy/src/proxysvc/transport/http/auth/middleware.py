@@ -9,12 +9,15 @@ from starlette.responses import JSONResponse
 from proxysvc.mod.auth import operator
 from proxysvc.mod.auth.model import APIKey, User
 from proxysvc.mod.auth.scope import ENDPOINT_SCOPES
+from proxysvc.mod.auth.scope import KEY_REFUSED
+from proxysvc.mod.auth.scope import KEY_ROUTES
 from proxysvc.transport.http.auth import util
 from proxysvc.transport.http.constant import AGENT_PATH_PREFIX
 from proxysvc.transport.http.constant import OUTCOME_PATH
 from proxysvc.transport.http.constant import SELECT_PATH
 from proxysvc.transport.http.constant import TRACK_PATH
 from proxysvc.transport.http.exception import BaseAPIException
+from proxysvc.transport.http.exception import ForbiddenException
 from proxysvc.transport.http.exception import UnauthorizedException
 from proxysvc.transport.http.exception import RateLimitedException
 from proxysvc.transport.http.exception import InsufficientScopesException
@@ -104,15 +107,21 @@ class AuthMiddleware(BaseHTTPMiddleware):
             api_key, user = await self._ensure_request_auth(
                 request, skip_rate_limit=not apply_rate_limit
             )
-            if not await self._ensure_scoped_permission(
-                api_key, user, request.method, request.url.path
-            ):
-                raise InsufficientScopesException()
+            if user is None:
+                request.state.api_key = api_key
+                request.state.user_id = None
+                request.state.user = None
+                request.state.tenant_id = api_key.tenant_id
+            else:
+                if not await self._ensure_scoped_permission(
+                    api_key, user, request.method, request.url.path
+                ):
+                    raise InsufficientScopesException()
 
-            request.state.api_key = api_key
-            request.state.user_id = api_key.user_id if api_key else user.id
-            request.state.user = user
-            request.state.tenant_id = user.tenant_id
+                request.state.api_key = api_key
+                request.state.user_id = api_key.user_id if api_key else user.id
+                request.state.user = user
+                request.state.tenant_id = user.tenant_id
 
             response = await call_next(request)
 
@@ -217,27 +226,18 @@ class AuthMiddleware(BaseHTTPMiddleware):
     @staticmethod
     async def _ensure_request_auth(
         request: Request, skip_rate_limit: bool = False
-    ) -> Tuple[Optional[APIKey], User]:
+    ) -> Tuple[Optional[APIKey], Optional[User]]:
+        """the key and its creator, or a workspace key and no user with next
+        on, or no key and the signed-in user."""
         api_key_header = request.headers.get("X-API-Key")
 
         if api_key_header:
             api_key = await operator.auth_operator.validate_api_key(api_key_header)
             if not api_key:
                 raise UnauthorizedException("invalid or inactive api key")
-
-            if (
-                not skip_rate_limit
-                and not await operator.auth_operator.check_api_key_rate_limit(api_key)
-            ):
-                raise RateLimitedException(
-                    f"rate limit exceeded: {api_key.rate_limit_per_minute} requests per minute"
-                )
-
-            user = await operator.auth_operator.get_user(api_key.user_id)
-            if not user or not user.is_active:
-                raise UnauthorizedException("user account is inactive")
-
-            return api_key, user
+            return await AuthMiddleware._key_principal(
+                request, api_key, skip_rate_limit
+            )
 
         auth_header = request.headers.get("Authorization")
 
@@ -256,21 +256,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if token.startswith("optiq_"):
             api_key = await operator.auth_operator.validate_api_key(token)
             if api_key:
-                if (
-                    not skip_rate_limit
-                    and not await operator.auth_operator.check_api_key_rate_limit(
-                        api_key
-                    )
-                ):
-                    raise RateLimitedException(
-                        f"rate limit exceeded: {api_key.rate_limit_per_minute} requests per minute"
-                    )
-
-                user = await operator.auth_operator.get_user(api_key.user_id)
-                if not user or not user.is_active:
-                    raise UnauthorizedException("user account is inactive")
-
-                return api_key, user
+                return await AuthMiddleware._key_principal(
+                    request, api_key, skip_rate_limit
+                )
 
         user_id = operator.token_operator.get_user_id_from_token(token)
         if not user_id:
@@ -289,6 +277,36 @@ class AuthMiddleware(BaseHTTPMiddleware):
             )
 
         return None, user
+
+    @staticmethod
+    async def _key_principal(
+        request: Request, api_key: APIKey, skip_rate_limit: bool
+    ) -> Tuple[APIKey, Optional[User]]:
+        if settings.next_enabled:
+            if (request.method, request.url.path) not in KEY_ROUTES:
+                raise ForbiddenException(KEY_REFUSED)
+            if (
+                not skip_rate_limit
+                and not await operator.auth_operator.check_key_rate_limit(api_key)
+            ):
+                raise RateLimitedException(
+                    f"rate limit exceeded: {api_key.rate_limit_per_minute} requests per minute"
+                )
+            return api_key, None
+
+        if (
+            not skip_rate_limit
+            and not await operator.auth_operator.check_api_key_rate_limit(api_key)
+        ):
+            raise RateLimitedException(
+                f"rate limit exceeded: {api_key.rate_limit_per_minute} requests per minute"
+            )
+
+        user = await operator.auth_operator.get_user(api_key.user_id)
+        if not user or not user.is_active:
+            raise UnauthorizedException("user account is inactive")
+
+        return api_key, user
 
     @staticmethod
     def _get_required_scope_for_path(method: str, path: str) -> Optional[str]:

@@ -14,6 +14,12 @@ class GRPCAuthContext:
     scopes: list[str] = field(default_factory=list)
     api_key_id: str = ""
     request_id: str = ""
+    source: str = ""
+
+    @property
+    def workspace_key(self) -> bool:
+        """a key acting for its workspace, with no person behind it."""
+        return bool(self.api_key_id) and not self.user_id
 
 
 _grpc_auth_context: ContextVar[GRPCAuthContext | None] = ContextVar(

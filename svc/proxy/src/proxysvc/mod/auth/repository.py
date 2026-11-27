@@ -314,14 +314,22 @@ class APIKeyRepository:
 
     async def create(
         self,
-        user_id: str,
+        tenant_id: str,
         key_hash: str,
+        app: str,
+        environment: str,
+        created_by_id: str | None,
+        user_id: str | None = None,
         name: str = "Default API Key",
         rate_limit_per_minute: int = 1000,
         scopes: list[str] | None = None,
     ) -> APIKey:
         api_key = APIKey(
+            tenant_id=tenant_id,
             user_id=user_id,
+            created_by_id=created_by_id,
+            app=app,
+            environment=environment,
             key_hash=key_hash,
             name=name,
             rate_limit_per_minute=rate_limit_per_minute,
@@ -332,20 +340,12 @@ class APIKeyRepository:
         return api_key
 
     async def get(self, api_key_id: str) -> APIKey | None:
-        stmt = (
-            select(APIKey)
-            .options(selectinload(APIKey.user))
-            .where(APIKey.id == api_key_id)
-        )
+        stmt = select(APIKey).where(APIKey.id == api_key_id)
         response = await self._session.execute(stmt)
         return response.scalar_one_or_none()
 
     async def get_by_hash(self, key_hash: str) -> APIKey | None:
-        stmt = (
-            select(APIKey)
-            .options(selectinload(APIKey.user))
-            .where(APIKey.key_hash == key_hash)
-        )
+        stmt = select(APIKey).where(APIKey.key_hash == key_hash)
         response = await self._session.execute(stmt)
         return response.scalar_one_or_none()
 
@@ -359,11 +359,9 @@ class APIKeyRepository:
         return list(response.scalars().all())
 
     async def count_by_tenant(self, tenant_id: str) -> int:
-        """count active keys across every member of a tenant."""
-        stmt = (
-            select(func.count(APIKey.id))
-            .join(User, APIKey.user_id == User.id)
-            .where(User.tenant_id == tenant_id, APIKey.is_active == True)
+        """count a workspace's active keys."""
+        stmt = select(func.count(APIKey.id)).where(
+            APIKey.tenant_id == tenant_id, APIKey.is_active == True
         )
         response = await self._session.execute(stmt)
         return response.scalar_one()

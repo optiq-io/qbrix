@@ -40,7 +40,11 @@ async def _seed_member(session, *, tenant_id: str, user_id: str, keys: list[bool
         session.add(
             APIKey(
                 id=f"{user_id}-k{index}",
+                tenant_id=tenant_id,
                 user_id=user_id,
+                created_by_id=user_id,
+                app="shop",
+                environment="production",
                 key_hash=f"{user_id}-hash-{index}",
                 is_active=is_active,
             )
@@ -101,6 +105,23 @@ class TestAPIKeyCountByTenant:
             await _seed_member(session, tenant_id="t-3", user_id="u-4", keys=[])
             await session.flush()
             assert await APIKeyRepository(session).count_by_tenant("t-3") == 0
+
+
+class TestKeyOutlivesItsCreator:
+
+    @pytest.mark.asyncio
+    async def test_deleting_the_creator_keeps_the_key(self, seeded):
+        async with seeded() as session:
+            await UserRepository(session).delete("u-1")
+            await session.commit()
+
+        async with seeded() as session:
+            repo = APIKeyRepository(session)
+            key = await repo.get_by_hash("u-1-hash-0")
+            assert key is not None
+            assert key.tenant_id == "t-1"
+            assert key.user_id is None
+            assert await repo.count_by_tenant("t-1") == 3
 
 
 class TestUserCarriesItsTenant:

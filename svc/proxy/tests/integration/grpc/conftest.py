@@ -182,6 +182,7 @@ async def wired_grpc(monkeypatch) -> AsyncGenerator[_WiredGRPC, Any]:
         selection_spy=selection_spy,
         feedback_spy=feedback_spy,
         metric_spy=metric_spy,
+        milestone_spy=milestone_spy,
         motor_mock=svc._motor_client,
         gate_svc=gate_svc,
         fake_redis=fake_redis,

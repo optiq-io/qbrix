@@ -250,14 +250,16 @@ A loop's history lists, newest first:
 
 ## Loops API
 
-The examples use the same variables as the [API reference](/docs/api-reference):
+The examples use these variables:
 
 ```bash
 export QBRIX_BASE_URL="http://localhost:8000"
-export QBRIX_API_KEY="your-api-key"
+export QBRIX_TOKEN="your-sign-in-token"
 ```
 
-Every role can read loops. Admins and members can change them ([Roles and limits](/docs/roles-and-limits)), and every change is recorded in the loop's history. Committing, reopening, pausing, resuming, retiring, starting or resetting a cycle, editing and adding a note are a person's changes: made in the console, or by a person's client over [MCP](/docs/mcp-server). An API key gets `403 FORBIDDEN` from them.
+`QBRIX_TOKEN` is a person's sign-in token: the `access_token` that `POST /api/auth/login` returns, which lasts 30 minutes. An API key only asks for decisions and sends outcomes and events: `select`, `outcome` and `track`. Every other route refuses a key with `403 FORBIDDEN`.
+
+Every role can read loops. Admins and members can change them ([Roles and limits](/docs/roles-and-limits)), and every change is recorded in the loop's history. Committing, reopening, pausing, resuming, retiring, starting or resetting a cycle, editing and adding a note are a person's changes: made in the console, or by a person's client over [MCP](/docs/mcp-server).
 
 Every `{loop}` is the loop's key or its id.
 
@@ -278,7 +280,7 @@ Every `{loop}` is the loop's key or its id.
 
 ```bash
 curl -X POST $QBRIX_BASE_URL/api/v1/loops \
-  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Authorization: Bearer $QBRIX_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Checkout headline",
@@ -344,7 +346,7 @@ Creating a loop can be undone.
 
 ```bash
 curl "$QBRIX_BASE_URL/api/v1/loops?state=live&state=committed" \
-  -H "X-API-Key: $QBRIX_API_KEY"
+  -H "Authorization: Bearer $QBRIX_TOKEN"
 ```
 
 | Query | Description |
@@ -365,7 +367,7 @@ Response, `200 OK`: `{"loops": [...], "next_cursor": "..."}`, with `next_cursor`
 
 ```bash
 curl $QBRIX_BASE_URL/api/v1/loops/checkout-headline \
-  -H "X-API-Key: $QBRIX_API_KEY"
+  -H "Authorization: Bearer $QBRIX_TOKEN"
 ```
 
 Response, `200 OK`: the loop with its options' config and its `latest_change`.
@@ -376,7 +378,7 @@ Response, `200 OK`: the loop with its options' config and its `latest_change`.
 
 ```bash
 curl -X PATCH $QBRIX_BASE_URL/api/v1/loops/checkout-headline \
-  -H "X-API-Key: $QBRIX_API_KEY" \
+  -H "Authorization: Bearer $QBRIX_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "Checkout page headline"}'
 ```
@@ -389,7 +391,7 @@ Send a `name`, a `key` or both. The name can change in any state; the key only w
 
 ```bash
 curl -X POST $QBRIX_BASE_URL/api/v1/loops/checkout-headline/launch \
-  -H "X-API-Key: $QBRIX_API_KEY"
+  -H "Authorization: Bearer $QBRIX_TOKEN"
 ```
 
 Response, `200 OK`: the loop, `live`, with its first `cycle`. A loop that isn't a draft is refused with `409 LOOP_NOT_DRAFT`. Launching can't be undone.
@@ -400,7 +402,7 @@ Response, `200 OK`: the loop, `live`, with its first `cycle`. A loop that isn't 
 
 ```bash
 curl -X DELETE $QBRIX_BASE_URL/api/v1/loops/checkout-headline \
-  -H "X-API-Key: $QBRIX_API_KEY"
+  -H "Authorization: Bearer $QBRIX_TOKEN"
 ```
 
 Response, `204 No Content`. A loop that has launched is refused with `409 LOOP_NOT_DRAFT`: retire it instead. Deleting can't be undone, and the key is free at once.
@@ -482,7 +484,7 @@ Both answer `200 OK` with the loop, its new `cycle`, and `serving_within_seconds
 
 ```bash
 curl $QBRIX_BASE_URL/api/v1/loops/checkout-headline/cycles \
-  -H "X-API-Key: $QBRIX_API_KEY"
+  -H "Authorization: Bearer $QBRIX_TOKEN"
 ```
 
 Response, `200 OK`: `{"cycles": [...]}`, each cycle as in the loop's `cycle` with its `options`.
@@ -493,7 +495,7 @@ Response, `200 OK`: `{"cycles": [...]}`, each cycle as in the loop's `cycle` wit
 
 ```bash
 curl "$QBRIX_BASE_URL/api/v1/loops/checkout-headline/history?limit=2" \
-  -H "X-API-Key: $QBRIX_API_KEY"
+  -H "Authorization: Bearer $QBRIX_TOKEN"
 ```
 
 | Query | Description |
@@ -569,7 +571,7 @@ Plain text, at most 4,000 characters. Response, `201 Created`: the note as its h
 
 ```bash
 curl "$QBRIX_BASE_URL/api/v1/loops/checkout-headline/results?range=7d" \
-  -H "X-API-Key: $QBRIX_API_KEY"
+  -H "Authorization: Bearer $QBRIX_TOKEN"
 ```
 
 | Query | Description |

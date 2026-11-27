@@ -74,6 +74,23 @@ ABUSE_RATE_LIMIT_PER_MINUTE = 6000
 INVITES_PER_TENANT_PER_DAY = 25
 
 
+# with next on, everything a key reaches. a key's scopes are not consulted.
+KEY_ROUTES: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("POST", "/api/v1/select"),
+        ("POST", "/api/v1/outcome"),
+        ("POST", "/api/v1/track"),
+    }
+)
+KEY_METHODS: frozenset[str] = frozenset(
+    {
+        "/qbrix.loop.LoopService/Select",
+        "/qbrix.loop.LoopService/Outcome",
+    }
+)
+KEY_REFUSED = "an api key can only ask for decisions and send outcomes"
+
+
 # http endpoint to scope mapping for authorisation
 ENDPOINT_SCOPES = {
     # pools

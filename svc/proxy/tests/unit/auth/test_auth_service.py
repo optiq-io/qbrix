@@ -480,6 +480,10 @@ class TestAuthServiceAPIKey:
         # scopes arg should be the role scopes (no explicit scopes passed)
         create_call = mock_key_repo.create.call_args
         assert "scopes" in create_call.kwargs
+        assert create_call.kwargs["tenant_id"] == user.tenant_id
+        assert create_call.kwargs["created_by_id"] == "u-1"
+        assert create_call.kwargs["app"] == "Default API Key"
+        assert create_call.kwargs["environment"] == "production"
 
     @pytest.mark.asyncio
     @patch("proxysvc.mod.auth.service.get_session")
@@ -1472,3 +1476,27 @@ class TestAuthServiceCreateInvite:
             result["invite_url"]
             == "https://cloud.qbrix.io/invite?token=invite-token-abc"
         )
+
+
+class TestWorkspaceKeyRateLimit:
+    """a workspace key's limit is its own bucket in redis, with no db read."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("count,allowed", [(b"5", True), (b"100", False)])
+    @patch("proxysvc.mod.auth.service.get_session")
+    async def test_counts_the_keys_bucket_alone(
+        self, mock_get_session, auth_service, count, allowed
+    ):
+        pipeline = _make_mock_pipeline(get_return=count)
+        auth_service._redis.client.pipeline = MagicMock(return_value=pipeline)
+
+        assert await auth_service.check_key_rate_limit("key-1", 100) is allowed
+        mock_get_session.assert_not_called()
+        assert pipeline.get.call_args[0][0].startswith("rate_limit:key-1:")
+
+    @pytest.mark.asyncio
+    async def test_unlimited_skips_redis(self, auth_service):
+        auth_service._redis.client.pipeline = MagicMock()
+
+        assert await auth_service.check_key_rate_limit("key-1", -1) is True
+        auth_service._redis.client.pipeline.assert_not_called()

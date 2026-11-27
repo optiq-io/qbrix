@@ -16,7 +16,7 @@ from proxysvc.core.error import LoopNotFoundError
 from proxysvc.core.error import UsageLimitError
 from proxysvc.service import ProxyService
 from proxysvc.transport.http.auth.dependencies import get_current_tenant_id
-from proxysvc.transport.http.auth.dependencies import require_scopes
+from proxysvc.transport.http.auth.dependencies import require_request_scope
 from proxysvc.transport.http.exception import InvalidDecisionContextException
 from proxysvc.transport.http.exception import LoopNotFoundException
 from proxysvc.transport.http.exception import SelectionException
@@ -89,7 +89,7 @@ async def select(
     body: SelectRequest,
     request: Request,
     tenant_id: str = Depends(get_current_tenant_id),
-    _scoped=Depends(require_scopes(["agent:read"])),
+    _scoped=Depends(require_request_scope("agent:read")),
 ):
     """the loop's option for this request, and why."""
     api_key = getattr(request.state, "api_key", None)
@@ -99,7 +99,7 @@ async def select(
             body.loop,
             body.context.unit,
             body.context.properties,
-            source=api_key.name if api_key else None,
+            source=api_key.source if api_key else None,
         )
     except LoopNotFoundError as e:
         raise LoopNotFoundException(str(e))

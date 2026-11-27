@@ -38,7 +38,11 @@ class LoopGRPCServicer(loop_pb2_grpc.LoopServiceServicer):
             else None
         )
         answer = await self._service.select_loop(
-            auth_ctx.tenant_id, request.loop, request.context.unit, properties
+            auth_ctx.tenant_id,
+            request.loop,
+            request.context.unit,
+            properties,
+            source=auth_ctx.source or None,
         )
         option = answer["option"]
         return loop_pb2.SelectResponse(

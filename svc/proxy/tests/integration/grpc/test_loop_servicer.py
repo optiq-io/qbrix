@@ -18,6 +18,8 @@ from qbrixproto import loop_pb2
 
 from proxysvc.core.actor import Actor
 from proxysvc.mod.loop.token import DecisionToken
+from proxysvc.transport.grpc.auth.context import GRPCAuthContext
+from proxysvc.transport.grpc.auth.context import set_grpc_auth_context
 from proxysvc.transport.grpc.exception.base import InvalidDecisionContextException
 from proxysvc.transport.grpc.exception.base import InvalidOutcomeException
 from proxysvc.transport.grpc.exception.base import LoopNotFoundException
@@ -92,6 +94,23 @@ async def test_a_draft_answers_as_http_does(wired_grpc, loop):
     }
     assert response.reason == "draft"
     assert response.request_id == ""
+
+
+async def test_a_drafts_first_call_names_the_key_as_http_does(wired_grpc, loop):
+    set_grpc_auth_context(
+        GRPCAuthContext(
+            tenant_id=TENANT,
+            user_id="",
+            role="",
+            api_key_id="key-1",
+            source="shop · production",
+        )
+    )
+
+    await LoopGRPCServicer(wired_grpc.svc).Select(_request(loop["key"]), MagicMock())
+    await wired_grpc.events.drain()
+
+    assert wired_grpc.milestone_spy.events[0].payload == {"source": "shop · production"}
 
 
 async def test_a_live_loop_returns_a_decision(wired_grpc, loop):
