@@ -10,22 +10,39 @@ from pydantic import BaseModel
 from pydantic import Field
 
 from proxysvc.core.autonomy import Level
+from proxysvc.transport.http.router.change import ChangeCounts
 from proxysvc.transport.http.router.change import ChangeEntry
 from proxysvc.transport.http.router.loop import Alert
+from proxysvc.transport.http.router.loop import Calls
+from proxysvc.transport.http.router.loop import CycleSummary
+from proxysvc.transport.http.router.loop import Health
 from proxysvc.transport.http.router.loop import HistoryEntry
-from proxysvc.transport.http.router.loop import LoopResults
+from proxysvc.transport.http.router.loop import LiftOption
 from proxysvc.transport.http.router.loop import MentionEntry
 from proxysvc.transport.http.router.loop import LoopSummary
 from proxysvc.transport.http.router.loop import OpenAlert
+from proxysvc.transport.http.router.loop import OptionShare
 from proxysvc.transport.http.router.loop import PreviewResponse
-from proxysvc.transport.http.router.loop import ResultsResponse
 from proxysvc.transport.http.router.loop import Share
 from proxysvc.transport.http.router.loop import SeriesPoint
 from proxysvc.transport.http.router.metric import MetricCycleStarted
 from proxysvc.transport.http.router.metric import MetricListHealthResponse
 from proxysvc.transport.http.router.metric import MetricResponse
+from proxysvc.transport.http.router.milestone import Milestone
+from proxysvc.transport.http.router.summary import ChangesByWho
+from proxysvc.transport.http.router.summary import Drafts
+from proxysvc.transport.http.router.summary import ShareThenNow
+from proxysvc.transport.http.router.summary import SummaryMetric
 
 Detail = Literal["concise", "full"]
+
+LiftPercent = Annotated[
+    Optional[float],
+    Field(
+        description="Lift over an even split, in percent: 12.5 is 12.5% more "
+        "per decision than an even split of the same options would have had."
+    ),
+]
 
 
 class Option(BaseModel):
@@ -54,10 +71,17 @@ class LoopView(Loop):
     merged_pull_request: Optional[MentionEntry] = None
 
 
+class LoopResultsView(BaseModel):
+    share: list[OptionShare]
+    lift_percent: LiftPercent = None
+    early: bool
+    decisions_per_second: float
+
+
 class LoopListItem(Loop):
     latest_change: Optional[HistoryEntry] = None
     alerts: list[OpenAlert] = []
-    results: Optional[LoopResults] = None
+    results: Optional[LoopResultsView] = None
 
 
 class LoopPage(BaseModel):
@@ -72,8 +96,45 @@ class ShareView(Share):
 PreviewView = PreviewResponse
 
 
-class ResultsView(ResultsResponse):
+class LiftView(BaseModel):
+    lift_percent: LiftPercent = None
+    early: bool
+    since: str
+    until: str
+    options: list[LiftOption]
+
+
+class ResultsView(BaseModel):
+    cycle: Optional[CycleSummary] = None
+    range: str
     share: Optional[ShareView] = None
+    lift: Optional[LiftView] = None
+    calls: Calls
+    decisions_per_second: float
+    health: Health
+
+
+class LoopWeekView(BaseModel):
+    id: str
+    key: str
+    name: str
+    state: str
+    committed: Optional[str] = None
+    metric: SummaryMetric
+    share: ShareThenNow
+    lift_percent: LiftPercent = None
+    early: bool
+    alerts: list[Alert]
+    milestones: list[Milestone]
+    changes: list[ChangesByWho]
+
+
+class WeekView(BaseModel):
+    since: str
+    until: str
+    loops: list[LoopWeekView]
+    drafts: Drafts
+    changes: ChangeCounts
 
 
 class MetricLoop(BaseModel):

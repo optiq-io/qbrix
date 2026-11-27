@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import json
 import re
 import time
 from collections.abc import AsyncIterator
@@ -61,17 +62,28 @@ from qbrixstore.postgres.models import Tenant
 from qbrixstore.postgres.models import User
 
 from proxysvc.core.actor import Actor
+from proxysvc.mod.loop import result as loop_result
 from proxysvc.mod.safety.repository import AlertRepository
 from proxysvc.mod.safety.rule import OUTCOMES_NOT_LEARNED
 from proxysvc.mod.safety.rule import OUTCOMES_STOPPED
 from proxysvc.mod.safety.service import CLEARED
 from proxysvc.mod.safety.service import AlertService
 from proxysvc.next import next_routes
+from proxysvc.transport.http.router.loop import Lift
+from proxysvc.transport.http.router.loop import LoopResults
+from proxysvc.transport.http.router.loop import ResultsResponse
+from proxysvc.transport.http.router.summary import LoopWeek
+from proxysvc.transport.http.router.summary import WeekSummary
 from proxysvc.transport.mcp.instructions import INSTRUCTIONS
 from proxysvc.transport.mcp.prompt import PROMPTS
 from proxysvc.transport.mcp.server import MCP_PATH
+from proxysvc.transport.mcp.schema import LiftView
 from proxysvc.transport.mcp.schema import LoopPage
+from proxysvc.transport.mcp.schema import LoopResultsView
 from proxysvc.transport.mcp.schema import LoopView
+from proxysvc.transport.mcp.schema import LoopWeekView
+from proxysvc.transport.mcp.schema import ResultsView
+from proxysvc.transport.mcp.schema import WeekView
 from proxysvc.transport.mcp.server import build_mcp
 
 TENANT = "tenant-a"
@@ -2778,6 +2790,61 @@ class TestAlerts:
             assert "error rate" not in text.lower()
             for word in FORBIDDEN:
                 assert word not in text.lower(), word
+
+
+class TestLiftAndWho:
+
+    async def test_lift_reads_in_percent_wherever_it_appears(
+        self, mcp, wired_app, monkeypatch
+    ):
+        monkeypatch.setattr(loop_result, "lift", lambda options: 0.8)
+        async with _session(mcp, wired_app) as client:
+            await _live(client)
+            three_days_on = int(time.time() * 1000) + 3 * 86_400_000
+            wired_app.svc._loop_result_service._clock = lambda: three_days_on
+            results = await _call(client, "loop_results", {"loop": "checkout-headline"})
+            listed = await _call(client, "loops_list")
+            week = await _call(client, "workspace_summary")
+
+        assert "+80.0%" in results.content[0].text
+        assert "+80.0%" in week.content[0].text
+        lift = results.structured_content["lift"]
+        (listed_loop,) = listed.structured_content["loops"]
+        (week_loop,) = week.structured_content["loops"]
+        assert lift["lift_percent"] == 80.0
+        assert listed_loop["results"]["lift_percent"] == 80.0
+        assert week_loop["lift_percent"] == 80.0
+        assert "value" not in lift
+        assert "lift" not in listed_loop["results"]
+        assert "lift" not in week_loop
+
+    @pytest.mark.parametrize(
+        "view, http",
+        [
+            (LiftView, Lift),
+            (LoopResultsView, LoopResults),
+            (LoopWeekView, LoopWeek),
+        ],
+    )
+    def test_lift_views_carry_everything_else_the_api_does(self, view, http):
+        lift = "value" if http is Lift else "lift"
+        assert set(view.model_fields) == set(http.model_fields) - {lift} | {
+            "lift_percent"
+        }
+
+    @pytest.mark.parametrize(
+        "view, http", [(ResultsView, ResultsResponse), (WeekView, WeekSummary)]
+    )
+    def test_result_views_carry_what_the_api_does(self, view, http):
+        assert set(view.model_fields) == set(http.model_fields)
+
+    async def test_no_tool_places_a_persons_change_in_the_console(self, mcp, wired_app):
+        async with _session(mcp, wired_app) as client:
+            tools = (await client.list_tools()).tools
+
+        for tool in tools:
+            said = json.dumps([tool.description, tool.input_schema]).lower()
+            assert "in the console" not in said, tool.name
 
 
 class TestWorkspaceSummary:
