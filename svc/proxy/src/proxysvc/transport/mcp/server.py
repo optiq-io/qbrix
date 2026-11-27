@@ -27,7 +27,9 @@ from qbrixlog import get_logger
 from proxysvc.config import ProxySettings
 from proxysvc.mod.docs.index import DocsIndex
 from proxysvc.service import ProxyService
-from proxysvc.transport.mcp.tool import register
+from proxysvc.transport.mcp import prompt
+from proxysvc.transport.mcp import tool
+from proxysvc.transport.mcp.instructions import INSTRUCTIONS
 from proxysvc.transport.mcp.verifier import ConnectionVerifier
 from proxysvc.transport.mcp.verifier import rate_limited
 
@@ -35,7 +37,7 @@ logger = get_logger(__name__)
 
 MCP_PATH = "/mcp"
 METADATA_PATH = "/.well-known/oauth-protected-resource/mcp"
-TOOLS_TTL_MS = 60 * 60 * 1000
+LIST_TTL_MS = 60 * 60 * 1000
 REQUEST_STATE_LABEL = "mcp-request-state"
 REQUEST_STATE_TTL_SEC = 60 * 60
 
@@ -62,13 +64,17 @@ def build_mcp(settings: ProxySettings) -> tuple[MCPServer, ASGIApp]:
     verifier = ConnectionVerifier(get_proxy_service, settings.mcp_resource)
     server = MCPServer(
         "qbrix",
+        instructions=INSTRUCTIONS,
         token_verifier=verifier,
         auth=AuthSettings(
             issuer_url=AnyHttpUrl(settings.public_origin),
             resource_server_url=AnyHttpUrl(settings.mcp_resource),
             validate_token_resource=False,
         ),
-        cache_hints={"tools/list": CacheHint(ttl_ms=TOOLS_TTL_MS)},
+        cache_hints={
+            "tools/list": CacheHint(ttl_ms=LIST_TTL_MS),
+            "prompts/list": CacheHint(ttl_ms=LIST_TTL_MS),
+        },
         subscriptions=False,
         request_state_security=RequestStateSecurity(
             keys=[settings.derived_key(REQUEST_STATE_LABEL)],
@@ -76,7 +82,8 @@ def build_mcp(settings: ProxySettings) -> tuple[MCPServer, ASGIApp]:
             audience=settings.mcp_resource,
         ),
     )
-    register(server, settings, get_proxy_service, DocsIndex.at(settings.docs_path))
+    tool.register(server, settings, get_proxy_service, DocsIndex.at(settings.docs_path))
+    prompt.register(server)
     # the bearer token is the only credential, and a browser never attaches
     # it for another origin, so dns rebinding has nothing to ride on
     server.streamable_http_app(

@@ -82,6 +82,47 @@ Creating a loop or a metric, renaming, committing, reopening, pausing, resuming 
 
 **Repeating a call is harmless.** Clients and networks retry. The same change tool called again by the same connection with the same arguments within 5 minutes returns the first call's result and changes nothing twice. Change any argument, the reason included, and it is a new call.
 
+## Prompts
+
+Prompts are workflows you start yourself. Most clients show them as slash commands: in Claude Code, type `/mcp__qbrix__explain-loop checkout-headline`; elsewhere, pick them from the client's prompt or slash menu. A prompt reads nothing itself: it gives the agent the steps, and the agent calls the tools.
+
+| Prompt | Argument | What it does |
+|---|---|---|
+| `start-loop` | `choice`, optional: the product choice, in a few words | Asks what is being decided and what result counts, proposes the options, picks or creates the metric, creates the draft, opens a pull request that wires `select` and `outcome` or `track`, then proposes the launch. |
+| `explain-loop` | `loop`: its key or id | Explains what the loop is doing in plain words: share of decisions, lift over an even split, health and decisions waiting to seal, and what changed. Then proposes one next step that doesn't repeat a declined change whose reason still holds, or none. |
+| `weekly-review` | `since`, optional: 7 days ago when left out | Reviews the workspace from `workspace_summary`: what needs a look first, what moved, where one option has held most of the decisions, and what changed and by whom. At most one proposal per loop. |
+
+None of them makes a change until you agree.
+
+## What qbrix tells your client
+
+When a client connects, qbrix sends it these instructions, which most clients pass to their model. A client on the 2026-07-28 revision of MCP receives them from `server/discover`, an older one from `initialize`.
+
+```text
+qbrix runs loops. A loop makes one product choice live: for each request it picks one of its options, and the outcomes that follow teach it which serves people best.
+
+Words: a loop has options; each request gets a decision; an outcome, or a tracked event, on the loop's metric teaches it. A cycle is one run of a loop's options and engine, and a new cycle learns afresh. Every write is a change.
+
+Changes
+- Every change tool takes a reason. Say why in a sentence; it is recorded in the loop's history.
+- Launching a loop, starting a cycle and retiring a loop usually wait for a person's approval, and so does anything else that starts a cycle. Say so when you propose one, and check on a waiting change with `change_get`.
+- Before proposing a change to a loop, read its declined changes in `loop_get` or `loop_history`. Respect any date or condition a reason names: offer to set a reminder in the person's own tools rather than proposing it again.
+
+Reading
+- `workspace_summary` says how the workspace's loops are going since a date; `loop_get`, `loop_results` and `loop_history` say one loop's.
+- Speak in share of decisions and lift over an even split. qbrix ranks no option, and neither should you.
+- When a shift in a loop follows a change, put the two side by side with both times and say "likely" at most, never "because".
+
+Code
+- `docs_search` answers how to write `select`, `outcome` and `track` for this install's version; `loop_get` gives one loop's exact calls.
+- Put qbrix:<key> in the title or description of the pull requests you open for a loop, or qbrix/<key> in the branch name, so they appear in its history.
+- When a pull request changes how the code sends a metric, record it with `metric_update`, naming the pull request in the reason: same if it still measures the same thing, new if it now measures something new, which starts a cycle on every loop using it.
+- Context is wired first, then declared: send the properties with `select`, deploy, then call `context_update`; its answer says which arrived.
+- Never call `select`, `outcome` or `track` from a chat: a decision made there teaches the loop something no user did. `loop_preview` shows what `select` would return, recording nothing.
+
+The person can start `start-loop`, `explain-loop` and `weekly-review` for these workflows.
+```
+
 ## When qbrix refuses
 
 A refused call comes back as an error that says what to do next, for example:
