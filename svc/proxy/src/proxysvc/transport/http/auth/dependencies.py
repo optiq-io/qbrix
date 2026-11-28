@@ -16,6 +16,7 @@ from proxysvc.transport.http.exception import UserNotFoundException
 from proxysvc.transport.http.exception import InvalidTokenException
 from proxysvc.transport.http.exception import InsufficientScopesException
 from proxysvc.transport.http.exception import PlanTierRequiredException
+from proxysvc.transport.http.exception import ReplacedByLoopsException
 from proxysvc.config import settings
 
 from proxysvc.mod.auth.constant import (
@@ -199,3 +200,11 @@ def require_any_scope(required_scopes: List[str]):
         return user
 
     return scope_dependency
+
+
+async def before_loops() -> None:
+    """refuse a write to today's pools, experiments or gates, and the old
+    select and feedback, once qbrix next is on. their routers turn any other
+    error into a 500, so the refusal can't wait for the service to raise it."""
+    if settings.next_enabled:
+        raise ReplacedByLoopsException()

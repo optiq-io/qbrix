@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+import pytest
 import pytest_asyncio
 from sqlalchemy import select
 
@@ -25,6 +26,8 @@ import qbrixstore.postgres.session as _session_module
 from qbrixstore.postgres.models import Change
 
 from proxysvc.core.actor import Actor
+from proxysvc.core.error import ChangeConflictError
+from proxysvc.mod.change.undo import Undoing
 from proxysvc.next import next_routes
 from proxysvc.transport.http.auth.dependencies import get_actor
 
@@ -510,6 +513,41 @@ class TestUndo:
 
         assert resp.status_code == 409
         assert resp.json()["context"]["later_change_id"]
+
+    async def test_a_concurrent_change_refuses_the_undo_at_write_time(
+        self, api, wired_app
+    ):
+        """the check is repeated inside the undo's own transaction."""
+        loop = await _loop(api)
+        await _rename(wired_app, loop, "Renamed")
+        rename = (await _changes(api, kind="loop.rename"))["changes"][0]
+        await _rename(wired_app, loop, "Renamed again", CURSOR)
+        landed = (await _changes(api, kind="loop.rename", fold="false"))["changes"][0]
+
+        with pytest.raises(ChangeConflictError, match=landed["id"]):
+            await wired_app.svc.loops.rename_loop(
+                TENANT,
+                loop["id"],
+                name="Pricing page CTA",
+                actor=Actor.member("dev-user"),
+                undoing=Undoing(change_id=rename["id"], latest_id=rename["id"]),
+            )
+
+        current = (await api.get(f"/api/v1/loops/{loop['key']}")).json()
+        assert current["name"] == "Renamed again"
+
+    async def test_another_tenants_change_is_missing(self, api, wired_app, tenant_b):
+        loop = await _loop(api)
+        await _rename(wired_app, loop, "Renamed")
+        rename = (await _changes(api, kind="loop.rename"))["changes"][0]
+
+        undone = await wired_app.svc.undo_change(
+            tenant_b.id, rename["id"], actor=Actor.member("dev-user")
+        )
+
+        assert undone is None
+        current = (await api.get(f"/api/v1/changes/{rename['id']}")).json()
+        assert current["status"] == "applied"
 
     async def test_an_unknown_change_is_not_found(self, api):
         resp = await api.post("/api/v1/changes/nope/undo")

@@ -9,6 +9,7 @@ import pytest
 import proxysvc.mod
 from proxysvc.core import autonomy
 from proxysvc.core.actor import Actor
+from proxysvc.mod.change.repository import TODAY_TARGET_TYPES
 from proxysvc.mod.change.serialize import VERBS
 from proxysvc.mod.change.undo import NOT_UNDOABLE
 from proxysvc.mod.change.undo import UNDOABLE_KINDS
@@ -17,7 +18,7 @@ from proxysvc.mod.connection.service import ConnectionPrincipal
 pytestmark = pytest.mark.unit
 
 _KIND = re.compile(
-    r"^(loop|brief|cycle|delivery|context|engine|metric|note|experiment|pool|gate|connection)\.[a-z]+$"
+    r"^(loop|brief|cycle|delivery|context|engine|metric|note|connection)\.[a-z]+$"
 )
 
 
@@ -48,7 +49,8 @@ def _kinds_in_source() -> set[str]:
 def test_every_recorded_kind_has_a_level_or_is_never_made_by_a_connection():
     known = autonomy.DEFAULTS.keys() | autonomy.NOT_BY_CONNECTIONS
     assert not autonomy.DEFAULTS.keys() & autonomy.NOT_BY_CONNECTIONS
-    assert UNDOABLE_KINDS | NOT_UNDOABLE.keys() | VERBS.keys() == known
+    next_verbs = {k for k in VERBS if k.split(".")[0] not in TODAY_TARGET_TYPES}
+    assert UNDOABLE_KINDS | NOT_UNDOABLE.keys() | next_verbs == known
     recorded = _kinds_in_source()
     assert autonomy.DEFAULTS.keys() <= recorded
     assert recorded <= known

@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from pydantic import Field
 
 from proxysvc.transport.http.auth.dependencies import get_current_user_id
+from proxysvc.transport.http.auth.dependencies import before_loops
 from proxysvc.transport.http.auth.dependencies import get_current_tenant_id
 from proxysvc.transport.http.auth.dependencies import require_scopes
 from proxysvc.transport.http.exception import SelectionException
@@ -98,6 +99,7 @@ class AgentFeedbackResponse(BaseModel):
     "/select",
     status_code=status.HTTP_200_OK,
     response_model=AgentSelectResponse,
+    dependencies=[Depends(before_loops)],
 )
 async def agent_select(
     body: AgentSelectRequest,
@@ -138,6 +140,7 @@ async def agent_select(
     "/feedback",
     status_code=status.HTTP_201_CREATED,
     response_model=AgentFeedbackResponse,
+    dependencies=[Depends(before_loops)],
 )
 async def agent_feedback(
     body: AgentFeedbackRequest,

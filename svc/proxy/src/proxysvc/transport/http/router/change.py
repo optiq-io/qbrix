@@ -20,8 +20,6 @@ from proxysvc.core.error import ChangeNoLongerAppliesError
 from proxysvc.core.error import ChangeNotUndoableError
 from proxysvc.core.error import ConnectionNotFoundError
 from proxysvc.core.error import ConnectionLevelsForbiddenError
-from proxysvc.core.error import ExperimentLimitError
-from proxysvc.core.error import ExperimentRunningError
 from proxysvc.core.error import InvalidCursorError
 from proxysvc.core.error import LoopKeyTakenError
 from proxysvc.core.error import LoopNotFoundError
@@ -275,7 +273,6 @@ async def undo_change(
             change_id,
             actor=actor,
             reason=body.reason if body else None,
-            plan_tier=user.plan_tier,
         )
     except ConnectionLevelsForbiddenError as e:
         raise ConnectionLevelsForbiddenException(str(e))
@@ -286,8 +283,6 @@ async def undo_change(
     except (
         ChangeNotUndoableError,
         ChangeConflictError,
-        ExperimentLimitError,
-        ExperimentRunningError,
         LoopKeyTakenError,
         LoopStateError,
     ) as e:

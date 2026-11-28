@@ -32,6 +32,8 @@ from proxysvc.mod.change.proposal import Proposed
 from proxysvc.mod.change.undo import UNDOABLE_KINDS
 from proxysvc.mod.change.undo import Undoing
 
+TODAY_TARGET_TYPES = frozenset({"experiment", "pool", "gate"})
+
 
 def moved_since(later: Change) -> ChangeMovedError:
     return ChangeMovedError(
@@ -74,8 +76,10 @@ def _workspace_filters(
     undoable: bool | None = None,
     statuses: Collection[str] = HAPPENED,
 ) -> list:
-    """every filter given narrows the changes, targets included."""
+    """every filter given narrows the changes, targets included. today's
+    pools, experiments and gates never show: next starts fresh."""
     filters = _kind_filters(kinds, except_kinds)
+    filters.append(Change.target_type.not_in(TODAY_TARGET_TYPES))
     filters.append(Change.status.in_(statuses))
     for target_type, target_id in targets:
         filters.append(Change.target_type == target_type)
@@ -349,7 +353,9 @@ class ChangeRepository:
 
     async def get(self, change_id: str) -> Change | None:
         stmt = select(Change).where(
-            Change.id == change_id, Change.tenant_id == self._tenant_id
+            Change.id == change_id,
+            Change.tenant_id == self._tenant_id,
+            Change.target_type.not_in(TODAY_TARGET_TYPES),
         )
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()

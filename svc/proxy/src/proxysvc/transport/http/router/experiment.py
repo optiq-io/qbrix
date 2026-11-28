@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from proxysvc.transport.http.auth.dependencies import get_current_user
 from proxysvc.transport.http.auth.dependencies import get_current_user_id
 from proxysvc.transport.http.auth.dependencies import get_actor
+from proxysvc.transport.http.auth.dependencies import before_loops
 from proxysvc.transport.http.auth.dependencies import get_current_tenant_id
 from proxysvc.transport.http.auth.dependencies import require_scopes
 from proxysvc.transport.http.exception import ExperimentNotFoundException
@@ -109,6 +110,7 @@ class ExperimentListResponse(BaseModel):
     "",
     status_code=status.HTTP_201_CREATED,
     response_model=ExperimentResponse,
+    dependencies=[Depends(before_loops)],
 )
 async def create_experiment(
     body: ExperimentCreateRequest,
@@ -185,6 +187,7 @@ async def get_experiment(
     "/{experiment_id}",
     status_code=status.HTTP_200_OK,
     response_model=ExperimentResponse,
+    dependencies=[Depends(before_loops)],
 )
 async def update_experiment(
     experiment_id: str,
@@ -238,6 +241,7 @@ async def update_experiment(
     "/{experiment_id}/reset",
     status_code=status.HTTP_200_OK,
     response_model=ExperimentResponse,
+    dependencies=[Depends(before_loops)],
 )
 async def reset_experiment(
     experiment_id: str,
@@ -266,6 +270,7 @@ async def reset_experiment(
 @router.delete(
     "/{experiment_id}",
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(before_loops)],
 )
 async def delete_experiment(
     experiment_id: str,

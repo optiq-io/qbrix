@@ -153,6 +153,19 @@ class LoopRetiredError(LoopStateError):
     """raised when a change that any other state allows meets a retired loop."""
 
 
+REPLACED_BY_LOOPS = (
+    "Experiments are replaced by loops in qbrix next. Create a loop instead."
+)
+
+
+class ReplacedByLoopsError(BaseAPIError):
+    """raised when writing to today's pools, experiments or gates, or selecting
+    and feeding back through them, once qbrix next is on."""
+
+    def __init__(self, message: str = REPLACED_BY_LOOPS):
+        super().__init__(message)
+
+
 class LoopNotFoundError(BaseAPIError):
     """raised when a request names a loop the workspace doesn't have."""
 
