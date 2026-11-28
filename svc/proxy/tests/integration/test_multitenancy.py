@@ -508,7 +508,7 @@ class TestChangeTenantIsolation:
         repo_a = ChangeRepository(db_session, tenant_a.id)
         repo_b = ChangeRepository(db_session, tenant_b.id)
         change = await repo_a.record(
-            "pool.create", "pool", "pool-1", Actor.member("user-a"), after={}
+            "loop.create", "loop", "loop-1", Actor.member("user-a"), after={}
         )
 
         assert await repo_a.get(change.id) is not None

@@ -19,6 +19,7 @@ from proxysvc.core.error import InvalidOutcomeError
 from proxysvc.core.error import LearnerExperimentDeleteError
 from proxysvc.core.error import LoopNotFoundError
 from proxysvc.core.error import PoolHasExperimentsError
+from proxysvc.core.error import ReplacedByLoopsError
 from proxysvc.core.error import SignupClosedError
 from proxysvc.core.error import TokenError
 from proxysvc.core.error import TokenExpiredError
@@ -41,6 +42,7 @@ from proxysvc.transport.grpc.exception.base import InvalidPolicyParamsException
 from proxysvc.transport.grpc.exception.base import LearnerExperimentDeleteException
 from proxysvc.transport.grpc.exception.base import LoopNotFoundException
 from proxysvc.transport.grpc.exception.base import PoolHasExperimentsException
+from proxysvc.transport.grpc.exception.base import ReplacedByLoopsException
 from proxysvc.transport.grpc.exception.base import SignupClosedException
 from proxysvc.transport.grpc.exception.base import TokenExpiredException
 from proxysvc.transport.grpc.exception.base import TokenInvalidException
@@ -51,6 +53,7 @@ logger = get_logger(__name__)
 # fallback for unmapped errors is InternalException.
 _DOMAIN_TO_GRPC: dict[type[BaseAPIError], type[BaseGRPCException]] = {
     PoolHasExperimentsError: PoolHasExperimentsException,
+    ReplacedByLoopsError: ReplacedByLoopsException,
     BadPolicyParamsError: InvalidPolicyParamsException,
     ContextVectorError: InvalidContextVectorException,
     ContextSchemaImmutableError: ContextSchemaImmutableException,

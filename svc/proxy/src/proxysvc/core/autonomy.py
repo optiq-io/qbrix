@@ -49,18 +49,6 @@ ON_LOOP: tuple[str, ...] = tuple(kind.name for kind in KINDS if kind.on_loop)
 
 NOT_BY_CONNECTIONS = frozenset(
     {
-        "experiment.create",
-        "experiment.update",
-        "experiment.reset",
-        "experiment.restore",
-        "experiment.delete",
-        "pool.create",
-        "pool.update",
-        "pool.delete",
-        "gate.create",
-        "gate.replace",
-        "gate.patch",
-        "gate.delete",
         "loop.delete",
         "engine.minor",
         "connection.levels",

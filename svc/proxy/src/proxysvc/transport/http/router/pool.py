@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from proxysvc.transport.http.auth.dependencies import get_current_user_id
 from proxysvc.transport.http.auth.dependencies import get_actor
+from proxysvc.transport.http.auth.dependencies import before_loops
 from proxysvc.transport.http.auth.dependencies import get_current_tenant_id
 from proxysvc.transport.http.auth.dependencies import require_scopes
 from proxysvc.transport.http.exception import PoolNotFoundException
@@ -94,6 +95,7 @@ class ExperimentLinkedResponse(BaseModel):
     "",
     status_code=status.HTTP_201_CREATED,
     response_model=PoolResponse,
+    dependencies=[Depends(before_loops)],
 )
 async def create_pool(
     body: PoolCreateRequest,
@@ -141,6 +143,7 @@ async def get_pool(
     "/{pool_id}",
     status_code=status.HTTP_200_OK,
     response_model=PoolResponse,
+    dependencies=[Depends(before_loops)],
 )
 async def update_pool(
     pool_id: str,
@@ -174,6 +177,7 @@ async def update_pool(
 @router.delete(
     "/{pool_id}",
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(before_loops)],
 )
 async def delete_pool(
     pool_id: str,

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import grpc
 
+from proxysvc.core.error import REPLACED_BY_LOOPS
+
 
 class BaseGRPCException(Exception):
     """
@@ -114,6 +116,12 @@ class GateConfigNotFoundException(NotFoundException):
     """feature gate config not found."""
 
     detail = "gate config not found"
+
+
+class ReplacedByLoopsException(FailedPreconditionException):
+    """today's pools, experiments and gates take no writes once next is on."""
+
+    detail = REPLACED_BY_LOOPS
 
 
 class PoolHasExperimentsException(FailedPreconditionException):

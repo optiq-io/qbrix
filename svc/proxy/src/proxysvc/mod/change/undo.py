@@ -4,14 +4,6 @@ from dataclasses import dataclass
 
 UNDOABLE_KINDS = frozenset(
     {
-        "experiment.update",
-        "experiment.reset",
-        "experiment.restore",
-        "gate.create",
-        "gate.replace",
-        "gate.patch",
-        "gate.delete",
-        "pool.update",
         "metric.create",
         "metric.update",
         "loop.create",
@@ -29,11 +21,6 @@ UNDOABLE_KINDS = frozenset(
 )
 
 NOT_UNDOABLE = {
-    "experiment.create": "creating an experiment cannot be undone",
-    "experiment.delete": "deleting an experiment removes its gate and learners, "
-    "so it cannot be undone",
-    "pool.create": "creating a pool cannot be undone",
-    "pool.delete": "deleting a pool removes its arms, so it cannot be undone",
     "metric.delete": "deleting a metric cannot be undone",
     "loop.launch": "launching a loop starts its first cycle, so it cannot be undone",
     "loop.delete": "deleting a loop cannot be undone",

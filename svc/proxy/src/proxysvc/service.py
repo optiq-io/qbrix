@@ -21,6 +21,7 @@ from proxysvc.transport.grpc.client import MotorClient
 from proxysvc.transport.grpc.client import CortexClient
 from proxysvc.core.actor import Actor
 from proxysvc.core.entitlements import Entitlements
+from proxysvc.core.error import ReplacedByLoopsError
 from proxysvc.core.events import EventEmitter
 from proxysvc.mod.agent import AgentService
 from proxysvc.mod.change.applied import Applied
@@ -221,9 +222,6 @@ class ProxyService:
             redis=self._redis, settings=self._settings
         )
         self._change_service = ChangeService(
-            experiments=self._experiment_service,
-            gates=self._gate_service,
-            pools=self._pool_service,
             metrics=self._metric_service,
             loops=self._loop_service,
             connections=self._connection_service,
@@ -319,11 +317,16 @@ class ProxyService:
         if self._clickhouse:
             self._clickhouse.close()
 
+    def _before_loops(self) -> None:
+        if self._settings.next_enabled:
+            raise ReplacedByLoopsError()
+
     # pool
 
     async def create_pool(
         self, tenant_id: str, name: str, arms: list[dict], *, actor: Actor
     ) -> dict:
+        self._before_loops()
         return await self._pool_service.create_pool(tenant_id, name, arms, actor=actor)
 
     async def get_pool(self, tenant_id: str, pool_id: str) -> dict | None:
@@ -337,11 +340,13 @@ class ProxyService:
     async def update_pool(
         self, tenant_id: str, pool_id: str, *, actor: Actor, **kwargs
     ) -> dict | None:
+        self._before_loops()
         return await self._pool_service.update_pool(
             tenant_id, pool_id, actor=actor, **kwargs
         )
 
     async def delete_pool(self, tenant_id: str, pool_id: str, *, actor: Actor) -> bool:
+        self._before_loops()
         return await self._pool_service.delete_pool(tenant_id, pool_id, actor=actor)
 
     # experiment
@@ -362,6 +367,7 @@ class ProxyService:
         actor: Actor,
         plan_tier: str = "free",
     ) -> dict:
+        self._before_loops()
         return await self._experiment_service.create_experiment(
             tenant_id=tenant_id,
             name=name,
@@ -386,6 +392,7 @@ class ProxyService:
         actor: Actor,
         plan_tier: str = "free",
     ) -> dict:
+        self._before_loops()
         return await self._experiment_service.create_meta_experiment(
             tenant_id=tenant_id,
             name=name,
@@ -425,6 +432,7 @@ class ProxyService:
         plan_tier: str = "free",
         **kwargs,
     ) -> dict | None:
+        self._before_loops()
         return await self._experiment_service.update_experiment(
             tenant_id,
             experiment_id,
@@ -436,6 +444,7 @@ class ProxyService:
     async def delete_experiment(
         self, tenant_id: str, experiment_id: str, *, actor: Actor
     ) -> bool:
+        self._before_loops()
         return await self._experiment_service.delete_experiment(
             tenant_id, experiment_id, actor=actor
         )
@@ -443,6 +452,7 @@ class ProxyService:
     async def reset_experiment(
         self, tenant_id: str, experiment_id: str, *, actor: Actor
     ) -> dict | None:
+        self._before_loops()
         return await self._experiment_service.reset_experiment(
             tenant_id, experiment_id, actor=actor
         )
@@ -457,6 +467,7 @@ class ProxyService:
         *,
         actor: Actor,
     ) -> FeatureGateConfig | None:
+        self._before_loops()
         return await self._gate_service.create_gate_config(
             tenant_id, experiment_id, config, actor=actor
         )
@@ -474,6 +485,7 @@ class ProxyService:
         *,
         actor: Actor,
     ) -> FeatureGateConfig | None:
+        self._before_loops()
         return await self._gate_service.update_gate_config(
             tenant_id, experiment_id, config, actor=actor
         )
@@ -486,6 +498,7 @@ class ProxyService:
         *,
         actor: Actor,
     ) -> FeatureGateConfig | None:
+        self._before_loops()
         return await self._gate_service.patch_gate_config(
             tenant_id, experiment_id, patch, actor=actor
         )
@@ -505,6 +518,7 @@ class ProxyService:
     async def delete_gate_config(
         self, tenant_id: str, experiment_id: str, *, actor: Actor
     ) -> bool:
+        self._before_loops()
         return await self._gate_service.delete_gate_config(
             tenant_id, experiment_id, actor=actor
         )
@@ -579,10 +593,9 @@ class ProxyService:
         *,
         actor: Actor,
         reason: str | None = None,
-        plan_tier: str = "free",
     ) -> dict | None:
         return await self._change_service.undo(
-            tenant_id, change_id, actor=actor, reason=reason, plan_tier=plan_tier
+            tenant_id, change_id, actor=actor, reason=reason
         )
 
     async def act(
@@ -1047,6 +1060,7 @@ class ProxyService:
         context_metadata: dict | None = None,
         context_properties: dict | None = None,
     ) -> dict:
+        self._before_loops()
         return await self._agent_service.select(
             tenant_id=tenant_id,
             experiment_id=experiment_id,
@@ -1057,6 +1071,7 @@ class ProxyService:
         )
 
     async def feed(self, tenant_id: str, request_id: str, reward: float) -> bool:
+        self._before_loops()
         return await self._agent_service.feed(tenant_id, request_id, reward)
 
     # runtime

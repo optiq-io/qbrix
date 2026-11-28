@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any
 from typing import ClassVar
 
+from proxysvc.core.error import REPLACED_BY_LOOPS
+
 
 class BaseAPIException(Exception):
     """
@@ -80,6 +82,15 @@ class ConflictException(BaseAPIException):
     status_code = 409
     detail = "resource conflict"
     code = "CONFLICT"
+
+
+class ReplacedByLoopsException(BaseAPIException):
+    """410 gone - today's pools, experiments and gates take no writes once
+    qbrix next is on."""
+
+    status_code = 410
+    detail = REPLACED_BY_LOOPS
+    code = "REPLACED_BY_LOOPS"
 
 
 class UnprocessableEntityException(BaseAPIException):
