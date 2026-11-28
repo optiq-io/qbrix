@@ -287,7 +287,7 @@ class TestDecisions:
 
         assert [e.event_id for e in wired_app.metric_spy.events] == ["o-1", "o-1"]
 
-    async def test_a_decision_from_an_earlier_cycle_is_counted_on_the_current_one(
+    async def test_a_decision_from_an_earlier_cycle_is_not_counted_on_the_current_one(
         self, wired_app, api
     ):
         request_id = await _decision(wired_app, api, "Checkout button")
@@ -304,7 +304,7 @@ class TestDecisions:
         health = await wired_app.svc._redis.outcome_health(
             TENANT, loop["cycle"]["id"], 5
         )
-        assert health.by_reason == {"earlier_cycle": 1}
+        assert health.by_reason == {}
 
     async def test_stamps_each_credited_cycle(self, wired_app, api):
         request_id = await _decision(wired_app, api, "Checkout button")

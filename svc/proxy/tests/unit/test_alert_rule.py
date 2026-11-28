@@ -8,7 +8,7 @@ invariants verified:
   has only the whole-window test, and the clock starts at the latest of the
   last outcome and when the loop started serving. outcomes not learned warns
   above 10% of at least 100 outcomes, counting late, duplicate and invalid
-  but never train_error or earlier_cycle. calls stopped warns when a loop
+  but never train_error. calls stopped warns when a loop
   serving through both hours had no call since the last full hour began and
   at least 60 in the same hour yesterday.
 """
@@ -138,10 +138,8 @@ class TestOutcomesNotLearned:
     def test_99_outcomes_warn_nothing(self):
         assert not outcomes_not_learned(_health(49, invalid=50))
 
-    def test_train_errors_and_earlier_cycles_say_nothing_of_the_wiring(self):
-        assert not outcomes_not_learned(
-            _health(80, train_error=50, earlier_cycle=50, late=5)
-        )
+    def test_train_errors_say_nothing_of_the_wiring(self):
+        assert not outcomes_not_learned(_health(80, train_error=100, late=5))
 
     def test_the_evidence_names_the_rate_and_its_reasons(self):
         found = not_learned_evidence(_health(80, late=15, train_error=4), NOW_MS)

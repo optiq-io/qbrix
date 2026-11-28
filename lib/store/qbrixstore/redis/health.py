@@ -91,7 +91,6 @@ class OutcomeDisposition(str, Enum):
     INVALID = "invalid"
     LATE = "late"
     DUPLICATE = "duplicate"
-    EARLIER_CYCLE = "earlier_cycle"
     UNATTRIBUTED = "unattributed"
 
 

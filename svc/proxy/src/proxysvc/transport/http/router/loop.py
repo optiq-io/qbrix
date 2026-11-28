@@ -587,7 +587,6 @@ class Outcomes(BaseModel):
     invalid: int
     late: int
     duplicate: int
-    earlier_cycle: int
 
 
 class AlertLoop(BaseModel):

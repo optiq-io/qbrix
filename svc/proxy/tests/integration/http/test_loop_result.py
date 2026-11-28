@@ -441,7 +441,6 @@ class TestHealth:
                 "invalid": 0,
                 "late": 2,
                 "duplicate": 1,
-                "earlier_cycle": 0,
             },
             "last_outcome_at": "2026-01-01T00:00:00+00:00",
             "last_learned_at": None,
