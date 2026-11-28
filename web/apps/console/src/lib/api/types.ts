@@ -862,7 +862,7 @@ export interface LoopResults {
   decisions_per_second: number;
   health: {
     decision_errors: number;
-    outcomes: { learned: number; late: number; duplicate: number; earlier_cycle: number };
+    outcomes: { learned: number; late: number; duplicate: number };
     last_outcome_at: string | null;
     last_learned_at: string | null;
     ledger_lag_ms: number | null;

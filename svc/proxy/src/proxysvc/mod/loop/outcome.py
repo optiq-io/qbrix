@@ -89,25 +89,6 @@ def decision_ref(decision: Decision) -> dict:
     }
 
 
-def earlier_cycle(route: LoopRoute, decision: Decision) -> str | None:
-    """the loop's current cycle, when a decision belongs to an earlier one:
-    its outcome is recorded in that cycle's history and counted on this one."""
-    if route.cycle is None or route.cycle.id == decision.cycle_id:
-        return None
-    return route.cycle.id
-
-
-async def count_earlier_cycle(
-    redis: RedisClient, tenant_id: str, cycle_id: str
-) -> None:
-    try:
-        await redis.count_outcomes(
-            tenant_id, cycle_id, {OutcomeDisposition.EARLIER_CYCLE: 1}
-        )
-    except Exception as e:
-        logger.warning(f"earlier cycle count failed for {cycle_id}: {e}")
-
-
 def _at_ms(at: datetime | None, decision: Decision, now_ms: int) -> int:
     at_ms = event_at_ms(at, now_ms)
     if at_ms < decision.timestamp_ms:
@@ -119,10 +100,10 @@ class LoopOutcomeService:
     """outcome(request_id, value): the event for exactly one decision, with the
     metric it was made under.
 
-    what is accepted is recorded, late, repeated and earlier-cycle outcomes
-    included; the sealer decides what is learned. nothing here reads postgres
-    but through a cache: the metric is the loop route's, or after the loop
-    changed metric, the decision's own.
+    what is accepted is recorded, late and repeated outcomes included, each
+    in its own decision's cycle; the sealer decides what is learned. nothing
+    here reads postgres but through a cache: the metric is the loop route's,
+    or after the loop changed metric, the decision's own.
     """
 
     def __init__(
@@ -189,9 +170,6 @@ class LoopOutcomeService:
             )
         )
         self._stamp(tenant_id, decision.cycle_id, metric.window_ms, now_ms)
-        current = earlier_cycle(route, decision)
-        if current is not None:
-            self._events.dispatch(count_earlier_cycle(self._redis, tenant_id, current))
         return {"id": event_id, "at_ms": at_ms}
 
     async def _metric_of(

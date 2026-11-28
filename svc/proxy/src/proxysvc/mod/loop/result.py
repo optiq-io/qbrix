@@ -55,7 +55,6 @@ OUTCOME_ENDINGS = (
     OutcomeDisposition.INVALID,
     OutcomeDisposition.LATE,
     OutcomeDisposition.DUPLICATE,
-    OutcomeDisposition.EARLIER_CYCLE,
 )
 
 

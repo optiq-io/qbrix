@@ -102,7 +102,7 @@ The value must be valid for the loop's metric (see [Metric types](#metric-types)
 | Late: it happened, or reached qbrix, after the window closed | Recorded as late |
 | Invalid for the metric | Refused with an error, and counted |
 | A `request_id` that is altered, or from another workspace | Refused. An outcome is accepted only in the workspace that made the decision. |
-| For a decision from an earlier cycle | Recorded in that cycle's history, and counted on the loop's current cycle as from an earlier cycle |
+| For a decision from an earlier cycle | Recorded in that cycle's history. A new cycle learns only from its own decisions. |
 | A tracked event whose decisions are none for its metric | Recorded as unattributed, crediting nothing |
 | A tracked event with only a unit, when the unit has no open decision in any loop that improves the metric | Recorded as unattributed, crediting nothing |
 | An event matched by its unit to a decision that an exact outcome already credits | Recorded as a duplicate: an outcome that names its decision wins |

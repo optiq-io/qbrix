@@ -262,7 +262,7 @@ export function healthSignals(results: LoopResults | undefined, now: number, unm
   const { decision_errors: errors, outcomes, last_outcome_at: lastOutcome } = results.health;
   const calls = results.calls.live + errors;
   const errorRate = calls ? errors / calls : 0;
-  const arrived = outcomes.learned + outcomes.late + outcomes.duplicate + outcomes.earlier_cycle;
+  const arrived = outcomes.learned + outcomes.late + outcomes.duplicate;
   return [
     unmeasured ?? {
       label: "Decision errors",

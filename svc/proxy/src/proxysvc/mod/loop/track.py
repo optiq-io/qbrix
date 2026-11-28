@@ -17,9 +17,7 @@ from proxysvc.core.error import TokenInvalidError
 from proxysvc.core.events import EventEmitter
 from proxysvc.mod.loop.outcome import check_event_id
 from proxysvc.mod.loop.outcome import check_value
-from proxysvc.mod.loop.outcome import count_earlier_cycle
 from proxysvc.mod.loop.outcome import decision_ref
-from proxysvc.mod.loop.outcome import earlier_cycle
 from proxysvc.mod.loop.outcome import event_at_ms
 from proxysvc.mod.loop.route import LoopRoute
 from proxysvc.mod.loop.route import LoopRouteCache
@@ -136,12 +134,6 @@ class LoopTrackService:
             self._events.dispatch(
                 self._record_intake(tenant_id, cycle_id, metric.window_ms, now_ms)
             )
-        for decision, route in credited or []:
-            current = earlier_cycle(route, decision)
-            if current is not None:
-                self._events.dispatch(
-                    count_earlier_cycle(self._redis, tenant_id, current)
-                )
         return {
             "id": event_id,
             "at_ms": at_ms,

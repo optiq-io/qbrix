@@ -39,7 +39,7 @@ function results(overrides: Partial<LoopResults> = {}, startedAt = NOW - 12 * DA
     decisions_per_second: 38.4,
     health: {
       decision_errors: 0,
-      outcomes: { learned: 90, late: 5, duplicate: 5, earlier_cycle: 0 },
+      outcomes: { learned: 90, late: 5, duplicate: 5 },
       last_outcome_at: new Date(NOW - 12_000).toISOString(),
       last_learned_at: new Date(NOW - 40_000).toISOString(),
       ledger_lag_ms: 100,
@@ -190,7 +190,7 @@ describe("healthSignals", () => {
   it("dashes outcomes before any arrive", () => {
     const health = {
       ...results().health,
-      outcomes: { learned: 0, late: 0, duplicate: 0, earlier_cycle: 0 },
+      outcomes: { learned: 0, late: 0, duplicate: 0 },
       last_outcome_at: null,
     };
     const signals = healthSignals(results({ health }), NOW);

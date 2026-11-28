@@ -249,7 +249,7 @@ class TestInvalidValue:
 
 
 class TestEarlierCycle:
-    async def test_is_recorded_for_its_cycle_and_counted_on_the_current_one(
+    async def test_is_recorded_for_its_cycle_and_not_counted_on_the_current_one(
         self, wired_app, api
     ):
         loop, request_id = await _decision(wired_app, api)
@@ -263,8 +263,7 @@ class TestEarlierCycle:
         (event,) = wired_app.metric_spy.events
         assert event.decisions[0]["cycle_id"] == earlier
         redis = wired_app.svc._redis
-        now = await redis.outcome_health(TENANT, current, 5)
-        assert now.by_reason == {"earlier_cycle": 1}
+        assert (await redis.outcome_health(TENANT, current, 5)).by_reason == {}
         assert (await redis.outcome_health(TENANT, earlier, 5)).by_reason == {}
 
     async def test_an_outcome_for_the_current_cycle_is_not_counted(
